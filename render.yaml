@@ -1,0 +1,9 @@
+# One-click deploy on Render (https://render.com): New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: souk-siege
+    runtime: python
+    plan: free          # "starter" keeps it awake around the clock
+    buildCommand: "echo nothing to build"
+    startCommand: "python3 server/server.py"
+    healthCheckPath: /healthz

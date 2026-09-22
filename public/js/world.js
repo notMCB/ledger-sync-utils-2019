@@ -1,0 +1,415 @@
+// Builds the town the server sent: merged meshes per material, props,
+// sky and sun. Collision lives in physics.js.
+
+import * as THREE from 'three';
+import * as T from './textures.js';
+import { Physics } from './physics.js';
+
+const WALL_TINTS = ['#f3e9d6', '#ecd3a6', '#dcb68a', '#e9cdbd', '#d4c7ad', '#e0ab7e'];
+const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b'];
+const CLOTH = ['#b3352b', '#2f7f7a', '#d49a2a', '#6b3f7a', '#2d5f9a', '#c46a2e'];
+const BARREL = ['#35577a', '#8a4a26', '#5a6b3a'];
+
+let texCache = null;
+function textures() {
+  if (texCache) return texCache;
+  texCache = {
+    plaster: T.plaster(), stone: T.stone(), ground: T.ground(), tiles: T.tiles(), wood: T.wood(),
+    crate: T.crate(), metal: T.metal(), leaf: T.palmLeaf(),
+    cloth: CLOTH.map((c) => T.cloth(c)),
+  };
+  return texCache;
+}
+
+// -- geometry helpers -------------------------------------------------------
+
+class GeoBuilder {
+  constructor() {
+    this.pos = [];
+    this.nor = [];
+    this.uv = [];
+    this.col = [];
+  }
+
+  // a box face as two triangles; corners in world space
+  quad(a, b, c, d, n, uvs, color) {
+    const P = this.pos, N = this.nor, U = this.uv, C = this.col;
+    const tri = [a, b, c, a, c, d];
+    const tuv = [uvs[0], uvs[1], uvs[2], uvs[0], uvs[2], uvs[3]];
+    for (let i = 0; i < 6; i++) {
+      const v = tri[i];
+      P.push(v[0], v[1], v[2]);
+      N.push(n[0], n[1], n[2]);
+      U.push(tuv[i][0], tuv[i][1]);
+      const shade = color.ao ? Math.min(1, 0.72 + 0.28 * Math.min(1, v[1] / 1.4)) : 1;
+      C.push(color.r * shade, color.g * shade, color.b * shade);
+    }
+  }
+
+  // oriented box with world-scaled UVs (scale = metres per texture repeat)
+  box(cx, cy, cz, hx, hy, hz, yaw, color, scale, opts = {}) {
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, ly, lz) => [cx + c * lx + s * lz, cy + ly, cz - s * lx + c * lz];
+    const Nv = (lx, ly, lz) => [c * lx + s * lz, ly, -s * lx + c * lz];
+    // a stable frame for UVs so neighbouring wall pieces line up
+    const ox = c * cx - s * cz;
+    const oz = s * cx + c * cz;
+    const u = (v) => v / scale;
+    const unit = opts.unitUV;
+    const x0 = -hx, x1 = hx, y0 = -hy, y1 = hy, z0 = -hz, z1 = hz;
+    const yb = cy - hy, yt = cy + hy;
+    const skipBottom = opts.skipBottom;
+    const f = (a, b, cc, d, n, uv) => this.quad(W(...a), W(...b), W(...cc), W(...d), Nv(...n), uv, color);
+    const UV = (u0, v0, u1, v1) => unit ? [[0, 0], [1, 0], [1, 1], [0, 1]] : [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+    // +x
+    f([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0], UV(u(-(oz + z1)), u(yb), u(-(oz + z0)), u(yt)));
+    // -x
+    f([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0], UV(u(oz + z0), u(yb), u(oz + z1), u(yt)));
+    // +z
+    f([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], UV(u(ox + x0), u(yb), u(ox + x1), u(yt)));
+    // -z
+    f([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], UV(u(-(ox + x1)), u(yb), u(-(ox + x0)), u(yt)));
+    // top
+    f([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0], UV(u(ox + x0), u(-(oz + z1)), u(ox + x1), u(-(oz + z0))));
+    // bottom
+    if (!skipBottom) f([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], UV(u(ox + x0), u(oz + z0), u(ox + x1), u(oz + z1)));
+  }
+
+  geometry() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.computeBoundingSphere();
+    return g;
+  }
+
+  get empty() {
+    return this.pos.length === 0;
+  }
+}
+
+// merge arbitrary three geometries (transformed) into one, with a vertex colour each
+function mergeInto(list) {
+  let n = 0;
+  const parts = list.map(({ geo, matrix, color }) => {
+    const g = geo.index ? geo.toNonIndexed() : geo.clone();
+    g.applyMatrix4(matrix);
+    n += g.attributes.position.count;
+    return { g, color };
+  });
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2), col = new Float32Array(n * 3);
+  let o = 0;
+  for (const { g, color } of parts) {
+    const c = g.attributes.position.count;
+    pos.set(g.attributes.position.array, o * 3);
+    nor.set(g.attributes.normal.array, o * 3);
+    if (g.attributes.uv) uv.set(g.attributes.uv.array, o * 2);
+    for (let i = 0; i < c; i++) {
+      col[(o + i) * 3] = color.r;
+      col[(o + i) * 3 + 1] = color.g;
+      col[(o + i) * 3 + 2] = color.b;
+    }
+    o += c;
+    g.dispose();
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.computeBoundingSphere();
+  return g;
+}
+
+const M4 = new THREE.Matrix4();
+const Q = new THREE.Quaternion();
+const E = new THREE.Euler();
+function mtx(x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+  E.set(rx, ry, rz, 'YXZ');
+  Q.setFromEuler(E);
+  return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), Q, new THREE.Vector3(sx, sy, sz));
+}
+
+function colorOf(hex, mul = 1) {
+  const c = new THREE.Color(hex);
+  c.r *= mul; c.g *= mul; c.b *= mul;
+  return c;
+}
+
+// -- the world ---------------------------------------------------------------
+
+export class World {
+  constructor(renderer, scene) {
+    this.renderer = renderer;
+    this.scene = scene;
+    this.root = null;
+    this.physics = null;
+    this.map = null;
+    this.setupSky();
+  }
+
+  setupSky() {
+    const scene = this.scene;
+    const skyGeo = new THREE.SphereGeometry(900, 32, 16);
+    const skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        top: { value: new THREE.Color('#5d93c9') },
+        mid: { value: new THREE.Color('#bcd3e2') },
+        bot: { value: new THREE.Color('#e9d6b4') },
+        sunDir: { value: new THREE.Vector3(0.55, 0.62, 0.35).normalize() },
+      },
+      vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position.z = gl_Position.w; }`,
+      fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 bot; uniform vec3 sunDir; varying vec3 vDir;
+        void main(){
+          float h = vDir.y;
+          vec3 c = h > 0.0 ? mix(mid, top, pow(clamp(h,0.0,1.0), 0.55)) : mix(mid, bot, clamp(-h*4.0,0.0,1.0));
+          float s = max(dot(normalize(vDir), sunDir), 0.0);
+          c += vec3(1.0,0.85,0.6) * pow(s, 400.0) * 3.0 + vec3(1.0,0.8,0.55) * pow(s, 12.0) * 0.25;
+          gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
+        }`,
+    });
+    this.sky = new THREE.Mesh(skyGeo, skyMat);
+    this.sky.frustumCulled = false;
+    this.sky.renderOrder = -10;
+    scene.add(this.sky);
+    scene.fog = new THREE.Fog('#d9cdb4', 70, 260);
+
+    this.hemi = new THREE.HemisphereLight('#cfe0ee', '#a9855a', 1.1);
+    scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight('#fff0d6', 2.7);
+    this.sun.position.set(55, 62, 35);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(4096, 4096);
+    const sc = this.sun.shadow.camera;
+    sc.left = -95; sc.right = 95; sc.top = 95; sc.bottom = -95; sc.near = 1; sc.far = 260;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.04;
+    scene.add(this.sun);
+    scene.add(this.sun.target);
+  }
+
+  setShadows(on) {
+    this.renderer.shadowMap.enabled = on;
+    this.sun.castShadow = on;
+    this.scene.traverse((o) => {
+      if (o.material) o.material.needsUpdate = true;
+    });
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  dispose() {
+    if (!this.root) return;
+    this.scene.remove(this.root);
+    this.root.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        const ms = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of ms) {
+          if (m.userData.own && m.map) m.map.dispose();
+          m.dispose();
+        }
+      }
+    });
+    this.root = null;
+  }
+
+  build(map) {
+    this.dispose();
+    this.map = map;
+    this.physics = new Physics(map.boxes, map.bounds);
+    const tx = textures();
+    const root = new THREE.Group();
+    this.root = root;
+
+    const mats = {
+      wall: new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }),
+      tile: new THREE.MeshLambertMaterial({ map: tx.tiles, vertexColors: true }),
+      stone: new THREE.MeshLambertMaterial({ map: tx.stone, vertexColors: true }),
+      wood: new THREE.MeshLambertMaterial({ map: tx.wood, vertexColors: true }),
+      crate: new THREE.MeshLambertMaterial({ map: tx.crate, vertexColors: true }),
+      car: new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }),
+    };
+    const builders = {};
+    const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
+
+    for (const [cx, cy, cz, hx, hy, hz, yaw, mat, tint] of map.boxes) {
+      if (mat === 'inv') continue;
+      if (mat === 'wall') {
+        B('wall').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(WALL_TINTS[tint % 6]), { ao: true }), 2.2);
+      } else if (mat === 'roof') {
+        B('wall').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(WALL_TINTS[tint % 6], 0.9), 2.2);
+      } else if (mat === 'tile') {
+        B('tile').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 2.0, { skipBottom: cy - hy < 0.01 });
+      } else if (mat === 'stair') {
+        B('stone').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#e8dcc6'), 1.4);
+      } else if (mat === 'stone') {
+        B('stone').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf('#f2e6d2'), { ao: true }), 3.0);
+      } else if (mat === 'wood') {
+        B('wood').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 1.5);
+      } else if (mat === 'crate') {
+        B('crate').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 1, { unitUV: true });
+      } else if (mat === 'car') {
+        B('car').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CAR_TINTS[tint % 5]), 2);
+      }
+    }
+    for (const k in builders) {
+      if (builders[k].empty) continue;
+      const mesh = new THREE.Mesh(builders[k].geometry(), mats[k]);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      root.add(mesh);
+    }
+
+    // ground
+    const [bx, bz] = map.bounds;
+    const gg = new THREE.PlaneGeometry(bx * 2 + 300, bz * 2 + 300);
+    gg.rotateX(-Math.PI / 2);
+    const guv = gg.attributes.uv;
+    for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * (bx * 2 + 300) / 9, guv.getY(i) * (bz * 2 + 300) / 9);
+    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: tx.ground }));
+    ground.receiveShadow = true;
+    root.add(ground);
+
+    this.buildDeco(map, root, tx);
+    this.scene.add(root);
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  buildDeco(map, root, tx) {
+    const barrels = [], trunks = [], leaves = [], domes = [], cloth = CLOTH.map(() => []), poles = [], goods = [];
+    const cyl = new THREE.CylinderGeometry(0.32, 0.32, 1.0, 14);
+    const trunkSeg = new THREE.CylinderGeometry(0.16, 0.22, 1, 8);
+    const leafGeo = new THREE.PlaneGeometry(3.2, 1.0, 4, 1);
+    // bend the leaf downwards along its length
+    {
+      const p = leafGeo.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i) + 1.6;
+        p.setX(i, x);
+        p.setZ(i, -0.12 * x * x);
+      }
+      leafGeo.rotateX(-Math.PI / 2);
+      leafGeo.computeVertexNormals();
+    }
+    const white = new THREE.Color('#ffffff');
+    for (const d of map.deco) {
+      if (d.k === 'barrel') {
+        barrels.push({ geo: cyl, matrix: mtx(d.x, 0.5, d.z), color: colorOf(BARREL[d.c % 3]) });
+      } else if (d.k === 'palm') {
+        const segs = 5;
+        let x = d.x, z = d.z, y = 0;
+        const lean = ((d.s % 360) / 360) * Math.PI * 2;
+        const lx = Math.cos(lean), lz = Math.sin(lean);
+        const segH = d.h / segs;
+        for (let i = 0; i < segs; i++) {
+          const k = (i / segs) * 0.35;
+          trunks.push({ geo: trunkSeg, matrix: mtx(x + lx * k * 0.25, y + segH / 2, z + lz * k * 0.25, 0, 0, 0, 1 - i * 0.06, segH * 1.02, 1 - i * 0.06),
+            color: colorOf(i % 2 ? '#8a6a45' : '#7a5c3b') });
+          x += lx * k * 0.5; z += lz * k * 0.5; y += segH;
+        }
+        for (let i = 0; i < 9; i++) {
+          const a = (i / 9) * Math.PI * 2 + d.s;
+          leaves.push({ geo: leafGeo, matrix: mtx(x, y, z, 0, a, 0.45 - (i % 3) * 0.2, 1, 1, 1), color: colorOf(i % 2 ? '#e9f0d8' : '#cfdcb8') });
+        }
+      } else if (d.k === 'dome') {
+        const tint = colorOf(d.t % 2 ? '#2f8f8a' : '#f1e9d8');
+        const drum = new THREE.CylinderGeometry(d.r * 1.02, d.r * 1.02, 0.9, 32, 1, true);
+        domes.push({ geo: drum, matrix: mtx(d.x, d.y + 0.45, d.z), color: colorOf('#efe2c8') });
+        const sph = new THREE.SphereGeometry(d.r, 32, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+        domes.push({ geo: sph, matrix: mtx(d.x, d.y + 0.9, d.z, 0, 0, 0, 1, 1.15, 1), color: tint });
+        const fin = new THREE.CylinderGeometry(0.05, 0.12, 1.2, 6);
+        domes.push({ geo: fin, matrix: mtx(d.x, d.y + 0.9 + d.r * 1.15 + 0.5, d.z), color: colorOf('#c9a13b') });
+        const ball = new THREE.SphereGeometry(0.18, 10, 8);
+        domes.push({ geo: ball, matrix: mtx(d.x, d.y + 0.9 + d.r * 1.15 + 0.9, d.z), color: colorOf('#d8b24a') });
+      } else if (d.k === 'minaret') {
+        const shaft = new THREE.CylinderGeometry(0.95, 1.1, d.h, 12);
+        domes.push({ geo: shaft, matrix: mtx(d.x, d.y + d.h / 2, d.z), color: colorOf('#efe2c8') });
+        const bal = new THREE.CylinderGeometry(1.5, 1.2, 0.6, 12);
+        domes.push({ geo: bal, matrix: mtx(d.x, d.y + d.h * 0.78, d.z), color: colorOf('#dcc9a6') });
+        const top = new THREE.CylinderGeometry(0.75, 0.9, 2.2, 12);
+        domes.push({ geo: top, matrix: mtx(d.x, d.y + d.h + 1.1, d.z), color: colorOf('#efe2c8') });
+        const cone = new THREE.ConeGeometry(0.9, 2.2, 12);
+        domes.push({ geo: cone, matrix: mtx(d.x, d.y + d.h + 3.3, d.z), color: colorOf('#2f8f8a') });
+      } else if (d.k === 'awning') {
+        const g = new THREE.PlaneGeometry(d.w, 1.5, 1, 1);
+        g.rotateX(-Math.PI / 2 + 0.38);
+        const m = new THREE.Matrix4().makeRotationY(d.yaw);
+        m.setPosition(d.x, d.y, d.z);
+        cloth[d.c % CLOTH.length].push({ geo: g, matrix: m, color: white });
+      } else if (d.k === 'stall') {
+        const m = new THREE.Matrix4().makeRotationY(d.yaw);
+        const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+        const pole = new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6);
+        for (const [px, pz] of [[-1.4, -0.8], [1.4, -0.8], [-1.4, 0.8], [1.4, 0.8]]) {
+          poles.push({ geo: pole, matrix: mtx(d.x + c * px + s * pz, 1.2 + (pz > 0 ? 0.15 : 0), d.z - s * px + c * pz), color: colorOf('#6b4a2b') });
+        }
+        const roof = new THREE.PlaneGeometry(3.1, 1.9);
+        roof.rotateX(-Math.PI / 2 - 0.16);
+        const rm = m.clone();
+        rm.setPosition(d.x, 2.45, d.z);
+        cloth[d.c % CLOTH.length].push({ geo: roof, matrix: rm, color: white });
+        // goods on the table
+        const gcol = [['#d2502f', '#e08a2f', '#a8342a'], ['#e8c36a', '#c79a3b', '#f0d890'], ['#6f8f3a', '#9ab24a', '#4f6f2a']][d.g % 3];
+        for (let i = 0; i < 6; i++) {
+          const gx = -1.0 + (i % 3) * 1.0, gz = i < 3 ? -0.22 : 0.22;
+          const sg = new THREE.SphereGeometry(0.22, 8, 6);
+          goods.push({ geo: sg, matrix: mtx(d.x + c * gx + s * gz, 0.98, d.z - s * gx + c * gz, 0, 0, 0, 1, 0.55, 1), color: colorOf(gcol[i % 3]) });
+        }
+      } else if (d.k === 'site') {
+        const g = new THREE.PlaneGeometry(d.r * 2, d.r * 2);
+        g.rotateX(-Math.PI / 2);
+        const mat = new THREE.MeshBasicMaterial({ map: T.siteDecal(d.l, '#c23a2b'), transparent: true, depthWrite: false,
+          polygonOffset: true, polygonOffsetFactor: -2, fog: true });
+        mat.userData.own = true;
+        const mesh = new THREE.Mesh(g, mat);
+        mesh.position.set(d.x, 0.03, d.z);
+        mesh.renderOrder = 1;
+        root.add(mesh);
+      }
+    }
+    const add = (list, mat, shadow = true) => {
+      if (!list.length) return;
+      const mesh = new THREE.Mesh(mergeInto(list), mat);
+      mesh.castShadow = shadow;
+      mesh.receiveShadow = true;
+      root.add(mesh);
+    };
+    add(barrels, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }));
+    add(trunks, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    add(leaves, new THREE.MeshLambertMaterial({ map: tx.leaf, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 }));
+    add(domes, new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }));
+    add(poles, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    add(goods, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    cloth.forEach((list, i) => add(list, new THREE.MeshLambertMaterial({ map: tx.cloth[i], side: THREE.DoubleSide, vertexColors: true })));
+    cyl.dispose(); trunkSeg.dispose(); leafGeo.dispose();
+  }
+
+  // footprints of every building, for the minimap
+  footprints() {
+    const out = [];
+    if (!this.map) return out;
+    for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
+      if (mat === 'roof') out.push({ x: cx, z: cz, hx, hz, yaw, h: cy });
+    }
+    return out;
+  }
+
+  props() {
+    const out = [];
+    if (!this.map) return out;
+    for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
+      if (mat === 'crate' || mat === 'car' || mat === 'stone' || mat === 'inv') {
+        if (cy - hy > 0.2) continue;
+        if (mat === 'stone' && hx > 30) continue;
+        out.push({ x: cx, z: cz, hx, hz, yaw, mat });
+      }
+    }
+    return out;
+  }
+}

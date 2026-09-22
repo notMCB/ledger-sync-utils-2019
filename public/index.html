@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Souk Siege</title>
+<meta name="description" content="A free multiplayer shooter set in a walled desert town. Team Deathmatch, Free for All, King of the Hill and Bomb Defusal, up to 8 players.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%2312151c'/%3E%3Cpath d='M12 50V30q20-22 40 0v20z' fill='%23e6a23c'/%3E%3Ccircle cx='32' cy='38' r='5' fill='%2312151c'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Reem+Kufi:wght@500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<script>
+  // report script errors to the server log, so problems on players' machines show up there
+  (function () {
+    function send(m) { try { navigator.sendBeacon ? fetch('/__log?m=' + encodeURIComponent(String(m).slice(0, 900))) : 0; } catch (e) {} }
+    window.addEventListener('error', function (e) { send((e.message || e) + ' @ ' + (e.filename || '') + ':' + (e.lineno || '')); });
+    window.addEventListener('unhandledrejection', function (e) { send('promise: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)); });
+  })();
+</script>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- ============ HUD ============ -->
+<div id="hud" hidden>
+  <div id="topbar"></div>
+  <div id="killfeed"></div>
+  <canvas id="minimap" width="200" height="200"></canvas>
+  <div id="markers"></div>
+  <div id="crosshair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="dot"></i></div>
+  <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+  <div id="dmgdirs"></div>
+  <div id="vignette"></div>
+  <div id="scope" hidden>
+    <div class="scope-ring"></div>
+    <div class="scope-h"></div><div class="scope-v"></div>
+    <div class="scope-mils"></div>
+  </div>
+  <div id="center"><div id="center-big"></div><div id="center-small"></div></div>
+  <div id="prompt" hidden><div id="prompt-text"></div><div class="bar"><i id="prompt-bar"></i></div></div>
+  <div id="vitals">
+    <div class="hp-num" id="hp-num">100</div>
+    <div class="hp-bar"><i id="hp-bar"></i></div>
+    <div class="vitals-label" id="team-label"></div>
+  </div>
+  <div id="arms">
+    <div class="ammo"><span id="ammo-mag">30</span><span class="sep">/</span><span id="ammo-res">150</span></div>
+    <div class="weapon-name" id="weapon-name">Qadir SMG</div>
+    <div class="nades" id="nades"></div>
+    <div class="reload-hint" id="reload-hint" hidden>Press <b id="reload-key">R</b> to reload</div>
+  </div>
+  <div id="bombcarry" hidden>You have the bomb</div>
+  <div id="fps" hidden></div>
+  <div id="scoreboard" hidden></div>
+  <div id="spectate" hidden></div>
+</div>
+
+<!-- ============ death / loadout ============ -->
+<div id="death" class="overlay" hidden>
+  <div class="death-card">
+    <div class="death-by" id="death-by"></div>
+    <div class="death-timer" id="death-timer"></div>
+    <div class="loadout-title">Choose your loadout</div>
+    <div class="loadouts" id="death-loadouts"></div>
+    <div class="death-hint" id="death-hint"></div>
+  </div>
+</div>
+
+<div id="loadout" class="overlay dim" hidden>
+  <div class="panel">
+    <h2>Loadout</h2>
+    <p class="panel-sub">Every loadout carries the Nimr 9mm pistol and two grenades. Your pick applies now if you have only just spawned, otherwise on your next life.</p>
+    <div class="loadouts" id="menu-loadouts"></div>
+    <div class="row-end"><button class="btn ghost" id="loadout-close">Done</button></div>
+  </div>
+</div>
+
+<!-- ============ main menu ============ -->
+<div id="menu">
+  <div class="menu-col">
+    <header class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <h1>Souk Siege</h1>
+      <p class="tagline">Street fighting in a walled desert town. New streets every match.</p>
+    </header>
+    <label class="field">
+      <span>Your name</span>
+      <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Player">
+    </label>
+    <div class="modes" id="modes"></div>
+    <div class="menu-foot">
+      <button class="btn ghost" id="btn-loadout">Loadout</button>
+      <button class="btn ghost" id="btn-settings">Settings</button>
+      <button class="btn ghost" id="btn-notes">Patch notes</button>
+    </div>
+  </div>
+  <aside class="browser">
+    <div class="browser-head">
+      <h2>Servers</h2>
+      <div class="status" id="status"><i></i><span>Connecting…</span></div>
+    </div>
+    <div class="room-list" id="rooms"></div>
+    <p class="browser-note">Matches start as soon as 2 players are in. Up to 8 per match; team modes are 4 against 4.</p>
+  </aside>
+  <div class="version" id="version"></div>
+</div>
+
+<!-- ============ pause ============ -->
+<div id="pause" class="overlay dim" hidden>
+  <div class="panel narrow">
+    <h2 id="pause-title">Paused</h2>
+    <div class="pause-buttons">
+      <button class="btn" id="btn-resume">Resume</button>
+      <button class="btn ghost" id="btn-pause-loadout">Loadout</button>
+      <button class="btn ghost" id="btn-pause-settings">Settings</button>
+      <button class="btn ghost" id="btn-pause-notes">Patch notes</button>
+      <button class="btn danger" id="btn-leave">Leave match</button>
+    </div>
+    <div class="pause-version" id="pause-version"></div>
+  </div>
+</div>
+
+<!-- ============ settings ============ -->
+<div id="settings" class="overlay dim" hidden>
+  <div class="panel wide">
+    <div class="panel-head">
+      <h2>Settings</h2>
+      <div class="tabs" role="tablist">
+        <button class="tab on" data-tab="controls">Controls</button>
+        <button class="tab" data-tab="mouse">Trackpad &amp; mouse</button>
+        <button class="tab" data-tab="video">Video</button>
+        <button class="tab" data-tab="audio">Sound</button>
+      </div>
+    </div>
+    <div class="tab-body" data-body="controls">
+      <p class="panel-sub">Every action can have two bindings. Click one, then press a key, click, two-finger click or scroll. Backspace clears it, Esc cancels.</p>
+      <div id="binds"></div>
+      <div class="row-end"><button class="btn ghost" id="btn-reset-binds">Reset keys to default</button></div>
+    </div>
+    <div class="tab-body" data-body="mouse" hidden>
+      <label class="slider"><span>Sensitivity</span><input type="range" id="s-sens" min="0.1" max="4" step="0.05"><output id="o-sens"></output></label>
+      <label class="slider"><span>Aiming sensitivity</span><input type="range" id="s-ads" min="0.2" max="1.5" step="0.05"><output id="o-ads"></output></label>
+      <label class="check"><input type="checkbox" id="s-invert"><span>Invert vertical look</span></label>
+      <label class="check"><input type="checkbox" id="s-aimtoggle"><span>Two-finger click toggles aim (click once to aim, again to stop). Aim keys like F are always hold-to-aim.</span></label>
+      <label class="check"><input type="checkbox" id="s-assist"><span>Aim help — look slows slightly while your crosshair is on an enemy</span></label>
+      <label class="check"><input type="checkbox" id="s-crouchtoggle"><span>Crouch is a toggle</span></label>
+      <label class="check"><input type="checkbox" id="s-sprinttoggle"><span>Run is a toggle</span></label>
+    </div>
+    <div class="tab-body" data-body="video" hidden>
+      <label class="slider"><span>Field of view</span><input type="range" id="s-fov" min="65" max="105" step="1"><output id="o-fov"></output></label>
+      <label class="slider"><span>Render scale</span><input type="range" id="s-scale" min="0.5" max="1.5" step="0.05"><output id="o-scale"></output></label>
+      <label class="check"><input type="checkbox" id="s-shadows"><span>Shadows</span></label>
+      <label class="check"><input type="checkbox" id="s-fps"><span>Show frame rate</span></label>
+    </div>
+    <div class="tab-body" data-body="audio" hidden>
+      <label class="slider"><span>Volume</span><input type="range" id="s-vol" min="0" max="1" step="0.02"><output id="o-vol"></output></label>
+    </div>
+    <div class="row-end"><button class="btn" id="btn-settings-close">Done</button></div>
+  </div>
+</div>
+
+<!-- ============ patch notes ============ -->
+<div id="notes" class="overlay dim" hidden>
+  <div class="panel notes-panel">
+    <div class="notes-eyebrow">What's new</div>
+    <div id="notes-body"></div>
+    <div class="row-end"><button class="btn" id="btn-notes-close">Play</button></div>
+  </div>
+</div>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
