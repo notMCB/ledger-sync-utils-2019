@@ -70,6 +70,14 @@ export class Hud {
     $('reload-key').textContent = reloadKey;
   }
 
+  setPerk(name, left, key, nade) {
+    const k = `${name}|${left}|${key}|${nade}`;
+    if (k === this.lastPerk) return;
+    this.lastPerk = k;
+    $('perk').innerHTML = `<span class="pk-key">${esc(key)}</span> ${esc(name)} <b>×${left}</b><span class="pk-nade">${esc(nade)}</span>`;
+    $('perk').classList.toggle('spent', left <= 0);
+  }
+
   crosshair(gapPx, visible, enemy) {
     this.ch.style.display = visible ? '' : 'none';
     if (!visible) return;

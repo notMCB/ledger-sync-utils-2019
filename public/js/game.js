@@ -8,7 +8,7 @@ import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
 import { Hud, MODE_INFO } from './hud.js';
 import { input } from './input.js';
 import { settings, keyName } from './settings.js';
-import { WEAPONS, LOADOUTS, NADES_PER_LIFE, NADE_FUSE, makeWeaponState } from './weapons.js';
+import { WEAPONS, LOADOUTS, PERKS, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState } from './weapons.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
 import { tickSkins, OUTFIT } from './skins.js';
@@ -27,6 +27,9 @@ const SEND_HZ = 20;
 const SITE_R = 4.8;
 const HILL_R = 6.0;
 
+const VAULT_H = 1.0;
+const LADDER_H = 5.4;
+const DOWN = new THREE.Vector3(0, -1, 0);
 const V = () => new THREE.Vector3();
 const tmpA = V(), tmpB = V(), tmpC = V(), tmpD = V();
 
@@ -71,7 +74,13 @@ export class Game {
       sprinting: false, sprintToggled: false, crouchToggled: false, recoilDebt: 0, punch: 0, lastFire: -9, nadeBusy: 0,
       nextNade: 1, interacting: false, deathPos: V(), killerId: 0, spawnT: 0, reloadEnd: 0, shellNext: 0,
       boltPending: 0, pumpPending: 0,
+      slide: null, slideReady: 0, vault: null, climbing: false, perkLeft: 0, nadeKind: 'frag',
     };
+    this.ladders = new Map();   // player id -> ladder
+    this.beacons = new Map();   // player id -> beacon
+    this.flashT = 0;
+    this.flashMax = 1;
+    this.chat = null;
     this.pendingLoadout = settings.lastLoadout !== undefined ? settings.lastLoadout : 0;
     this.me.loadout = this.pendingLoadout;
     this.sendT = 0;
@@ -170,8 +179,26 @@ export class Game {
       case 'dead': return this.onDead(m);
       case 'team': this.me.team = m.team; return this.updateTeamLook();
       case 'ldnow': return this.applyLoadout(m.ld);
+      case 'heal':
+        this.me.hp = m.hp;
+        this.hud.setHP(m.hp);
+        sfx.heal();
+        this.hud.center('Patched up', `${m.hp} health`, '', 1.4, 1);
+        return;
+      case 'perkok':
+        if (m.k === 'ammo') this.refillAmmo();
+        return;
+      case 'perkleft':
+        this.me.perkLeft = m.n;
+        return;
+      case 'ladder': return this.onLadder(m);
+      case 'beacon': return this.onBeacon(m);
+      case 'ping': return this.onPing(m);
+      case 'chat':
+        if (this.chat) this.chat.add(m, this.myId);
+        return;
       case 'earn':
-        locker.earn(m.n);
+        locker.earn(m.n, m.bal);
         this.hud.earn(m.n, m.why);
         return;
       case 'rl': {
@@ -188,6 +215,7 @@ export class Game {
     this.world.build(map);
     this.hud.buildMinimap(this.world, map);
     this.fx.clear();
+    this.clearDevices();
     this.hasMap = true;
   }
 
@@ -212,6 +240,8 @@ export class Game {
     this.me.alive = false;
     this.avatars.clear();
     this.fx.clear();
+    this.clearDevices();
+    if (this.chat) this.chat.close();
     this.hud.show(false);
     this.bombMesh.visible = false;
     this.hill.visible = false;
@@ -251,19 +281,24 @@ export class Game {
 
   // after equipping something in the locker
   refreshCosmetics() {
-    this.vm.setSkins(locker.cosmetics().g);
+    const ld = this.me.loadout;
+    this.vm.setSkins(locker.cosmetics(ld).g);
+    this.me.nadeKind = locker.nadeFor(ld);
     this.updateTeamLook();
-    if (this.inRoom && this.net) this.net.send({ t: 'cos', cos: locker.cosmetics() });
+    if (this.inRoom && this.net) this.net.send({ t: 'cos', cos: locker.cosmetics(ld) });
   }
 
   applyLoadout(ld) {
     const me = this.me;
     me.loadout = ld;
+    me.nadeKind = locker.nadeFor(ld);
+    me.perkLeft = PERKS[LOADOUTS[ld].perk].uses;
     const primary = LOADOUTS[ld].weapon;
     me.weapons = { primary: makeWeaponState(primary), pistol: makeWeaponState('pistol') };
     me.slot = 'primary';
-    this.vm.setSkins(locker.cosmetics().g);
+    this.vm.setSkins(locker.cosmetics(ld).g);
     this.vm.setWeapon(primary);
+    if (this.inRoom && this.net) this.net.send({ t: 'cos', cos: locker.cosmetics(ld) });
     this.hud.lastAmmo = '';
   }
 
@@ -284,6 +319,10 @@ export class Game {
     me.aimToggled = false;
     me.recoilDebt = 0;
     me.punch = 0;
+    me.slide = null;
+    me.vault = null;
+    me.climbing = false;
+    me.perkLeft = PERKS[LOADOUTS[m.ld].perk].uses;
     me.interacting = false;
     me.spawnT = this.clock;
     me.grounded = true;
@@ -302,6 +341,9 @@ export class Game {
     me.killerId = m.by;
     me.respawnAt = m.rs >= 0 ? this.clock + m.rs : -1;
     me.interacting = false;
+    me.slide = null;
+    me.vault = null;
+    me.climbing = false;
     this.vm.scoped = false;
     this.hud.scope(false);
     if (me.slot && me.weapons) me.weapons[me.slot].reloading = false;
@@ -458,15 +500,166 @@ export class Game {
   }
 
   onRemoteNade(m) {
-    this.fx.throwNade(m.id, m.n, new THREE.Vector3(...m.o), new THREE.Vector3(...m.v), false);
+    this.fx.throwNade(m.id, m.n, new THREE.Vector3(...m.o), new THREE.Vector3(...m.v), false, null, m.k || 'frag');
   }
 
   onRemoteBoom(m) {
     this.fx.removeNade(m.id, m.n);
-    const p = new THREE.Vector3(...m.p);
+    this.detonate(new THREE.Vector3(...m.p), m.k || 'frag');
+  }
+
+  detonate(p, kind) {
+    if (kind === 'flash') {
+      this.fx.flashPop(p);
+      sfx.flashPop(p);
+      this.flashbang(p);
+      return;
+    }
     this.fx.explosion(p);
     sfx.explosion(p);
     this.shakeFrom(p, 16);
+  }
+
+  // how blinded you are by a flash depends on distance, line of sight and whether you were looking at it
+  flashbang(p) {
+    if (!this.inRoom || !this.me.alive) return;
+    const cam = this.camera;
+    const eye = cam.position;
+    const d = eye.distanceTo(p);
+    if (d > FLASH_RANGE) return;
+    const src = p.clone().add(new THREE.Vector3(0, 0.25, 0));
+    if (!this.world.physics.lineClear(src, eye)) return;
+    const to = src.clone().sub(eye).normalize();
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    const facing = fwd.dot(to);
+    const look = facing > 0.35 ? 1 : facing > -0.2 ? 0.55 : 0.25;
+    const strength = Math.min(1, (1 - d / FLASH_RANGE) * 1.25) * look;
+    if (strength < 0.05) return;
+    const dur = 0.6 + 3.4 * strength;
+    if (dur > this.flashT) {
+      this.flashT = dur;
+      this.flashMax = dur;
+    }
+    sfx.flashRing(strength);
+  }
+
+  // -- perks --
+
+  usePerk() {
+    const me = this.me;
+    const perk = LOADOUTS[me.loadout].perk;
+    if (me.perkLeft <= 0) {
+      this.hud.center(`No ${PERKS[perk].name} left`, 'You get more when you respawn', '', 1.6, 1);
+      return;
+    }
+    if (perk === 'med') {
+      if (me.hp >= 100) return this.hud.center('Already at full health', '', '', 1.2, 1);
+      this.net.send({ t: 'perk', k: 'med' });
+    } else if (perk === 'ammo') {
+      const full = Object.values(me.weapons).every((w) => w.reserve >= w.def.reserve) && me.nades >= NADES_PER_LIFE;
+      if (full) return this.hud.center('Ammo is already full', '', '', 1.2, 1);
+      this.net.send({ t: 'perk', k: 'ammo' });
+    } else if (perk === 'ladder') {
+      const spot = this.ladderSpot();
+      if (!spot) return this.hud.center('Face a wall to stand the ladder against', 'Get close to it first', '', 1.8, 1);
+      this.net.send({ t: 'perk', k: 'ladder', p: [spot.x, spot.y, spot.z].map((v) => +v.toFixed(3)), y: +spot.yaw.toFixed(4) });
+    } else if (perk === 'beacon') {
+      const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
+      let p = new THREE.Vector3(me.pos.x + fx * 0.6, me.pos.y + 0.05, me.pos.z + fz * 0.6);
+      if (this.world.physics.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 0.3, me.pos.z), new THREE.Vector3(fx, 0, fz), 0.8)) p = new THREE.Vector3(me.pos.x, me.pos.y + 0.05, me.pos.z);
+      this.net.send({ t: 'perk', k: 'beacon', p: [p.x, p.y, p.z].map((v) => +v.toFixed(3)) });
+    }
+  }
+
+  refillAmmo() {
+    const me = this.me;
+    for (const w of Object.values(me.weapons)) w.reserve = w.def.reserve;
+    me.nades = Math.min(NADES_PER_LIFE, me.nades + 1);
+    this.hud.lastAmmo = '';
+    sfx.reloadSound('smg', 0.8, false, null);
+    this.hud.center('Ammo refilled', '', '', 1.2, 1);
+  }
+
+  // where a ladder would stand: against the wall you're facing, on the floor below you
+  ladderSpot() {
+    const me = this.me;
+    const phys = this.world.physics;
+    const dir = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
+    const hit = phys.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 1.0, me.pos.z), dir, 2.2);
+    if (!hit || hit.ground || Math.abs(hit.normal.y) > 0.3) return null;
+    const n = new THREE.Vector3(hit.normal.x, 0, hit.normal.z).normalize();
+    const base = hit.point.clone().addScaledVector(n, 0.26);
+    base.y = me.pos.y;
+    return { x: base.x, y: base.y, z: base.z, yaw: Math.atan2(n.x, n.z) };
+  }
+
+  onLadder(m) {
+    const old = this.ladders.get(m.id);
+    if (old) this.scene.remove(old.mesh);
+    this.ladders.delete(m.id);
+    if (m.off) return;
+    const [x, y, z] = m.p;
+    const nx = Math.sin(m.y), nz = Math.cos(m.y);
+    const mesh = makeLadderMesh();
+    mesh.position.set(x, y, z);
+    mesh.rotation.y = m.y;
+    this.scene.add(mesh);
+    this.ladders.set(m.id, { x, y, z, nx, nz, top: y + LADDER_H - 0.9, mesh });
+    sfx.footstep(new THREE.Vector3(x, y, z), 1.4);
+  }
+
+  onBeacon(m) {
+    const old = this.beacons.get(m.id);
+    if (old) this.scene.remove(old.mesh);
+    this.beacons.delete(m.id);
+    if (m.off) return;
+    const mesh = makeBeaconMesh();
+    mesh.position.set(...m.p);
+    this.scene.add(mesh);
+    this.beacons.set(m.id, { mesh, t: 0, pulse: 0 });
+  }
+
+  onPing(m) {
+    const b = this.beacons.get(m.id);
+    if (b) b.pulse = 1;
+    sfx.beep(1100, 0.12, 0.25, new THREE.Vector3(...m.p));
+    for (const [id, x, y, z] of m.pts) {
+      const a = this.avatars.get(id);
+      if (a) {
+        a.revealT = 3.2;
+        a.pingT = 2.6;
+      }
+    }
+  }
+
+  updateDevices(dt) {
+    for (const B of this.beacons.values()) {
+      B.t += dt;
+      B.mesh.userData.lamp.visible = B.t % 0.8 < 0.4;
+      if (B.pulse > 0) {
+        B.pulse = Math.max(0, B.pulse - dt * 0.8);
+        const s = 1 + (1 - B.pulse) * 29;
+        B.mesh.userData.ring.scale.set(s, s, 1);
+        B.mesh.userData.ring.material.opacity = B.pulse * 0.7;
+      }
+    }
+    // flashbang whiteout
+    const el = document.getElementById('flash');
+    if (this.flashT > 0) {
+      this.flashT = Math.max(0, this.flashT - dt);
+      const k = this.flashT / this.flashMax;
+      // hold solid white for the first part, then fade
+      const a = this.flashT > this.flashMax * 0.55 ? 1 : Math.min(1, (this.flashT / (this.flashMax * 0.55)));
+      el.style.opacity = (this.me.alive ? a : 0).toFixed(3);
+      if (k <= 0) el.style.opacity = '0';
+    } else if (el.style.opacity !== '0') el.style.opacity = '0';
+  }
+
+  clearDevices() {
+    for (const L of this.ladders.values()) this.scene.remove(L.mesh);
+    for (const B of this.beacons.values()) this.scene.remove(B.mesh);
+    this.ladders.clear();
+    this.beacons.clear();
   }
 
   onHurt(m) {
@@ -549,6 +742,10 @@ export class Game {
     if (!me.alive && this.inRoom && input.pressed('fire')) this.spectateIdx++;
 
     if (this.inRoom && input.pressed('loadout')) this.ui.openLoadout();
+    if (this.inRoom && this.chat) {
+      if (input.pressed('chat')) this.chat.open(false);
+      else if (input.pressed('teamchat')) this.chat.open(this.isTeamMode());
+    }
     this.showScoresHeld = this.inRoom && input.down('scores');
 
     // network
@@ -571,19 +768,38 @@ export class Game {
     const phys = this.world.physics;
     if (!phys) return;
     const frozen = this.frozen();
+    const now = this.clock;
+
+    // a vault carries you over the ledge on its own
+    if (me.vault) {
+      this.stepVault(dt);
+      return;
+    }
+
+    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
+    const s = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    const hs0 = Math.hypot(me.vel.x, me.vel.z);
+
+    // slide: crouch while running
+    if (!frozen && !me.slide && input.pressed('crouch') && me.sprinting && me.grounded && hs0 > 5.2 && now >= me.slideReady) {
+      me.slide = { t: 0, dx: me.vel.x / hs0, dz: me.vel.z / hs0, v: Math.max(hs0 + 1.6, 8.6) };
+      me.sprinting = false;
+      me.crouch = true;
+      if (settings.crouchToggle) me.crouchToggled = true;
+      sfx.slide();
+    }
+
     // crouch
     let wantCrouch;
     if (settings.crouchToggle) {
-      if (input.pressed('crouch')) me.crouchToggled = !me.crouchToggled;
+      if (input.pressed('crouch') && !me.slide) me.crouchToggled = !me.crouchToggled;
       wantCrouch = me.crouchToggled;
     } else wantCrouch = input.down('crouch');
-    if (wantCrouch) me.crouch = true;
+    if (wantCrouch || me.slide) me.crouch = true;
     else if (me.crouch && phys.fits(me.pos, RADIUS, STAND_H)) me.crouch = false;
     me.crouchK += ((me.crouch ? 1 : 0) - me.crouchK) * Math.min(1, dt * 14);
 
     // wish direction
-    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
-    const s = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
     const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
     let wx = -sy * f + cy * s;
     let wz = -cy * f - sy * s;
@@ -599,7 +815,8 @@ export class Game {
     } else wantRun = input.down('sprint');
     const firing = input.down('fire') && this.clock - me.lastFire < 0.25;
     // aiming beats running: holding aim stops a run straight away
-    me.sprinting = !this.aimWant && (wantRun && f > 0 && !me.crouch && me.adsK < 0.3 && !firing && me.grounded || (me.sprinting && !me.grounded && wantRun));
+    me.sprinting = !me.slide && !me.climbing && !this.aimWant &&
+      (wantRun && f > 0 && !me.crouch && me.adsK < 0.3 && !firing && me.grounded || (me.sprinting && !me.grounded && wantRun));
     if (this.aimWant) me.sprintToggled = false;
 
     const ws = this.weapon();
@@ -608,16 +825,63 @@ export class Game {
     speed *= 1 - 0.4 * me.adsK;
     if (frozen) speed = 0;
 
-    const tx = wx * speed, tz = wz * speed;
-    const accel = me.grounded ? 14 : 2.2;
-    const k = Math.min(1, accel * dt);
-    me.vel.x += (tx - me.vel.x) * k;
-    me.vel.z += (tz - me.vel.z) * k;
-
-    if (!frozen && me.grounded && input.pressed('jump')) {
-      me.vel.y = JUMP_V;
-      me.grounded = false;
-      if (me.crouch && phys.fits(me.pos, RADIUS, STAND_H)) me.crouch = false;
+    // ladders: walk into one and keep pushing forward to climb
+    const lad = frozen ? null : this.ladderAt(me.pos);
+    if (lad && (f !== 0 || me.climbing) && !me.slide) {
+      if (!me.climbing) { me.climbing = true; me.vel.set(0, 0, 0); }
+    } else me.climbing = false;
+    let gravity = GRAVITY;
+    if (me.climbing) {
+      gravity = 0;
+      me.vel.y = f * 2.9;
+      if (me.pos.y >= lad.top && f > 0) me.vel.y = 0;
+      me.vel.x = (wx * 1.2 - lad.nx * (f > 0 ? 0.6 : 0));
+      me.vel.z = (wz * 1.2 - lad.nz * (f > 0 ? 0.6 : 0));
+      if (input.pressed('jump')) {
+        // kick off the ladder
+        me.climbing = false;
+        me.vel.set(lad.nx * 3.5, 3.5, lad.nz * 3.5);
+        gravity = GRAVITY;
+      } else if (f > 0 && this.tryVault(true)) {
+        return;
+      }
+    } else if (me.slide) {
+      const S = me.slide;
+      S.t += dt;
+      S.v = Math.max(0, S.v - 6.5 * dt);
+      // a little steering towards where you look
+      const lx = -sy, lz = -cy;
+      S.dx += (lx - S.dx) * Math.min(1, dt * 1.2);
+      S.dz += (lz - S.dz) * Math.min(1, dt * 1.2);
+      const L = Math.hypot(S.dx, S.dz) || 1;
+      me.vel.x = (S.dx / L) * S.v;
+      me.vel.z = (S.dz / L) * S.v;
+      if (!frozen && me.grounded && input.pressed('jump')) {
+        // slide-jump keeps your speed
+        me.vel.y = JUMP_V;
+        me.grounded = false;
+        me.slide = null;
+        me.slideReady = now + 0.5;
+      } else if (S.t > 0.95 || S.v < CROUCH_SPEED + 0.3 || (!me.grounded && S.t > 0.2) || frozen) {
+        me.slide = null;
+        me.slideReady = now + 0.5;
+      }
+    } else {
+      const tx = wx * speed, tz = wz * speed;
+      const accel = me.grounded ? 14 : 2.2;
+      const k = Math.min(1, accel * dt);
+      me.vel.x += (tx - me.vel.x) * k;
+      me.vel.z += (tz - me.vel.z) * k;
+      if (!frozen && me.grounded && input.pressed('jump')) {
+        // at a window, crate or low wall a jump vaults it instead
+        if (this.tryVault(false)) return;
+        me.vel.y = JUMP_V;
+        me.grounded = false;
+        if (me.crouch && phys.fits(me.pos, RADIUS, STAND_H)) me.crouch = false;
+      } else if (!frozen && !me.grounded && f > 0 && me.vel.y < 3.5) {
+        // catching a ledge in mid-air (jumping at a window)
+        if (this.tryVault(false)) return;
+      }
     }
 
     // physics in small steps
@@ -626,25 +890,103 @@ export class Game {
     let landed = 0;
     while (rem > 1e-5) {
       const h = Math.min(rem, 1 / 90);
-      phys.move(body, h, GRAVITY);
+      phys.move(body, h, gravity);
       landed = Math.max(landed, body.landed || 0);
       rem -= h;
     }
-    me.grounded = body.grounded;
+    me.grounded = body.grounded || me.climbing;
     me.landed = landed > 3 ? landed / 10 : 0;
-    const [bx, bz] = this.map.bounds;
-    me.pos.x = Math.max(-bx + 0.4, Math.min(bx - 0.4, me.pos.x));
-    me.pos.z = Math.max(-bz + 0.4, Math.min(bz - 0.4, me.pos.z));
-    if (me.pos.y < -5) me.pos.y = 0;
+    if (me.climbing && lad && me.pos.y > lad.top) me.pos.y = lad.top;
+    this.clampToTown();
 
     // footsteps
     const hs = Math.hypot(me.vel.x, me.vel.z);
     this.stepT = (this.stepT || 0) - dt * hs;
-    if (me.grounded && hs > 1.5 && this.stepT <= 0) {
+    if (me.grounded && hs > 1.5 && this.stepT <= 0 && !me.slide) {
       this.stepT = 2.1;
       if (!me.crouch) sfx.footstep(null, me.sprinting ? 0.9 : 0.5);
     }
+    if (me.climbing && Math.abs(me.vel.y) > 0.5) {
+      this.climbT = (this.climbT || 0) - dt;
+      if (this.climbT <= 0) { this.climbT = 0.32; sfx.footstep(null, 0.6); }
+    }
     if (me.landed) sfx.footstep(null, 1.2);
+  }
+
+  clampToTown() {
+    const me = this.me;
+    const [bx, bz] = this.map.bounds;
+    me.pos.x = Math.max(-bx + 0.4, Math.min(bx - 0.4, me.pos.x));
+    me.pos.z = Math.max(-bz + 0.4, Math.min(bz - 0.4, me.pos.z));
+    if (me.pos.y < -5) me.pos.y = 0;
+  }
+
+  // -- vaulting: over windowsills, crates and low walls --
+
+  tryVault(climbing) {
+    const me = this.me;
+    const phys = this.world.physics;
+    const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
+    const feet = me.pos.y;
+    const dir = new THREE.Vector3(fx, 0, fz);
+    for (const d of [0.5, 0.7, 0.9]) {
+      const px = me.pos.x + fx * d, pz = me.pos.z + fz * d;
+      const hit = phys.raycast(new THREE.Vector3(px, feet + 1.7, pz), DOWN, 2.4);
+      if (!hit || hit.ground) continue;
+      const ledge = hit.point.y;
+      const rise = ledge - feet;
+      if (rise < (climbing ? -0.6 : 0.5) || rise > 1.55) continue;
+      const top = new THREE.Vector3(px, ledge + 0.02, pz);
+      // room to get over it crouched
+      if (!phys.fits(top, 0.3, VAULT_H)) continue;
+      // nothing between you and the ledge at that height
+      if (phys.raycast(new THREE.Vector3(me.pos.x, ledge + 0.55, me.pos.z), dir, d)) continue;
+      // drop down the far side if there is room, otherwise stay on top
+      const beyond = new THREE.Vector3(px + fx * 0.55, ledge + 0.02, pz + fz * 0.55);
+      const clear = phys.fits(beyond, 0.3, VAULT_H) && !phys.raycast(new THREE.Vector3(px, ledge + 0.5, pz), dir, 0.6);
+      me.vault = { t: 0, dur: 0.3 + Math.max(0, rise) * 0.14, from: me.pos.clone(), top, to: clear ? beyond : top.clone(), dx: fx, dz: fz };
+      me.crouch = true;
+      me.climbing = false;
+      me.slide = null;
+      me.vel.set(0, 0, 0);
+      sfx.vault();
+      return true;
+    }
+    return false;
+  }
+
+  stepVault(dt) {
+    const me = this.me;
+    const v = me.vault;
+    v.t += dt;
+    const k = Math.min(1, v.t / v.dur);
+    me.crouchK += (1 - me.crouchK) * Math.min(1, dt * 14);
+    if (k < 0.6) {
+      const a = k / 0.6;
+      me.pos.x = v.from.x + (v.top.x - v.from.x) * a;
+      me.pos.z = v.from.z + (v.top.z - v.from.z) * a;
+      me.pos.y = v.from.y + (v.top.y - v.from.y) * Math.sin((a * Math.PI) / 2);
+    } else {
+      const b = (k - 0.6) / 0.4;
+      me.pos.lerpVectors(v.top, v.to, b);
+    }
+    if (k >= 1) {
+      me.vault = null;
+      me.vel.set(v.dx * 2.2, 0, v.dz * 2.2);
+      me.grounded = false;
+    }
+  }
+
+  // -- ladders --
+
+  ladderAt(pos) {
+    for (const L of this.ladders.values()) {
+      const rx = pos.x - L.x, rz = pos.z - L.z;
+      const out = rx * L.nx + rz * L.nz;          // distance out from the wall side of the ladder
+      const side = rx * L.nz - rz * L.nx;         // along the wall
+      if (Math.abs(side) < 0.55 && out > -0.35 && out < 0.8 && pos.y > L.y - 0.3 && pos.y < L.top + 0.2) return L;
+    }
+    return null;
   }
 
   updateWeapons(dt) {
@@ -689,6 +1031,9 @@ export class Game {
       me.recoilDebt -= r;
     }
     me.punch = Math.max(0, me.punch - dt * me.punch * 14 - dt * 0.002);
+
+    // perk
+    if (input.pressed('perk') && !this.frozen()) this.usePerk();
 
     // grenade
     me.nadeBusy -= dt;
@@ -811,13 +1156,12 @@ export class Game {
     if (h) origin.copy(cam.position).addScaledVector(fwd, Math.max(0, h.t - 0.15));
     const vel = fwd.clone().multiplyScalar(15).add(new THREE.Vector3(0, 3, 0)).addScaledVector(me.vel, 0.5);
     const nid = me.nextNade++;
+    const kind = me.loadout === 2 ? me.nadeKind : 'frag';
     this.fx.throwNade(this.myId, nid, origin, vel, true, (p) => {
       this.net.send({ t: 'boom', n: nid, p: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] });
-      this.fx.explosion(p);
-      sfx.explosion(p);
-      this.shakeFrom(p, 16);
-    });
-    this.net.send({ t: 'nade', n: nid, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(3)), v: [vel.x, vel.y, vel.z].map((v) => +v.toFixed(3)) });
+      this.detonate(p, kind);
+    }, kind);
+    this.net.send({ t: 'nade', n: nid, k: kind, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(3)), v: [vel.x, vel.y, vel.z].map((v) => +v.toFixed(3)) });
   }
 
   fire(ws) {
@@ -931,7 +1275,8 @@ export class Game {
       const eye = EYE_STAND + (EYE_CROUCH - EYE_STAND) * me.crouchK;
       cam.position.set(me.pos.x, me.pos.y + eye, me.pos.z);
       const sh = this.fx.shake;
-      cam.rotation.set(me.pitch + me.punch + (Math.random() - 0.5) * sh * 0.03, me.yaw + (Math.random() - 0.5) * sh * 0.03, 0, 'YXZ');
+      this.slideRoll = (this.slideRoll || 0) + ((me.slide ? 0.06 : 0) - (this.slideRoll || 0)) * Math.min(1, dt * 10);
+      cam.rotation.set(me.pitch + me.punch + (Math.random() - 0.5) * sh * 0.03, me.yaw + (Math.random() - 0.5) * sh * 0.03, this.slideRoll, 'YXZ');
       if (ws) {
         const zoom = 1 + (ws.def.zoom - 1) * me.adsK;
         fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(settings.fov) / 2) / zoom));
@@ -1072,6 +1417,12 @@ export class Game {
         mmObj.push({ x, z, r: HILL_R, color: col, fill: 'rgba(255,255,255,0.15)' });
       }
     }
+    // enemies a recon beacon has found
+    for (const a of this.avatars.map.values()) {
+      if (!a.alive || !(a.pingT > 0)) continue;
+      const [sx, sy] = project(a.pos.x, a.pos.y + 2.3, a.pos.z);
+      markers.push({ key: 'ping' + a.id, x: sx, y: sy, cls: 'ping', label: '◆', dist: dist(a.pos.x, a.pos.z) });
+    }
     this.hud.markers(markers);
     return mmObj;
   }
@@ -1084,6 +1435,8 @@ export class Game {
     if (!this.inRoom) return;
     const ws = this.weapon();
     if (ws) hud.setAmmo(ws, me.nades, NADES_PER_LIFE, keyName(settings.binds.reload));
+    const perk = PERKS[LOADOUTS[me.loadout].perk];
+    hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), me.loadout === 2 && me.nadeKind === 'flash' ? 'Flash' : 'Frag');
     hud.setHP(me.alive ? me.hp : 0);
     hud.top(g, me.team, this.myId, this.roster, this.clock);
     // crosshair: its gap is the real spread cone at this field of view
@@ -1165,6 +1518,7 @@ export class Game {
         }
       }
       this.fx.update(dt, this.world.physics, this.camera, NADE_FUSE);
+      this.updateDevices(dt);
       const me = this.me;
       if (this.inRoom && me.alive) {
         this.indoorT -= dt;
@@ -1201,4 +1555,46 @@ export class Game {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function makeLadderMesh() {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshLambertMaterial({ color: '#8a6a44' });
+  const metal = new THREE.MeshLambertMaterial({ color: '#5c5f62' });
+  for (const x of [-0.26, 0.26]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.07, LADDER_H, 0.07), metal);
+    rail.position.set(x, LADDER_H / 2, 0);
+    g.add(rail);
+  }
+  for (let y = 0.3; y < LADDER_H - 0.1; y += 0.32) {
+    const rung = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.045, 0.06), wood);
+    rung.position.set(0, y, 0);
+    g.add(rung);
+  }
+  return g;
+}
+
+function makeBeaconMesh() {
+  const g = new THREE.Group();
+  const dark = new THREE.MeshLambertMaterial({ color: '#2b2f33' });
+  for (let i = 0; i < 3; i++) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.42, 5), dark);
+    const a = (i / 3) * Math.PI * 2;
+    leg.position.set(Math.cos(a) * 0.1, 0.19, Math.sin(a) * 0.1);
+    leg.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35);
+    g.add(leg);
+  }
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.14, 10), dark);
+  head.position.y = 0.44;
+  g.add(head);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), new THREE.MeshBasicMaterial({ color: '#ff3b2f' }));
+  lamp.position.y = 0.54;
+  g.add(lamp);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 48), new THREE.MeshBasicMaterial({ color: '#ff5a44', transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  g.add(ring);
+  g.userData.lamp = lamp;
+  g.userData.ring = ring;
+  return g;
 }

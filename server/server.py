@@ -31,6 +31,8 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mapgen  # noqa: E402
+import catalog  # noqa: E402
+import accounts  # noqa: E402
 
 VERSION = '2.0.0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -56,6 +58,14 @@ WEAPONS = {
     'pistol':  {'dmg': 34, 'head': 2.0, 'near': 20, 'far': 50, 'min': 0.7,  'rpm': 380, 'pellets': 1, 'range': 120},
 }
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
+# each loadout's perk and how many uses it has per life
+PERKS = ['ammo', 'med', 'ladder', 'beacon']
+PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1}
+MED_HEAL = 50
+LADDER_LIFE = 120.0
+BEACON_LIFE = 20.0
+BEACON_RANGE = 30.0
+BEACON_EVERY = 3.0
 NADE_MAX = 2
 NADE_RADIUS = 7.0
 NADE_DMG = 125
@@ -75,6 +85,7 @@ PROTECT = 1.5
 
 rooms = {}
 lobby = set()
+LIVE_LOCKERS = {}   # account id -> locker, shared by every tab signed in to that account
 next_ids = {'p': 1, 'r': 1}
 
 
@@ -104,7 +115,19 @@ def clean_cos(c):
 
 
 # dinars paid out for playing
-EARN = {'kill': 10, 'headshot': 5, 'plant': 20, 'defuse': 25, 'round': 15, 'match': 25, 'win': 50, 'hill': 5}
+EARN = {'kill': 50, 'headshot': 10, 'plant': 20, 'defuse': 25, 'round': 15, 'match': 25, 'win': 50, 'hill': 5}
+
+
+def owned_cos(p, cos):
+    """For signed-in players, only show cosmetics they actually own."""
+    lk = p.locker
+    if lk is None:
+        return cos
+    out = {'o': cos['o'] if cos['o'] in lk['outfits'] else 'standard', 'g': {}}
+    for w, f in cos['g'].items():
+        if '%s:%s' % (w, f) in lk['guns']:
+            out['g'][w] = f
+    return out
 
 
 def dist3(a, b):
@@ -165,12 +188,20 @@ class Player:
         self.in_round = False    # bomb mode: took part in the current round
         self.cos = {'o': 'standard', 'g': {}}
         self.hill_t = 0.0
+        self.account = None       # {'id', 'username'} once signed in
+        self.perk_left = 0
+        self.last_chat = 0.0
+        self.auth_times = []
 
     def send(self, obj):
         self.conn.send(obj)
 
     def reset_stats(self):
         self.kills = self.deaths = self.score = 0
+
+    @property
+    def locker(self):
+        return LIVE_LOCKERS.get(self.account['id']) if self.account else None
 
 
 class Room:
@@ -201,6 +232,8 @@ class Room:
         self.hill_contested = False
         self.round_msg = None
         self.feed_seq = 0
+        self.ladders = {}
+        self.beacons = {}
 
     # -- map --
 
@@ -210,6 +243,8 @@ class Room:
         self.map = town.to_json()
         self.solid = mapgen.Solid(self.map['boxes'])
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
+        self.ladders = {}
+        self.beacons = {}
 
     # -- membership --
 
@@ -237,6 +272,10 @@ class Room:
         p.send({'t': 'joined', 'room': {'id': self.id, 'mode': self.mode, 'name': self.name},
                 'you': p.id, 'team': p.team})
         p.conn.send_raw(self.map_msg)
+        for oid, L in self.ladders.items():
+            p.send({'t': 'ladder', 'id': oid, 'p': L['p'], 'y': L['y']})
+        for oid, B in self.beacons.items():
+            p.send({'t': 'beacon', 'id': oid, 'p': B['p'], 'tm': B['team']})
         self.roster_dirty = True
         self.event({'e': 'join', 'id': p.id, 'n': p.name})
         if self.phase in ('waiting', 'countdown'):
@@ -256,6 +295,10 @@ class Room:
         if self.bomb and self.bomb.get('defuser') == p.id:
             self.bomb['defuser'] = None
         p.room = None
+        if self.ladders.pop(p.id, None):
+            self.broadcast({'t': 'ladder', 'id': p.id, 'off': 1})
+        if self.beacons.pop(p.id, None):
+            self.broadcast({'t': 'beacon', 'id': p.id, 'off': 1})
         self.roster_dirty = True
         self.event({'e': 'leave', 'id': p.id, 'n': p.name})
         if not self.players:
@@ -282,7 +325,14 @@ class Room:
     def earn(self, p, why, n=None):
         if self.phase in ('waiting', 'countdown'):
             return
-        p.send({'t': 'earn', 'n': n if n is not None else EARN[why], 'why': why})
+        n = n if n is not None else EARN[why]
+        msg = {'t': 'earn', 'n': n, 'why': why}
+        lk = p.locker
+        if lk is not None:
+            lk['dinars'] += n
+            accounts.save_locker(p.account['id'], lk)
+            msg['bal'] = lk['dinars']
+        p.send(msg)
 
     # -- messaging --
 
@@ -328,6 +378,7 @@ class Room:
         p.hp = 100
         p.alive = True
         p.nades = NADE_MAX
+        p.perk_left = PERK_USES[PERKS[p.loadout]]
         p.sc += 1
         p.protect_until = now() + PROTECT
         p.in_round = True
@@ -615,18 +666,22 @@ class Room:
             return
         p.nades -= 1
         nid = int(num(m.get('n')))
-        p.nade_ids[nid] = now()
-        self.broadcast({'t': 'nade', 'id': p.id, 'n': nid, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}, skip=p)
+        kind = 'flash' if m.get('k') == 'flash' and p.loadout == 2 else 'frag'
+        p.nade_ids[nid] = (now(), kind)
+        self.broadcast({'t': 'nade', 'id': p.id, 'n': nid, 'k': kind, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}, skip=p)
 
     def handle_boom(self, p, m):
         nid = int(num(m.get('n')))
-        born = p.nade_ids.pop(nid, None)
-        if born is None or now() - born > 6.0:
+        rec = p.nade_ids.pop(nid, None)
+        if rec is None or now() - rec[0] > 6.0:
             return
+        kind = rec[1]
         pos = vec3(m.get('p'))
         if dist3(pos, p.pos) > 60:
             return
-        self.broadcast({'t': 'boom', 'id': p.id, 'n': nid, 'p': pos}, skip=p)
+        self.broadcast({'t': 'boom', 'id': p.id, 'n': nid, 'p': pos, 'k': kind}, skip=p)
+        if kind == 'flash':
+            return  # blinding is worked out on each screen; no damage
         if self.phase in ('post', 'ended'):
             return
         for q in list(self.players.values()):
@@ -648,10 +703,83 @@ class Room:
                 continue
             self.damage(q, p, int(dmg), 'nade', False)
 
+    # -- perks --
+
+    def handle_perk(self, p, m):
+        k = m.get('k')
+        if not p.alive or k != PERKS[p.loadout] or p.perk_left <= 0 or self.phase == 'ended':
+            return
+        t = now()
+        if k == 'med':
+            if p.hp >= 100:
+                return
+            p.hp = min(100, p.hp + MED_HEAL)
+            p.send({'t': 'heal', 'hp': p.hp})
+        elif k == 'ammo':
+            p.nades = min(NADE_MAX, p.nades + 1)
+            p.send({'t': 'perkok', 'k': 'ammo'})
+        elif k == 'ladder':
+            pos = vec3(m.get('p'))
+            if dist2(pos, p.pos) > 4.0 or abs(pos[1] - p.pos[1]) > 1.5:
+                return
+            L = {'p': [round(v, 3) for v in pos], 'y': round(num(m.get('y')), 4), 'until': t + LADDER_LIFE}
+            self.ladders[p.id] = L
+            self.broadcast({'t': 'ladder', 'id': p.id, 'p': L['p'], 'y': L['y']})
+        elif k == 'beacon':
+            pos = vec3(m.get('p'))
+            if dist3(pos, p.pos) > 4.0:
+                return
+            B = {'p': [round(v, 3) for v in pos], 'team': p.team, 'until': t + BEACON_LIFE, 'next': t + 0.5}
+            self.beacons[p.id] = B
+            self.broadcast({'t': 'beacon', 'id': p.id, 'p': B['p'], 'tm': p.team})
+        p.perk_left -= 1
+        p.send({'t': 'perkleft', 'k': k, 'n': p.perk_left})
+
+    def update_devices(self, t):
+        for oid, L in list(self.ladders.items()):
+            if t >= L['until']:
+                del self.ladders[oid]
+                self.broadcast({'t': 'ladder', 'id': oid, 'off': 1})
+        for oid, B in list(self.beacons.items()):
+            owner = self.players.get(oid)
+            if t >= B['until'] or not owner:
+                del self.beacons[oid]
+                self.broadcast({'t': 'beacon', 'id': oid, 'off': 1})
+                continue
+            if t < B['next']:
+                continue
+            B['next'] = t + BEACON_EVERY
+            pts = []
+            for q in self.players.values():
+                if q.alive and self.enemies(owner, q) and dist3(q.pos, B['p']) < BEACON_RANGE:
+                    pts.append([q.id, round(q.pos[0], 2), round(q.pos[1], 2), round(q.pos[2], 2)])
+            msg = {'t': 'ping', 'id': oid, 'p': B['p'], 'pts': pts}
+            team_mode = self.mode in TEAM_MODES and self.phase not in ('waiting', 'countdown')
+            for q in self.players.values():
+                if q is owner or (team_mode and q.team == owner.team):
+                    q.send(msg)
+
+    # -- chat --
+
+    def handle_chat(self, p, m):
+        t = now()
+        if t - p.last_chat < 0.7:
+            return
+        text = ''.join(ch for ch in str(m.get('m') or '') if ch.isprintable()).strip()[:120]
+        if not text:
+            return
+        p.last_chat = t
+        team_only = bool(m.get('team')) and self.mode in TEAM_MODES and p.team in (0, 1)
+        msg = {'t': 'chat', 'id': p.id, 'n': p.name, 'tm': p.team, 'm': text, 'team': team_only}
+        for q in self.players.values():
+            if not team_only or q.team == p.team:
+                q.send(msg)
+
     # -- per tick --
 
     def update(self, t):
         n = self.count()
+        self.update_devices(t)
         if n == 0:
             if self.phase != 'waiting':
                 self.set_phase('waiting')
@@ -676,6 +804,10 @@ class Room:
                 self.start_match()
         elif ph == 'ended':
             if t >= self.phase_end:
+                for oid in list(self.ladders):
+                    self.broadcast({'t': 'ladder', 'id': oid, 'off': 1})
+                for oid in list(self.beacons):
+                    self.broadcast({'t': 'beacon', 'id': oid, 'off': 1})
                 self.new_map()
                 self.broadcast({'t': 'map', 'map': self.map})
                 for p in self.players.values():
@@ -979,6 +1111,43 @@ class Conn:
             lobby.discard(self)
             self.close()
 
+    async def auth(self, m):
+        p = self.player
+        t = now()
+        p.auth_times = [x for x in p.auth_times if t - x < 60]
+        if m.get('t') != 'resume' and len(p.auth_times) >= 8:
+            return self.send({'t': 'autherr', 'm': 'Too many tries. Wait a minute and try again.'})
+        p.auth_times.append(t)
+        loop = asyncio.get_event_loop()
+        try:
+            if m['t'] == 'signup':
+                user, token = await loop.run_in_executor(None, accounts.signup, str(m.get('username') or ''),
+                                                         str(m.get('email') or ''), str(m.get('password') or ''),
+                                                         m.get('guest'))
+            elif m['t'] == 'login':
+                user, token = await loop.run_in_executor(None, accounts.login, str(m.get('id') or ''),
+                                                         str(m.get('password') or ''))
+            else:
+                token = m.get('token')
+                user = await loop.run_in_executor(None, accounts.resume, token)
+                if not user:
+                    return self.send({'t': 'auth', 'user': None, 'expired': True})
+        except accounts.AuthError as e:
+            return self.send({'t': 'autherr', 'm': str(e)})
+        except Exception as e:  # never leave the page hanging
+            print('auth error: %r' % (e,), flush=True)
+            return self.send({'t': 'autherr', 'm': 'Something went wrong on the server. Try again.'})
+        if self.closed:
+            return
+        # one live locker per account, shared by all of that player's tabs
+        lk = LIVE_LOCKERS.setdefault(user['id'], user['locker'])
+        p.account = {'id': user['id'], 'username': user['username']}
+        p.name = user['username']
+        self.send({'t': 'auth', 'user': {'username': user['username'], 'email': user['email']},
+                   'token': token, 'locker': lk})
+        if p.room:
+            p.room.roster_dirty = True
+
     def leave(self):
         p = self.player
         if p and p.room:
@@ -994,7 +1163,7 @@ class Conn:
             else:
                 p.name = name
             if 'cos' in m:
-                self.player.cos = clean_cos(m.get('cos'))
+                self.player.cos = owned_cos(self.player, clean_cos(m.get('cos')))
             self.send({'t': 'welcome', 'id': self.player.id, 'v': VERSION})
             if m.get('v') and m.get('v') != VERSION:
                 self.send({'t': 'reload', 'v': VERSION})
@@ -1029,13 +1198,38 @@ class Conn:
                 r = quick_room(mode)
             p.loadout = int(num(m.get('ld'), 0, 3))
             if 'cos' in m:
-                p.cos = clean_cos(m.get('cos'))
+                p.cos = owned_cos(p, clean_cos(m.get('cos')))
             lobby.discard(self)
             r.add(p)
         elif t == 'leave':
             self.leave()
             lobby.add(self)
             self.send(room_list())
+        elif t in ('signup', 'login', 'resume'):
+            asyncio.ensure_future(self.auth(m))
+        elif t == 'logout':
+            accounts.logout(m.get('token'))
+            p.account = None
+            p.cos = clean_cos(None)
+            self.send({'t': 'auth', 'user': None})
+            if p.room:
+                p.room.roster_dirty = True
+        elif t == 'crate':
+            lk = p.locker
+            if lk is None:
+                return self.send({'t': 'err', 'm': 'Sign in to open crates on your account.'})
+            prize = catalog.open_crate(lk, m.get('kind'))
+            if prize is None:
+                return self.send({'t': 'crate', 'prize': None, 'locker': lk})
+            accounts.save_locker(p.account['id'], lk)
+            self.send({'t': 'crate', 'prize': prize, 'locker': lk})
+        elif t == 'equip':
+            lk = p.locker
+            if lk is None:
+                return
+            lk['equip'] = catalog.clean_equip(m.get('equip'), lk)
+            accounts.save_locker(p.account['id'], lk)
+            self.send({'t': 'locker', 'locker': lk})
         elif p.room is None:
             return
         elif t == 'st':
@@ -1068,10 +1262,17 @@ class Conn:
             p.room.roster_dirty = True
             # swap straight away when it is safe to
             if p.alive and (r.phase in ('waiting', 'countdown', 'freeze') or now() - (p.protect_until - PROTECT) < 8):
+                # the new loadout's perk, but never more uses than you had left
+                p.perk_left = min(p.perk_left, PERK_USES[PERKS[p.loadout]])
                 p.send({'t': 'ldnow', 'ld': p.loadout})
+                p.send({'t': 'perkleft', 'k': PERKS[p.loadout], 'n': p.perk_left})
         elif t == 'cos':
-            p.cos = clean_cos(m.get('cos'))
+            p.cos = owned_cos(p, clean_cos(m.get('cos')))
             p.room.roster_dirty = True
+        elif t == 'chat':
+            p.room.handle_chat(p, m)
+        elif t == 'perk':
+            p.room.handle_perk(p, m)
         elif t == 'plant':
             p.room.handle_plant(p, bool(m.get('on')))
         elif t == 'reload':

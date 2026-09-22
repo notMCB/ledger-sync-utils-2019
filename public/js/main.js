@@ -9,7 +9,9 @@ import { LOADOUTS, WEAPONS } from './weapons.js';
 import { MODE_INFO, esc } from './hud.js';
 import { unlockAudio, uiBlip } from './audio.js';
 import { locker } from './locker.js';
-import { openLocker } from './lockerui.js';
+import { openLocker, lockerOpen } from './lockerui.js';
+import { Chat } from './chat.js';
+import { auth } from './auth.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -63,10 +65,17 @@ const ui = {
 const game = new Game(canvas, ui);
 const net = new Net(onMessage, onStatus);
 game.net = net;
+const chat = new Chat(net);
+chat.canTeam = () => game.isTeamMode() && !game.warmup();
+game.chat = chat;
+setInterval(() => chat.update(), 500);
+auth.init(net);
 
 function onMessage(m) {
+  if (auth.onMessage(m)) return;
   if (m.t === 'welcome') {
     game.myId = m.id;
+    auth.resume();
     if (!game.inRoom) net.send({ t: 'preview' });
     if (AUTOTEST && !game.inRoom) {
       $('notes').hidden = true;
@@ -116,7 +125,7 @@ function onStatus(s) {
 }
 
 function sayHello() {
-  net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics() });
+  net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics(settings.lastLoadout || 0) });
 }
 
 function currentName() {
@@ -172,7 +181,7 @@ function join(target) {
   settings.name = name;
   saveSettings();
   sayHello();
-  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(), ...target });
+  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(settings.lastLoadout || 0), ...target });
   input.lock();
 }
 
@@ -227,8 +236,9 @@ $('loadout-close').addEventListener('click', () => {
 // -- pause ----------------------------------------------------------------
 
 input.onUnlock = () => {
+  chat.close();
   if (!game.inRoom) return;
-  if (!$('loadout').hidden || !$('settings').hidden || !$('notes').hidden || !$('locker').hidden) return;
+  if (!$('loadout').hidden || !$('settings').hidden || !$('notes').hidden || !$('locker').hidden || !$('auth').hidden) return;
   if (!$('death').hidden) return; // the death screen stays usable with the mouse
   $('pause').hidden = false;
   $('pause-title').textContent = game.room ? game.room.name : 'Paused';
@@ -266,6 +276,10 @@ input.onKeyCode = (e) => {
   }
   if (e.code === 'Escape' && !$('settings').hidden) {
     closeSettings();
+    return true;
+  }
+  if (e.code === 'Escape' && !$('auth').hidden) {
+    auth.close();
     return true;
   }
   return false;
@@ -414,14 +428,66 @@ function showLocker() {
   openLocker(() => {
     game.refreshCosmetics();
     if (game.inRoom) resume();
-  });
+  }, (ld) => pickLoadout(ld));
 }
+
+// -- accounts ----------------------------------------------------------------------
+
+function showAccount(user) {
+  $('name-field').hidden = !!user;
+  $('signed-in').hidden = !user;
+  $('btn-signin').hidden = !!user;
+  $('btn-signup').hidden = !!user;
+  $('btn-signout').hidden = !user;
+  if (user) {
+    $('si-name').textContent = user.username;
+    toast(`Signed in as ${user.username}`);
+  }
+  sayHello();
+}
+auth.onChange(showAccount);
+$('btn-signin').addEventListener('click', () => auth.open('login'));
+$('btn-signup').addEventListener('click', () => auth.open('signup'));
+$('btn-signout').addEventListener('click', () => {
+  auth.signOut();
+  toast('Signed out — your guest locker is back');
+});
+// skins you change mid-match show on your gun straight away
+locker.onChange(() => { if (game.inRoom && !lockerOpen()) game.refreshCosmetics(); });
 $('btn-locker').addEventListener('click', showLocker);
 $('btn-pause-locker').addEventListener('click', showLocker);
 const dinarsEl = $('menu-dinars');
 const showDinars = () => { dinarsEl.textContent = locker.dinars; };
 locker.onChange(showDinars);
 showDinars();
+// testing on this Mac only: ?demo=signup fills in and sends the sign-up form
+if (location.hostname === 'localhost' && params.get('demo') === 'signup') {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[demo] ' + s));
+  setTimeout(() => {
+    $('notes').hidden = true;
+    auth.open('signup');
+    const u = 'demo' + Math.floor(Math.random() * 1e6);
+    $('auth-user').value = u;
+    $('auth-email').value = u + '@example.com';
+    $('auth-pass').value = 'short';
+    $('auth-form').requestSubmit();
+    setTimeout(() => {
+      log(`short password message: "${$('auth-err').textContent}"`);
+      log('CAPTURE autherr');
+      $('auth-pass').value = 'a long enough password';
+      $('auth-form').requestSubmit();
+      setTimeout(() => {
+        log(`after sign-up: modal ${$('auth').hidden ? 'closed' : 'open'}, menu shows "${$('si-name').textContent}", locker says "${locker.signedIn ? 'account' : 'guest'}" with ${locker.dinars} dinars`);
+        log('CAPTURE signedin');
+        showLocker();
+        setTimeout(() => {
+          document.getElementById('crate-bazaar').click();
+          setTimeout(() => { log(`bazaar opened, now ${locker.dinars} dinars`); log('CAPTURE bazaar'); }, 7000);
+        }, 800);
+      }, 2500);
+    }, 800);
+  }, 1500);
+}
 // testing on this Mac only: ?dinars=500 tops up the locker
 if (location.hostname === 'localhost' && params.get('dinars')) locker.earn(Number(params.get('dinars')) || 0);
 // ?locker opens the locker straight away (for checking a build); ?crate=gun|outfit also spins one
@@ -459,7 +525,7 @@ renderModes();
 renderRooms();
 game.applySettings();
 // the patch notes open on every visit (not when a test link opens the locker)
-if (!params.has('locker') && !params.has('crate')) openNotes();
+if (!params.has('locker') && !params.has('crate') && !params.has('demo')) openNotes();
 
 // -- autotest ---------------------------------------------------------------------
 // A scripted run through the controls, reporting to the server log. Only with ?autotest=<mode>.
@@ -502,7 +568,7 @@ if (AUTOTEST) {
   ];
   aimSteps.sort((a, b) => a[0] - b[0]);
   if (params.get('script') === 'sprintaim') aimSteps.splice(0, aimSteps.length, ...sprintAimSteps);
-  const steps = ['aim', 'sprintaim'].includes(params.get('script')) ? aimSteps : ([
+  const steps = params.get('script') === 'v2' ? [] : ['aim', 'sprintaim'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -538,8 +604,174 @@ if (AUTOTEST) {
     log(`phase ${g && g.ph} n ${g && g.n} pos ${game.me.pos.x.toFixed(1)},${game.me.pos.y.toFixed(2)},${game.me.pos.z.toFixed(1)} hp ${game.me.hp} alive ${game.me.alive} others ${game.avatars.map.size} vm ${game.vm.curId} root ${game.vm.root.visible} vis ${game.vm.visible} scoped ${game.vm.scoped} gpos ${game.vm.cur && game.vm.cur.group.position.toArray().map((v) => v.toFixed(2))} pend ${game.vm.pending} sw ${game.vm.switchT.toFixed(2)} nade ${game.vm.nadeAnim.toFixed(2)}`);
   }, 4000);
   window.__souk = game;
+  if (params.get('script') === 'v2') runV2();
   if (params.get('equip')) {
     const [w, f] = params.get('equip').split(':');
     locker.equipGun(w, f);
   }
+}
+
+// -- the 2.0 feature run: slide, vault, ladder, perks, flash, chat, sights ----------------
+// Only runs with ?autotest=<mode>&script=v2. Each check is logged to the server.
+async function runV2() {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[v2] ' + s));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const g = game;
+  const me = g.me;
+  const T = await import('three');
+  while (!me.alive || !g.world.physics) await sleep(200);
+  await sleep(800);
+  const phys = g.world.physics;
+  const boxes = g.map.boxes;
+  const place = (x, y, z, yaw) => {
+    me.pos.set(x, y, z);
+    me.vel.set(0, 0, 0);
+    me.yaw = yaw;
+    me.pitch = 0;
+    me.crouch = false;
+    me.slide = null;
+    me.vault = null;
+    me.climbing = false;
+    me.grounded = true;
+  };
+  // a windowsill: a wall piece from `base` up to base+1.0, a window above it
+  const sills = (base) => boxes.filter((b) => b[7] === 'wall' && Math.abs(b[1] - b[4] - base) < 0.02 && Math.abs(b[1] + b[4] - base - 1.0) < 0.02 &&
+    (Math.abs(b[3] - 0.15) < 0.01 || Math.abs(b[5] - 0.15) < 0.01) && Math.max(b[3], b[5]) >= 0.5);
+  // stand `d` out from a sill on one side, facing it
+  const facing = (b, side, d) => {
+    const [cx, , cz, hx, , hz, yaw] = b;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const thinX = Math.abs(hx - 0.15) < 0.01;
+    const n = thinX ? [c, -s] : [s, c];
+    const px = cx + n[0] * side * d, pz = cz + n[1] * side * d;
+    return { x: px, z: pz, yaw: Math.atan2(n[0] * side, n[1] * side), n: [n[0] * side, n[1] * side] };
+  };
+  const cross = (b, spot, p) => (p.x - b[0]) * spot.n[0] + (p.z - b[2]) * spot.n[1];
+
+  // 1. slide
+  const open = sills(0)[0];
+  place(me.pos.x, 0, me.pos.z, me.yaw);
+  input.hold('ShiftLeft', true); input.hold('KeyW', true);
+  await sleep(900);
+  const before = Math.hypot(me.vel.x, me.vel.z);
+  input.tap('KeyC');
+  await sleep(120);
+  const during = Math.hypot(me.vel.x, me.vel.z);
+  log(`slide: running ${before.toFixed(1)} m/s, sliding ${!!me.slide} at ${during.toFixed(1)} m/s, crouched ${me.crouch}`);
+  log('CAPTURE slide');
+  await sleep(1100);
+  input.hold('ShiftLeft', false); input.hold('KeyW', false);
+  log(`slide ended: ${!me.slide}, speed ${Math.hypot(me.vel.x, me.vel.z).toFixed(1)}`);
+
+  // 2. vault through a ground-floor window (try a few until one has clear ground both sides)
+  let vaulted = false;
+  for (const b of sills(0).slice(0, 30)) {
+    for (const side of [1, -1]) {
+      const spot = facing(b, side, 0.75);
+      const pos = new T.Vector3(spot.x, 0.03, spot.z);
+      if (!phys.fits(pos, 0.34, 1.8)) continue;
+      place(spot.x, 0.03, spot.z, spot.yaw);
+      await sleep(250);
+      input.tap('Space');
+      await sleep(900);
+      const after = cross(b, spot, me.pos);
+      if (after < -0.2) {
+        log(`vault: through a window — started ${cross(b, spot, pos).toFixed(2)} m out, ended ${after.toFixed(2)} m on the far side ✓`);
+        vaulted = true;
+      } else log(`vault attempt: ended ${after.toFixed(2)} (vault ${!!me.vault}) — trying another window`);
+      break;
+    }
+    if (vaulted) break;
+  }
+  if (!vaulted) log('vault: FAILED on every window tried');
+  log('CAPTURE vault');
+
+  // 3. vault onto a crate
+  const crate = boxes.find((b) => b[7] === 'crate' && Math.abs(b[1] - b[4]) < 0.01 && b[1] + b[4] > 0.9 && b[1] + b[4] < 1.3 && b[3] > 0.45);
+  if (crate) {
+    const spot = facing([crate[0], crate[1], crate[2], 0.15, crate[4], crate[5], crate[6]], 1, crate[3] + 0.6);
+    place(spot.x, 0, spot.z, spot.yaw);
+    await sleep(250);
+    input.tap('Space');
+    await sleep(900);
+    log(`crate vault: feet at ${me.pos.y.toFixed(2)} (crate top ${(crate[1] + crate[4]).toFixed(2)}) ${me.pos.y > 0.8 ? '✓' : 'FAILED'}`);
+  }
+
+  // 4. breacher ladder up to an upstairs window
+  locker.setNade(2, 'flash');
+  net.send({ t: 'ld', ld: 2 });
+  await sleep(600);
+  let laddered = false;
+  for (const b of sills(3.2).slice(0, 40)) {
+    for (const side of [1, -1]) {
+      const spot = facing(b, side, 0.7);
+      const pos = new T.Vector3(spot.x, 0, spot.z);
+      if (phys.covered(new T.Vector3(spot.x, 1.7, spot.z)) || !phys.fits(pos, 0.34, 1.8)) continue;
+      place(spot.x, 0, spot.z, spot.yaw);
+      await sleep(300);
+      if (me.loadout !== 2) { log('ladder: loadout did not switch to Breacher'); break; }
+      const want = g.ladderSpot();
+      if (!want) { log('ladder: no wall found'); continue; }
+      input.tap('KeyX');
+      await sleep(500);
+      const lad = g.ladders.get(g.myId);
+      if (!lad) { log('ladder: not placed'); break; }
+      log(`ladder mesh in scene: ${!!lad.mesh.parent}, at ${lad.mesh.position.toArray().map((v) => v.toFixed(1))}, me ${me.pos.toArray().map((v) => v.toFixed(1))}`);
+      const back = [me.pos.x, me.pos.z];
+      place(me.pos.x + spot.n[0] * 3.5, 0, me.pos.z + spot.n[1] * 3.5, spot.yaw);
+      me.pitch = 0.35;
+      await sleep(400);
+      log('CAPTURE ladder');
+      await sleep(200);
+      place(back[0], 0, back[1], spot.yaw);
+      await sleep(200);
+      input.hold('KeyW', true);
+      await sleep(3200);
+      input.hold('KeyW', false);
+      await sleep(600);
+      const inside = cross(b, spot, me.pos);
+      log(`ladder: placed; after climbing feet at ${me.pos.y.toFixed(2)}, ${inside.toFixed(2)} m past the wall ${me.pos.y > 3.0 && inside < 0 ? '✓ in through the upstairs window' : 'FAILED'}`);
+      laddered = true;
+      log('CAPTURE upstairs');
+      break;
+    }
+    if (laddered) break;
+  }
+  if (!laddered) log('ladder: no suitable upstairs window found');
+
+  // 5. flashbang at your feet, looking at it
+  place(me.pos.x, me.pos.y, me.pos.z, me.yaw);
+  me.pitch = -0.9;
+  await sleep(200);
+  input.tap('KeyG');
+  await sleep(3000);
+  log(`flash: blinded for ${g.flashMax.toFixed(1)} s (${g.flashMax > 0.5 ? '✓' : 'FAILED'}), health ${me.hp}`);
+
+  // 6. chat
+  const n0 = document.getElementById('chat-log').children.length;
+  input.tap('Enter');
+  await sleep(150);
+  const field = document.getElementById('chat-input');
+  field.value = 'gg from the autotest';
+  field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await sleep(700);
+  const lines = document.getElementById('chat-log').children.length;
+  log(`chat: box opened and sent, ${lines - n0} new line(s) ${lines > n0 ? '✓' : 'FAILED'}; typing mode off: ${!input.typing}`);
+  log('CAPTURE chat');
+
+  // 7. sights: SMG red dot, LMG 2x holo
+  for (const [ld, name] of [[0, 'smg'], [1, 'lmg']]) {
+    net.send({ t: 'ld', ld });
+    await sleep(700);
+    place(me.pos.x, me.pos.y, me.pos.z, me.yaw + 0.5);
+    input.tap('KeyF');
+    input.hold('KeyF', true);
+    await sleep(600);
+    log(`${name} sight: aim ${me.adsK.toFixed(2)}, fov ${g.camera.fov.toFixed(1)}`);
+    log('CAPTURE ' + name);
+    await sleep(300);
+    input.hold('KeyF', false);
+    await sleep(300);
+  }
+  log('done');
 }

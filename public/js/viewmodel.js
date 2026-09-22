@@ -79,6 +79,40 @@ function irons(g, S, zFront, zRear, frontBaseY, rearBaseY, mat = MAT.steel) {
   box(g, 0.005, earH, 0.006, mat, 0.0075, rearBaseY + earH / 2, zRear);
 }
 
+// a small reflex sight: open frame, tinted glass, red dot on the sight line
+function reflex(g, S, fz, baseY) {
+  box(g, 0.026, S - 0.018 - baseY, 0.05, MAT.dark, 0, baseY + (S - 0.018 - baseY) / 2, fz + 0.005);
+  box(g, 0.036, 0.005, 0.016, MAT.dark, 0, S + 0.017, fz);
+  box(g, 0.005, 0.036, 0.016, MAT.dark, -0.0175, S, fz);
+  box(g, 0.005, 0.036, 0.016, MAT.dark, 0.0175, S, fz);
+  box(g, 0.036, 0.006, 0.016, MAT.dark, 0, S - 0.017, fz);
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.03, 0.03), MAT.glass);
+  glass.position.set(0, S, fz);
+  g.add(glass);
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.0009, 12), MAT.dot);
+  dot.position.set(0, S, fz + 0.001);
+  g.add(dot);
+}
+
+// a holographic sight: boxy hood, wide window, a circle-and-dot reticle
+function holo(g, S, fz, baseY) {
+  const len = 0.07;
+  box(g, 0.05, S - 0.024 - baseY, len, MAT.dark, 0, baseY + (S - 0.024 - baseY) / 2, fz);          // base
+  box(g, 0.056, 0.007, len, MAT.dark, 0, S + 0.024, fz);                                        // hood
+  box(g, 0.007, 0.052, len, MAT.dark, -0.0285, S, fz);
+  box(g, 0.007, 0.052, len, MAT.dark, 0.0285, S, fz);
+  box(g, 0.02, 0.012, 0.02, MAT.dark, 0.035, S - 0.012, fz + 0.01);                             // buttons
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.046), MAT.glass);
+  glass.position.set(0, S, fz - len / 2 + 0.004);
+  g.add(glass);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.0052, 0.0061, 40), MAT.dot);
+  ring.position.set(0, S, fz - len / 2 + 0.005);
+  g.add(ring);
+  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.0007, 12), MAT.dot);
+  dot.position.set(0, S, fz - len / 2 + 0.005);
+  g.add(dot);
+}
+
 function hands(g, grip, fore, sleeveMat) {
   // right hand on the grip, forearm running back and down out of view
   const right = new THREE.Group();
@@ -98,12 +132,12 @@ function hands(g, grip, fore, sleeveMat) {
 
 function buildSMG(sleeve) {
   const g = new THREE.Group();
-  const S = 0.072;
+  const S = 0.078;
   box(g, 0.055, 0.075, 0.33, MAT.steel, 0, 0, -0.06);
   box(g, 0.05, 0.03, 0.2, MAT.polymer, 0, -0.045, -0.13);         // handguard
   cyl(g, 0.012, 0.13, MAT.dark, 0, 0.012, -0.29);
   cyl(g, 0.018, 0.05, MAT.dark, 0, 0.012, -0.37);                 // muzzle device
-  irons(g, S, -0.19, 0.075, 0.045, 0.045);
+  reflex(g, S, -0.01, 0.036);
   box(g, 0.03, 0.1, 0.035, MAT.polymer, 0, -0.085, 0.045, -0.3);   // grip
   box(g, 0.012, 0.04, 0.06, MAT.dark, 0, -0.05, -0.005);           // trigger guard
   box(g, 0.025, 0.04, 0.2, MAT.polymer, 0, -0.005, 0.2);           // stock
@@ -137,19 +171,8 @@ function buildLMG(sleeve) {
   box(g, 0.012, 0.012, 0.28, MAT.dark, 0.02, -0.035, -0.46, 0.08);
   box(g, 0.032, 0.11, 0.04, MAT.polymer, 0, -0.1, 0.07, -0.3);      // grip
   box(g, 0.035, 0.065, 0.25, MAT.polymer, 0, -0.01, 0.27);          // stock
-  // red dot: mount, a square window frame round the sight line, tinted glass, the dot
-  box(g, 0.03, 0.016, 0.07, MAT.dark, 0, 0.074, -0.02);
-  const fz = -0.03;
-  box(g, 0.05, 0.006, 0.02, MAT.dark, 0, S + 0.022, fz);
-  box(g, 0.006, 0.05, 0.02, MAT.dark, -0.022, S, fz);
-  box(g, 0.006, 0.05, 0.02, MAT.dark, 0.022, S, fz);
-  box(g, 0.05, 0.012, 0.02, MAT.dark, 0, S - 0.024, fz);
-  const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.04), MAT.glass);
-  glass.position.set(0, S, fz);
-  g.add(glass);
-  const dot = new THREE.Mesh(new THREE.CircleGeometry(0.0011, 12), MAT.dot);
-  dot.position.set(0, S, fz + 0.001);
-  g.add(dot);
+  // 2× holographic sight on the top rail
+  holo(g, S, -0.02, 0.068);
   const mag = new THREE.Group();
   box(mag, 0.1, 0.12, 0.13, MAT.tan, 0, -0.06, 0);
   box(mag, 0.1, 0.02, 0.02, MAT.dark, 0, -0.11, 0.05);

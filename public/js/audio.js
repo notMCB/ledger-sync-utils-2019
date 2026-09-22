@@ -248,3 +248,66 @@ export function beep(freq = 1800, dur = 0.08, vol = 0.3, pos = null) {
 export function uiBlip() {
   beep(900, 0.05, 0.15);
 }
+
+export function slide() {
+  if (!ensure()) return;
+  const sp = spatial(null);
+  sp.output.connect(master);
+  sp.input.gain.value = 0.35;
+  noiseBurst(sp.input, ctx.currentTime, 0.7, 900, 250, 0.8, 0.5, 'lowpass');
+}
+
+export function vault() {
+  if (!ensure()) return;
+  const sp = spatial(null);
+  sp.output.connect(master);
+  sp.input.gain.value = 0.4;
+  const t = ctx.currentTime;
+  noiseBurst(sp.input, t, 0.12, 700, 300, 1, 0.5, 'lowpass');
+  noiseBurst(sp.input, t + 0.25, 0.1, 600, 250, 1, 0.6, 'lowpass');
+}
+
+export function heal() {
+  if (!ensure()) return;
+  const sp = spatial(null);
+  sp.output.connect(master);
+  sp.input.gain.value = 0.3;
+  const t = ctx.currentTime;
+  noiseBurst(sp.input, t, 0.3, 3000, 1500, 2, 0.3);
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(520, t + 0.15);
+  o.frequency.exponentialRampToValueAtTime(880, t + 0.45);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.25, t + 0.15);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  o.connect(g); g.connect(sp.input);
+  o.start(t + 0.15); o.stop(t + 0.65);
+}
+
+export function flashPop(pos) {
+  if (!ensure()) return;
+  const sp = spatial(pos, 140);
+  if (!sp) return;
+  sp.input.gain.value = sp.gain;
+  sp.output.connect(master);
+  const t = ctx.currentTime;
+  noiseBurst(sp.input, t, 0.35, 4000, 600, 0.4, 1.0);
+  thump(sp.input, t, 140, 50, 0.25, 0.7);
+}
+
+// the whine in your ears after a flash
+export function flashRing(strength) {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.value = 3100;
+  const g = ctx.createGain();
+  const dur = 0.8 + strength * 3.2;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.18 * strength + 0.02, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + dur + 0.05);
+}

@@ -40,6 +40,7 @@ export class Effects {
 
     this.nadeGeo = new THREE.SphereGeometry(0.06, 10, 8);
     this.nadeMat = new THREE.MeshStandardMaterial({ color: '#4a5236', roughness: 0.7, metalness: 0.2 });
+    this.flashNadeMat = new THREE.MeshStandardMaterial({ color: '#c9ccd1', roughness: 0.4, metalness: 0.5 });
     this.nades = [];
     this.shake = 0;
   }
@@ -150,10 +151,24 @@ export class Effects {
     }
   }
 
+  // a flashbang going off: a white burst and a few sparks, no smoke or fire
+  flashPop(pos) {
+    this.light(pos.clone().add(new THREE.Vector3(0, 0.4, 0)), 60, 0xffffff, 0.25);
+    this.particle(this.sparkTex, pos.clone().add(new THREE.Vector3(0, 0.3, 0)), new THREE.Vector3(), 2.5, 2, 0.18, 0, 1, true);
+    for (let i = 0; i < 10; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(10);
+      this.particle(this.sparkTex, pos.clone().add(new THREE.Vector3(0, 0.2, 0)), v, 0.06, 0, 0.4, 12, 1, true);
+    }
+    for (let i = 0; i < 5; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.4 + 0.2, Math.random() - 0.5).multiplyScalar(2);
+      this.particle(this.puffTex, pos.clone().add(new THREE.Vector3(0, 0.3, 0)), v, 0.5, 2.5, 1.2, -0.2, 0.5);
+    }
+  }
+
   // grenades are simulated the same way on every screen from the thrower's
   // starting point and velocity; the thrower's copy decides where it goes off
-  throwNade(owner, nid, origin, vel, local, onBoom) {
-    const mesh = new THREE.Mesh(this.nadeGeo, this.nadeMat);
+  throwNade(owner, nid, origin, vel, local, onBoom, kind = 'frag') {
+    const mesh = new THREE.Mesh(this.nadeGeo, kind === 'flash' ? this.flashNadeMat : this.nadeMat);
     mesh.position.copy(origin);
     mesh.castShadow = false;
     this.group.add(mesh);

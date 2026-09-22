@@ -33,6 +33,7 @@
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
   <div id="dmgdirs"></div>
   <div id="vignette"></div>
+  <div id="flash"></div>
   <div id="scope" hidden>
     <div class="scope-ring"></div>
     <div class="scope-h"></div><div class="scope-v"></div>
@@ -50,6 +51,11 @@
     <div class="weapon-name" id="weapon-name">Qadir SMG</div>
     <div class="nades" id="nades"></div>
     <div class="reload-hint" id="reload-hint" hidden>Press <b id="reload-key">R</b> to reload</div>
+    <div class="perk" id="perk"></div>
+  </div>
+  <div id="chat">
+    <div id="chat-log"></div>
+    <div id="chat-entry" hidden><span id="chat-mode">All</span><input id="chat-input" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Say something — Enter to send, Esc to cancel, Tab for team"></div>
   </div>
   <div id="bombcarry" hidden>You have the bomb</div>
   <div id="earns"></div>
@@ -86,10 +92,21 @@
       <h1>Souk Siege</h1>
       <p class="tagline">Street fighting in a walled desert town. New streets every match.</p>
     </header>
-    <label class="field">
-      <span>Your name</span>
-      <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Player">
-    </label>
+    <div class="account-strip" id="account-strip">
+      <label class="field" id="name-field">
+        <span>Your name</span>
+        <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Player">
+      </label>
+      <div class="signed-in" id="signed-in" hidden>
+        <span class="si-label">Signed in as</span>
+        <span class="si-name" id="si-name"></span>
+      </div>
+      <div class="account-buttons">
+        <button class="btn ghost" id="btn-signin">Sign in</button>
+        <button class="btn ghost" id="btn-signup">Create account</button>
+        <button class="btn ghost" id="btn-signout" hidden>Sign out</button>
+      </div>
+    </div>
     <div class="modes" id="modes"></div>
     <div class="menu-foot">
       <button class="btn" id="btn-locker">Locker <span class="dinar-pill"><i class="dinar"></i><span id="menu-dinars">0</span></span></button>
@@ -168,7 +185,10 @@
 <div id="locker" class="overlay dim" hidden>
   <div class="panel locker-panel">
     <div class="panel-head">
-      <h2>Locker</h2>
+      <div>
+        <h2>Locker</h2>
+        <div class="lk-account" id="lk-account"></div>
+      </div>
       <div class="lk-head-right">
         <div class="dinar-balance"><i class="dinar"></i><span id="locker-dinars">0</span><small>dinars</small></div>
         <button class="btn ghost" id="locker-close">Done</button>
@@ -179,30 +199,39 @@
         <div class="crate-art" aria-hidden="true"></div>
         <div class="crate-text">
           <div class="crate-name">Armory Crate</div>
-          <div class="crate-desc">One random gun finish for one of your five guns.</div>
+          <div class="crate-desc">A random gun finish for one of your five guns.</div>
         </div>
-        <button class="btn crate-open" id="crate-gun">Open · <span class="crate-price">100</span></button>
+        <button class="btn crate-open" id="crate-gun">Open · <span id="price-gun">100</span></button>
       </div>
       <div class="crate-card wardrobe">
         <div class="crate-art" aria-hidden="true"></div>
         <div class="crate-text">
           <div class="crate-name">Wardrobe Crate</div>
-          <div class="crate-desc">One random outfit for your soldier.</div>
+          <div class="crate-desc">A random outfit for your soldier.</div>
         </div>
-        <button class="btn crate-open" id="crate-outfit">Open · <span class="crate-price">100</span></button>
+        <button class="btn crate-open" id="crate-outfit">Open · <span id="price-outfit">100</span></button>
+      </div>
+      <div class="crate-card bazaar">
+        <div class="crate-art" aria-hidden="true"></div>
+        <div class="crate-text">
+          <div class="crate-name">Bazaar Case</div>
+          <div class="crate-desc">Bright and loud. No commons, better odds — finishes and outfits.</div>
+        </div>
+        <button class="btn crate-open" id="crate-bazaar">Open · <span id="price-bazaar">500</span></button>
       </div>
     </div>
-    <p class="panel-sub lk-earn">Earn dinars by playing: 10 a kill (+5 for a headshot), 20 for a plant, 25 for a defuse, 15 a round win, 25 for finishing a match and 50 more for winning it. Duplicates give some dinars back.</p>
+    <p class="panel-sub lk-earn">Earn dinars by playing: <b>50 a kill</b> (+10 for a headshot), 20 for a plant, 25 for a defuse, 15 a round win, 25 for finishing a match and 50 more for winning it. Duplicates give some dinars back.</p>
     <div class="lk-body">
       <div class="lk-preview"><canvas id="locker-preview"></canvas></div>
       <div class="lk-collection">
-        <div class="tabs">
-          <button class="tab lk-tab on" data-tab="guns">Gun skins</button>
-          <button class="tab lk-tab" data-tab="outfits">Outfits</button>
+        <div class="lk-tabs-row">
+          <div class="tabs">
+            <button class="tab lk-tab on" data-tab="loadouts">Loadouts</button>
+            <button class="tab lk-tab" data-tab="outfits">Outfits</button>
+          </div>
+          <div class="lk-count" id="lk-total"></div>
         </div>
-        <div class="lk-weapons" id="lk-weapons"></div>
-        <div class="lk-grid" id="lk-grid"></div>
-        <div class="lk-count" id="lk-count"></div>
+        <div class="lk-content loadouts" id="lk-content"></div>
       </div>
     </div>
   </div>
@@ -221,6 +250,29 @@
         <button class="btn" id="crate-equip">Equip</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ============ accounts ============ -->
+<div id="auth" class="overlay dim" hidden>
+  <div class="panel narrow auth-panel">
+    <div class="tabs auth-tabs">
+      <button class="tab on" data-auth="login" type="button">Sign in</button>
+      <button class="tab" data-auth="signup" type="button">Create account</button>
+    </div>
+    <form id="auth-form" novalidate>
+      <label class="field" id="f-user" hidden><span>Username</span><input id="auth-user" maxlength="16" autocomplete="username" spellcheck="false"></label>
+      <label class="field" id="f-email" hidden><span>Email</span><input id="auth-email" type="email" maxlength="254" autocomplete="email" spellcheck="false"></label>
+      <label class="field" id="f-id"><span>Username or email</span><input id="auth-id" maxlength="254" autocomplete="username" spellcheck="false"></label>
+      <label class="field"><span>Password</span><input id="auth-pass" type="password" maxlength="200" autocomplete="current-password"></label>
+      <p class="auth-hint" id="auth-hint" hidden>3–16 letters, numbers or underscores for your username. At least 8 characters for your password. What you've unlocked so far comes with you.</p>
+      <p class="auth-err" id="auth-err" role="alert"></p>
+      <div class="row-end">
+        <button class="btn ghost" id="auth-close" type="button">Cancel</button>
+        <button class="btn" id="auth-submit" type="submit">Sign in</button>
+      </div>
+    </form>
+    <p class="auth-note">Your account keeps your dinars, skins and loadouts, on any computer.</p>
   </div>
 </div>
 

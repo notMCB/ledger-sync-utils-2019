@@ -27,7 +27,7 @@ export const input = {
         return;
       }
       if (this.onKeyCode && this.onKeyCode(e)) return;
-      if (!this.locked) return;
+      if (!this.locked || this.typing) return;
       if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
       if (!e.repeat) pressedNow.add(e.code);
       held.add(e.code);
@@ -111,6 +111,13 @@ export const input = {
   pressed(action) {
     const a = settings.binds[action], b = settings.alt[action];
     return (!!a && pressedNow.has(a)) || (!!b && pressedNow.has(b));
+  },
+
+  // while typing in chat, the game ignores the keyboard
+  setTyping(on) {
+    this.typing = on;
+    held.clear();
+    pressedNow.clear();
   },
 
   heldCode(code) {

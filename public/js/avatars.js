@@ -279,6 +279,7 @@ export class Avatar {
     this.upper.rotation.x = c * 0.15;
     this.showName = Math.max(0, this.showName - dt);
     this.revealT = Math.max(0, this.revealT - dt);
+    this.pingT = Math.max(0, (this.pingT || 0) - dt);
   }
 
   headCenter(out) {

@@ -74,9 +74,18 @@ pick up the new build.
 ## Testing
 
 ```bash
-python3 tools/test_server.py            # kills and scores, hill, bomb plant/explode/defuse
+python3 tools/test_server.py            # kills and scores, hill, bomb plant/explode/defuse (needs the server on 8765)
+python3 tools/test_v2.py                # accounts, crates, chat, perks, flashes (starts its own server)
+python3 tools/test_catalog.py           # server and game item lists agree
 python3 tools/bot.py --mode tdm         # a second player so a match starts
 ```
+
+## Accounts
+
+Accounts (username, email, password) live in SQLite at `$DATA_DIR/souk.db`
+(default `data/`). Passwords are stored only as salted PBKDF2 hashes. The
+data directory must survive restarts, so on a host with a throwaway disk
+(Render's free plan) point `DATA_DIR` at a persistent disk.
 
 Opening the page with `?autotest=tdm` (or `ffa`, `koth`, `bomb`) joins
 straight away and runs through the controls. It reports to the server log,

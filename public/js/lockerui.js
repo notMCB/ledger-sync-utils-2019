@@ -1,20 +1,22 @@
-// The Locker screen: crates, the opening reel, your collection and a 3D preview.
+// The Locker screen: crates, the opening reel, loadouts and outfits, and a 3D preview.
 
 import * as THREE from 'three';
-import { locker, CRATE_COST, rollGun, rollOutfit } from './locker.js';
-import { FINISHES, FINISH, OUTFITS, OUTFIT, RARITY, GUN_IDS, swatch, tickSkins } from './skins.js';
-import { WEAPONS } from './weapons.js';
+import { locker, CRATES, roll } from './locker.js';
+import { FINISHES, FINISH, OUTFITS, OUTFIT, RARITY, swatch, tickSkins } from './skins.js';
+import { WEAPONS, LOADOUTS, PERKS } from './weapons.js';
 import { buildPreviewGun } from './viewmodel.js';
 import { Avatar } from './avatars.js';
+import { settings, saveSettings, keyName } from './settings.js';
 import { beep, uiBlip, unlockAudio } from './audio.js';
 import { esc } from './hud.js';
 
 const $ = (id) => document.getElementById(id);
 
 let onClose = null;
-let tab = 'guns';
-let weapon = 'smg';
-let selected = null;       // what the preview shows: {kind, weapon, finish} or {kind:'outfit', outfit}
+let onLoadout = null;
+let tab = 'loadouts';
+let ldSel = 0;              // the loadout being edited
+let selected = null;        // what the preview shows: {kind:'gun', weapon, finish} | {kind:'outfit', outfit}
 let preview = null;
 let spinning = false;
 
@@ -37,12 +39,15 @@ function setupPreview() {
   const camera = new THREE.PerspectiveCamera(30, 1, 0.05, 50);
   const holder = new THREE.Group();
   scene.add(holder);
-  preview = { renderer, scene, camera, holder, model: null, avatar: null, t: 0, running: false };
+  preview = { renderer, scene, camera, holder, model: null, avatar: null, t: 0, running: false, key: '' };
   return preview;
 }
 
 function showModel(sel) {
   const p = setupPreview();
+  const key = sel ? JSON.stringify(sel) : '';
+  if (key === p.key) return;
+  p.key = key;
   if (p.model) {
     p.holder.remove(p.model);
     p.model = null;
@@ -51,12 +56,10 @@ function showModel(sel) {
   if (sel.kind === 'gun') {
     const g = buildPreviewGun(sel.weapon, sel.finish);
     const box = new THREE.Box3().setFromObject(g.group);
-    const c = box.getCenter(new THREE.Vector3());
-    g.group.position.sub(c);
+    g.group.position.sub(box.getCenter(new THREE.Vector3()));
     const wrap = new THREE.Group();
     wrap.add(g.group);
-    const size = box.getSize(new THREE.Vector3()).length();
-    wrap.scale.setScalar(1.6 / size);
+    wrap.scale.setScalar(1.6 / box.getSize(new THREE.Vector3()).length());
     wrap.rotation.set(0.15, Math.PI / 2, 0);
     p.model = wrap;
     p.camera.position.set(0, 0.25, 3.2);
@@ -116,76 +119,177 @@ function tileHTML(sel, extra = '') {
     `<i class="sk-bar" style="background:${i.rarity.color}"></i>`;
 }
 
-// -- the collection -----------------------------------------------------------------
+const FACTORY_BG = 'linear-gradient(135deg,#5a5f66 0 55%,#3c3f44 55% 75%,#5b5c55 75%)';
+const order = FINISHES.map((f) => f.id);
+
+// a row of finishes you own for one gun, with Factory first
+function finishRow(weapon, current, onPick) {
+  const wrap = document.createElement('div');
+  wrap.className = 'lk-row';
+  const owned = locker.gunSkins(weapon).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const mk = (finish) => {
+    const b = document.createElement('button');
+    const on = (finish || null) === (current || null);
+    b.className = 'sk small' + (on ? ' equipped' : '');
+    b.innerHTML = finish ? tileHTML({ kind: 'gun', weapon, finish }, on ? '<div class="sk-eq">On</div>' : '')
+      : `<div class="sk-swatch" style="background:${FACTORY_BG}"></div><div class="sk-name">Factory</div><div class="sk-sub">${WEAPONS[weapon].short}</div><div class="sk-rarity">Default</div>${on ? '<div class="sk-eq">On</div>' : ''}`;
+    b.addEventListener('click', () => {
+      onPick(finish);
+      selected = { kind: 'gun', weapon, finish };
+      showModel(selected);
+      uiBlip();
+      render();
+    });
+    b.addEventListener('mouseenter', () => showModel({ kind: 'gun', weapon, finish }));
+    return b;
+  };
+  wrap.appendChild(mk(null));
+  for (const f of owned) wrap.appendChild(mk(f));
+  if (!owned.length) {
+    const hint = document.createElement('div');
+    hint.className = 'lk-hint';
+    hint.textContent = weapon === 'pistol' ? 'Open Armory Crates or the Bazaar Case to find pistol finishes.' : `Open crates to find ${WEAPONS[weapon].short} finishes.`;
+    wrap.appendChild(hint);
+  }
+  return wrap;
+}
+
+function section(title, sub) {
+  const s = document.createElement('div');
+  s.className = 'lk-section';
+  s.innerHTML = `<div class="lk-sec-head"><span>${esc(title)}</span><small>${esc(sub || '')}</small></div>`;
+  return s;
+}
+
+// -- the two tabs -------------------------------------------------------------------
+
+function renderLoadouts(host) {
+  const list = document.createElement('div');
+  list.className = 'lk-loadouts';
+  const inUse = settings.lastLoadout || 0;
+  LOADOUTS.forEach((L, i) => {
+    const b = document.createElement('button');
+    b.className = 'lk-ld' + (i === ldSel ? ' on' : '');
+    b.innerHTML = `<span class="ld-title">${L.title}</span><span class="ld-gun">${WEAPONS[L.weapon].name}</span>` +
+      `<span class="ld-perk">${PERKS[L.perk].name}</span>${i === inUse ? '<span class="lk-inuse">In use</span>' : ''}`;
+    b.addEventListener('click', () => {
+      ldSel = i;
+      selected = { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) };
+      showModel(selected);
+      render();
+    });
+    list.appendChild(b);
+  });
+  host.appendChild(list);
+
+  const L = LOADOUTS[ldSel];
+  const detail = document.createElement('div');
+  detail.className = 'lk-detail';
+  const head = document.createElement('div');
+  head.className = 'lk-detail-head';
+  head.innerHTML = `<div><h3>${L.title}</h3><p>${esc(L.blurb)}</p></div>`;
+  const use = document.createElement('button');
+  use.className = 'btn' + (ldSel === inUse ? ' ghost' : '');
+  use.textContent = ldSel === inUse ? 'In use' : 'Use this loadout';
+  use.disabled = ldSel === inUse;
+  use.addEventListener('click', () => {
+    settings.lastLoadout = ldSel;
+    saveSettings();
+    if (onLoadout) onLoadout(ldSel);
+    uiBlip();
+    render();
+  });
+  head.appendChild(use);
+  detail.appendChild(head);
+
+  const prim = section(`Primary · ${WEAPONS[L.weapon].name}`, 'Gun skin');
+  prim.appendChild(finishRow(L.weapon, locker.equippedGun(L.weapon), (f) => locker.equipGun(L.weapon, f)));
+  detail.appendChild(prim);
+
+  const sec = section('Secondary · Nimr 9mm', 'Pistol skin for this loadout');
+  sec.appendChild(finishRow('pistol', locker.equippedPistol(ldSel), (f) => locker.equipPistol(ldSel, f)));
+  detail.appendChild(sec);
+
+  const perk = PERKS[L.perk];
+  const pk = section(`Perk · ${perk.name}`, `${perk.uses} per life · use with ${keyName(settings.binds.perk)}`);
+  const pd = document.createElement('p');
+  pd.className = 'lk-perk';
+  pd.textContent = perk.blurb;
+  pk.appendChild(pd);
+  detail.appendChild(pk);
+
+  const nd = section('Grenades', 'Two per life');
+  const row = document.createElement('div');
+  row.className = 'lk-nades';
+  const kinds = L.id === 2 ? ['frag', 'flash'] : ['frag'];
+  const cur = locker.nadeFor(L.id);
+  for (const k of kinds) {
+    const b = document.createElement('button');
+    b.className = 'lk-nade' + (k === cur ? ' on' : '');
+    b.innerHTML = k === 'frag' ? '<b>Frag</b><small>Explodes — up to 125 damage</small>' : '<b>Flash</b><small>Blinds anyone looking — no damage</small>';
+    if (kinds.length > 1) {
+      b.addEventListener('click', () => {
+        locker.setNade(2, k);
+        uiBlip();
+        render();
+      });
+    } else b.disabled = true;
+    row.appendChild(b);
+  }
+  if (kinds.length === 1) {
+    const note = document.createElement('div');
+    note.className = 'lk-hint';
+    note.textContent = 'Only the Breacher can swap to flash grenades.';
+    row.appendChild(note);
+  }
+  nd.appendChild(row);
+  detail.appendChild(nd);
+  host.appendChild(detail);
+}
+
+function renderOutfits(host) {
+  const grid = document.createElement('div');
+  grid.className = 'lk-grid';
+  const owned = locker.outfits();
+  const eq = locker.equippedOutfit();
+  const ord = OUTFITS.map((o) => o.id);
+  owned.sort((a, b) => ord.indexOf(a) - ord.indexOf(b));
+  for (const o of owned) {
+    const b = document.createElement('button');
+    b.className = 'sk' + (o === eq ? ' equipped' : '');
+    b.innerHTML = tileHTML({ kind: 'outfit', outfit: o }, o === eq ? '<div class="sk-eq">Equipped</div>' : '');
+    b.addEventListener('click', () => {
+      locker.equipOutfit(o);
+      selected = { kind: 'outfit', outfit: o };
+      showModel(selected);
+      uiBlip();
+      render();
+    });
+    b.addEventListener('mouseenter', () => showModel({ kind: 'outfit', outfit: o }));
+    grid.appendChild(b);
+  }
+  host.appendChild(grid);
+  const c = document.createElement('div');
+  c.className = 'lk-count';
+  c.textContent = `${owned.length} of ${OUTFITS.length} outfits collected`;
+  host.appendChild(c);
+}
 
 function render() {
   $('locker-dinars').textContent = locker.dinars;
-  for (const b of document.querySelectorAll('.crate-open')) b.disabled = locker.dinars < CRATE_COST || spinning;
-  document.querySelectorAll('.lk-tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === tab));
-  $('lk-weapons').hidden = tab !== 'guns';
-  const grid = $('lk-grid');
-  grid.innerHTML = '';
-  if (tab === 'guns') {
-    $('lk-weapons').innerHTML = GUN_IDS.map((w) => `<button class="lk-chip${w === weapon ? ' on' : ''}" data-w="${w}">${WEAPONS[w].short}</button>`).join('');
-    $('lk-weapons').querySelectorAll('.lk-chip').forEach((b) => b.addEventListener('click', () => {
-      weapon = b.dataset.w;
-      selected = { kind: 'gun', weapon, finish: locker.equippedGun(weapon) };
-      showModel(selected);
-      render();
-    }));
-    const owned = locker.gunSkins(weapon);
-    const eq = locker.equippedGun(weapon);
-    // factory finish first
-    const factory = document.createElement('button');
-    factory.className = 'sk' + (!eq ? ' equipped' : '');
-    factory.innerHTML = `<div class="sk-swatch" style="background:linear-gradient(135deg,#5a5f66 0 55%,#3c3f44 55% 75%,#5b5c55 75%)"></div>` +
-      `<div class="sk-name">Factory</div><div class="sk-sub">${WEAPONS[weapon].short}</div><div class="sk-rarity">Default</div>${!eq ? '<div class="sk-eq">Equipped</div>' : ''}`;
-    factory.addEventListener('click', () => equipGun(null));
-    factory.addEventListener('mouseenter', () => showModel({ kind: 'gun', weapon, finish: null }));
-    grid.appendChild(factory);
-    const order = FINISHES.map((f) => f.id);
-    owned.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-    for (const f of owned) {
-      const b = document.createElement('button');
-      b.className = 'sk' + (f === eq ? ' equipped' : '');
-      b.innerHTML = tileHTML({ kind: 'gun', weapon, finish: f }, f === eq ? '<div class="sk-eq">Equipped</div>' : '');
-      b.addEventListener('click', () => equipGun(f));
-      b.addEventListener('mouseenter', () => showModel({ kind: 'gun', weapon, finish: f }));
-      grid.appendChild(b);
-    }
-    const all = GUN_IDS.reduce((a, w) => a + locker.gunSkins(w).length, 0);
-    $('lk-count').textContent = `${owned.length} of ${FINISHES.length} ${WEAPONS[weapon].short} finishes · ${all} of ${locker.totalGunSkins()} gun skins collected`;
-  } else {
-    const owned = locker.outfits();
-    const eq = locker.equippedOutfit();
-    const order = OUTFITS.map((o) => o.id);
-    owned.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-    for (const o of owned) {
-      const b = document.createElement('button');
-      b.className = 'sk' + (o === eq ? ' equipped' : '');
-      b.innerHTML = tileHTML({ kind: 'outfit', outfit: o }, o === eq ? '<div class="sk-eq">Equipped</div>' : '');
-      b.addEventListener('click', () => equipOutfit(o));
-      b.addEventListener('mouseenter', () => showModel({ kind: 'outfit', outfit: o }));
-      grid.appendChild(b);
-    }
-    $('lk-count').textContent = `${owned.length} of ${OUTFITS.length} outfits collected`;
+  for (const k of Object.keys(CRATES)) {
+    const b = $('crate-' + k);
+    if (b) b.disabled = locker.dinars < CRATES[k].price || spinning;
   }
-}
-
-function equipGun(f) {
-  locker.equipGun(weapon, f);
-  selected = { kind: 'gun', weapon, finish: f };
-  showModel(selected);
-  uiBlip();
-  render();
-}
-
-function equipOutfit(o) {
-  locker.equipOutfit(o);
-  selected = { kind: 'outfit', outfit: o };
-  showModel(selected);
-  uiBlip();
-  render();
+  document.querySelectorAll('.lk-tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === tab));
+  const host = $('lk-content');
+  host.innerHTML = '';
+  host.className = 'lk-content ' + tab;
+  if (tab === 'loadouts') renderLoadouts(host);
+  else renderOutfits(host);
+  const all = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol'].reduce((a, w) => a + locker.gunSkins(w).length, 0);
+  $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${OUTFITS.length} outfits`;
+  $('lk-account').textContent = locker.signedIn ? 'Saved to your account' : 'Saved in this browser — sign in to keep it everywhere';
 }
 
 // -- opening a crate ----------------------------------------------------------------
@@ -194,23 +298,25 @@ const TILE_W = 150;
 const GAP = 8;
 const WIN_AT = 44;
 
-function openCrate(kind) {
+async function openCrate(kind) {
   if (spinning) return;
   unlockAudio();
-  const prize = locker.open(kind);
-  if (!prize) return;
   spinning = true;
   render();
+  const prize = await locker.open(kind);
+  if (!prize) {
+    spinning = false;
+    render();
+    return;
+  }
   const reel = $('crate-reel');
   const strip = $('crate-strip');
-  $('crate-title').textContent = kind === 'gun' ? 'Armory Crate' : 'Wardrobe Crate';
+  $('crate-title').textContent = CRATES[kind].name;
   $('crate-result').hidden = true;
   $('crate').hidden = false;
+  $('crate').className = 'overlay dim crate-' + kind;
   const items = [];
-  for (let i = 0; i < WIN_AT + 6; i++) {
-    const r = kind === 'gun' ? rollGun() : rollOutfit();
-    items.push(i === WIN_AT ? prize : r);
-  }
+  for (let i = 0; i < WIN_AT + 6; i++) items.push(i === WIN_AT ? prize : roll(kind));
   strip.style.transition = 'none';
   strip.style.transform = 'translateX(0)';
   strip.innerHTML = items.map((it) => `<div class="sk reel-tile">${tileHTML(it)}</div>`).join('');
@@ -220,7 +326,6 @@ function openCrate(kind) {
   void strip.offsetWidth;
   strip.style.transition = 'transform 5.6s cubic-bezier(0.08, 0.62, 0.12, 1)';
   strip.style.transform = `translateX(${target}px)`;
-  // a click for every tile that passes the marker
   let last = 0;
   const tick = () => {
     if (!spinning) return;
@@ -233,42 +338,50 @@ function openCrate(kind) {
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
+  let finished = false;
   const done = () => {
+    if (finished) return;
+    finished = true;
     strip.removeEventListener('transitionend', done);
     spinning = false;
-    reveal(prize);
+    reveal(prize, kind);
     render();
   };
   strip.addEventListener('transitionend', done);
+  setTimeout(done, 6200); // in case the transition event never comes
 }
 
-function reveal(prize) {
+function reveal(prize, kind) {
   const i = itemInfo(prize);
   const r = $('crate-result');
   r.hidden = false;
   r.style.setProperty('--rar', i.rarity.color);
-  const legendary = prize.rarity === 'legendary' || prize.rarity === 'epic';
-  beep(legendary ? 880 : 660, 0.25, 0.3);
-  setTimeout(() => beep(legendary ? 1320 : 990, 0.3, 0.3), 140);
+  const big = prize.rarity === 'legendary' || prize.rarity === 'epic';
+  beep(big ? 880 : 660, 0.25, 0.3);
+  setTimeout(() => beep(big ? 1320 : 990, 0.3, 0.3), 140);
   $('crate-prize').innerHTML = `<div class="sk big">${tileHTML(prize)}</div>`;
   $('crate-note').textContent = prize.dup ? `You already had this one — ${prize.refund} dinars back.` : 'New! Added to your locker.';
   const eq = $('crate-equip');
-  eq.hidden = prize.dup && false;
+  eq.textContent = prize.kind === 'gun' ? (prize.weapon === 'pistol' ? `Equip on ${LOADOUTS[ldSel].title}` : 'Equip') : 'Wear it';
   eq.onclick = () => {
     if (prize.kind === 'gun') {
-      weapon = prize.weapon;
-      tab = 'guns';
-      equipGun(prize.finish);
+      tab = 'loadouts';
+      if (prize.weapon === 'pistol') locker.equipPistol(ldSel, prize.finish);
+      else {
+        locker.equipGun(prize.weapon, prize.finish);
+        ldSel = LOADOUTS.findIndex((L) => L.weapon === prize.weapon);
+      }
     } else {
       tab = 'outfits';
-      equipOutfit(prize.outfit);
+      locker.equipOutfit(prize.outfit);
     }
     $('crate').hidden = true;
+    render();
   };
-  $('crate-again').disabled = locker.dinars < CRATE_COST;
-  $('crate-again').textContent = `Open another · ${CRATE_COST}`;
-  $('crate-again').onclick = () => openCrate(prize.kind === 'gun' ? 'gun' : 'outfit');
-  if (prize.kind === 'gun') { weapon = prize.weapon; tab = 'guns'; } else tab = 'outfits';
+  const again = $('crate-again');
+  again.disabled = locker.dinars < CRATES[kind].price;
+  again.textContent = `Open another · ${CRATES[kind].price}`;
+  again.onclick = () => openCrate(kind);
   showModel(prize.kind === 'gun' ? { kind: 'gun', weapon: prize.weapon, finish: prize.finish } : { kind: 'outfit', outfit: prize.outfit });
 }
 
@@ -280,29 +393,40 @@ function wire() {
   wired = true;
   document.querySelectorAll('.lk-tab').forEach((t) => t.addEventListener('click', () => {
     tab = t.dataset.tab;
-    selected = tab === 'guns' ? { kind: 'gun', weapon, finish: locker.equippedGun(weapon) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
+    const L = LOADOUTS[ldSel];
+    selected = tab === 'loadouts' ? { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
     showModel(selected);
     render();
   }));
-  $('crate-gun').addEventListener('click', () => openCrate('gun'));
-  $('crate-outfit').addEventListener('click', () => openCrate('outfit'));
+  for (const k of Object.keys(CRATES)) {
+    $('crate-' + k).addEventListener('click', () => openCrate(k));
+    const price = $('price-' + k);
+    if (price) price.textContent = CRATES[k].price;
+  }
   $('crate-back').addEventListener('click', () => { if (!spinning) $('crate').hidden = true; });
   $('locker-close').addEventListener('click', closeLocker);
-  $('lk-grid').addEventListener('mouseleave', () => showModel(selected));
-  document.querySelectorAll('.crate-price').forEach((el) => { el.textContent = CRATE_COST; });
-  locker.onChange(() => { if (!$('locker').hidden) $('locker-dinars').textContent = locker.dinars; });
+  $('lk-content').addEventListener('mouseleave', () => showModel(selected));
+  locker.onChange(() => { if (!$('locker').hidden && !spinning) render(); });
 }
 
-export function openLocker(closeCb) {
+export function openLocker(closeCb, loadoutCb) {
   wire();
   onClose = closeCb;
+  onLoadout = loadoutCb;
+  ldSel = settings.lastLoadout || 0;
   $('locker').hidden = false;
-  selected = tab === 'guns' ? { kind: 'gun', weapon, finish: locker.equippedGun(weapon) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
+  const L = LOADOUTS[ldSel];
+  selected = tab === 'loadouts' ? { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
   setupPreview();
+  preview.key = '';
   showModel(selected);
   preview.running = true;
   previewLoop();
   render();
+}
+
+export function lockerOpen() {
+  return !$('locker').hidden;
 }
 
 function closeLocker() {

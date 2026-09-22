@@ -34,7 +34,19 @@ export const FINISHES = [
   { id: 'crimsonweb', name: 'Crimson Web', rarity: 'epic', pattern: 'web', colors: ['#141214', '#d0302a'], dark: '#0e0c0d', glow: '#d0302a' },
   { id: 'gilded', name: 'Gilded', rarity: 'legendary', body: '#d8ac3f', dark: '#8a6a22', furn: '#2b2320', metal: 0.9, rough: 0.22 },
   { id: 'mirage', name: 'Mirage', rarity: 'legendary', pattern: 'mirage', colors: ['#ff7a3c', '#ffd24a', '#3fd0c9', '#7a5cff'], dark: '#1b1d24', anim: 'hue' },
+  // Bazaar Case — the bright stuff
+  { id: 'bubblegum', name: 'Bubblegum', rarity: 'uncommon', crate: 'bazaar', body: '#ff8fc8', dark: '#7a3b8f', furn: '#9fe3ff', rough: 0.45, metal: 0.1 },
+  { id: 'limesorbet', name: 'Lime Sorbet', rarity: 'uncommon', crate: 'bazaar', body: '#b8f25a', dark: '#2f6b3a', furn: '#fff3a8', rough: 0.5, metal: 0.1 },
+  { id: 'polkapop', name: 'Polka Pop', rarity: 'uncommon', crate: 'bazaar', pattern: 'dots', colors: ['#ffd23f', '#ff4f79', '#3fc1ff'], dark: '#26304a' },
+  { id: 'toyblocks', name: 'Toy Blocks', rarity: 'rare', crate: 'bazaar', pattern: 'blocks', colors: ['#e63946', '#ffd23f', '#1d7cf2', '#2ec27e'], dark: '#1c1c1c' },
+  { id: 'sunsetfade', name: 'Sunset Fade', rarity: 'rare', crate: 'bazaar', pattern: 'gradient', colors: ['#ff5e62', '#ff9966', '#ffd86f', '#8e54e9'], dark: '#2b1d3a', rough: 0.35, metal: 0.3 },
+  { id: 'oceanwave', name: 'Ocean Wave', rarity: 'rare', crate: 'bazaar', pattern: 'waves', colors: ['#0fb9b1', '#1b6ca8', '#9ff3ec'], dark: '#0b2e4a' },
+  { id: 'graffiti', name: 'Graffiti', rarity: 'epic', crate: 'bazaar', pattern: 'splat', colors: ['#1b1b22', '#ff3cac', '#2bd2ff', '#fbe44b', '#6bff5c'], dark: '#111114' },
+  { id: 'galaxy', name: 'Galaxy', rarity: 'epic', crate: 'bazaar', pattern: 'galaxy', colors: ['#0b0620', '#5b2a9e', '#ff4fd8', '#3fd0ff'], dark: '#07041a', anim: 'hue' },
+  { id: 'holofoil', name: 'Holo Foil', rarity: 'legendary', crate: 'bazaar', pattern: 'gradient', colors: ['#ff4f79', '#ffd23f', '#2ec27e', '#3fc1ff', '#b061ff', '#ff4f79'], dark: '#20222b', metal: 0.7, rough: 0.2, anim: 'hue' },
+  { id: 'lavalamp', name: 'Lava Lamp', rarity: 'legendary', crate: 'bazaar', pattern: 'camo', colors: ['#ff2d55', '#ff5a1f', '#ffb03a', '#ffd166'], dark: '#2a0f14', glow: '#ff5a1f', anim: 'hue' },
 ];
+for (const f of FINISHES) f.crate = f.crate || 'armory';
 export const FINISH = Object.fromEntries(FINISHES.map((f) => [f.id, f]));
 
 // Outfits: clothing for the soldier model. The vest keeps the team (or
@@ -53,7 +65,15 @@ export const OUTFITS = [
   { id: 'midnight', name: 'Midnight Operative', rarity: 'epic', shirt: '#15181f', pants: '#101217', boots: '#0a0b0e', wrap: '#101217', head: 'helmet', glow: '#27e6ff', anim: 'pulse' },
   { id: 'sultan', name: 'Golden Sultan', rarity: 'legendary', shirt: '#d4a93c', pants: '#5a1f2a', boots: '#2a1414', wrap: '#f1e3a0', head: 'wrap', shine: true },
   { id: 'mirage', name: 'Mirage Phantom', rarity: 'legendary', pattern: 'mirage', colors: ['#ff7a3c', '#ffd24a', '#3fd0c9', '#7a5cff'], boots: '#15161b', wrap: '#1b1d24', head: 'hood', anim: 'hue' },
+  // Bazaar Case
+  { id: 'tracksuit', name: 'Tracksuit Legend', rarity: 'uncommon', crate: 'bazaar', pattern: 'stripes', colors: ['#1d7cf2', '#ffffff', '#e63946'], boots: '#f2f2f2', wrap: '#1d7cf2', head: 'beret' },
+  { id: 'candystripe', name: 'Candy Stripe', rarity: 'uncommon', crate: 'bazaar', pattern: 'stripes', colors: ['#ff8fc8', '#ffffff'], pants: '#ff8fc8', boots: '#ffffff', wrap: '#ff4f79', head: 'wrap' },
+  { id: 'surfer', name: 'Sunset Surfer', rarity: 'rare', crate: 'bazaar', pattern: 'floral', colors: ['#1fb5c9', '#ff5e62', '#ffd23f', '#2ec27e'], pants: '#f3d9a4', boots: '#8a5a36', wrap: '#ffd23f', head: 'beret' },
+  { id: 'popart', name: 'Pop Art', rarity: 'rare', crate: 'bazaar', pattern: 'dots', colors: ['#ffd23f', '#e63946', '#1d1d1d'], pants: '#1d7cf2', boots: '#1d1d1d', wrap: '#e63946', head: 'helmet' },
+  { id: 'festival', name: 'Festival Neon', rarity: 'epic', crate: 'bazaar', shirt: '#1a1a2e', pants: '#16213e', boots: '#0f0f1a', wrap: '#ff3cac', head: 'hood', glow: '#6bff5c', anim: 'pulse' },
+  { id: 'stargazer', name: 'Stargazer', rarity: 'legendary', crate: 'bazaar', pattern: 'galaxy', colors: ['#0b0620', '#5b2a9e', '#ff4fd8', '#3fd0ff'], boots: '#07041a', wrap: '#5b2a9e', head: 'helmet', glow: '#3fd0ff', anim: 'hue' },
 ];
+for (const o of OUTFITS) o.crate = o.crate || (o.starter ? 'starter' : 'wardrobe');
 export const OUTFIT = Object.fromEntries(OUTFITS.map((o) => [o.id, o]));
 
 // -- patterns -----------------------------------------------------------------
@@ -188,6 +208,89 @@ export function patternCanvas(kind, colors, seedKey = kind) {
       g.fillRect(0, (i / 20) * S, S, 2);
     }
     g.globalAlpha = 1;
+  } else if (kind === 'dots') {
+    const step = 32;
+    for (let y = 0; y < S; y += step) {
+      for (let x = 0; x < S; x += step) {
+        g.fillStyle = colors[1 + ((x / step + y / step) % (colors.length - 1))];
+        g.beginPath();
+        g.arc(x + (y / step % 2 ? step / 2 : 0), y + step / 2, 9, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  } else if (kind === 'blocks') {
+    const t = 64;
+    for (let y = 0; y < S; y += t) {
+      for (let x = 0; x < S; x += t) {
+        g.fillStyle = colors[Math.floor(r() * colors.length)];
+        g.fillRect(x + 2, y + 2, t - 4, t - 4);
+        g.fillStyle = 'rgba(255,255,255,0.35)';
+        g.beginPath();
+        g.arc(x + t / 2, y + t / 2, 10, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  } else if (kind === 'gradient') {
+    const grd = g.createLinearGradient(0, 0, S, S * 0.6);
+    colors.forEach((col, i) => grd.addColorStop(i / (colors.length - 1), col));
+    g.fillStyle = grd;
+    g.fillRect(0, 0, S, S);
+  } else if (kind === 'waves') {
+    for (let i = 0; i < 18; i++) {
+      g.strokeStyle = colors[i % colors.length];
+      g.lineWidth = 9;
+      g.beginPath();
+      const y0 = (i / 18) * S * 1.2 - 10;
+      for (let x = 0; x <= S; x += 4) g.lineTo(x, y0 + Math.sin(x * 0.05 + i * 0.7) * 9);
+      g.stroke();
+    }
+  } else if (kind === 'splat') {
+    for (let i = 0; i < 40; i++) {
+      g.fillStyle = colors[1 + Math.floor(r() * (colors.length - 1))];
+      const x = r() * S, y = r() * S, rad = 5 + r() * 22;
+      g.beginPath();
+      g.arc(x, y, rad, 0, Math.PI * 2);
+      g.fill();
+      for (let k = 0; k < 5; k++) {
+        g.beginPath();
+        g.arc(x + (r() - 0.5) * rad * 3, y + (r() - 0.5) * rad * 3, 1 + r() * 4, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+  } else if (kind === 'galaxy') {
+    for (let i = 0; i < 7; i++) {
+      const x = r() * S, y = r() * S, rad = 40 + r() * 70;
+      const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+      grd.addColorStop(0, colors[1 + (i % (colors.length - 1))] + 'cc');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grd;
+      g.fillRect(0, 0, S, S);
+    }
+    for (let i = 0; i < 160; i++) {
+      g.fillStyle = `rgba(255,255,255,${0.4 + r() * 0.6})`;
+      g.fillRect(r() * S, r() * S, r() < 0.1 ? 2 : 1, r() < 0.1 ? 2 : 1);
+    }
+  } else if (kind === 'stripes') {
+    const n = 8, h = S / n;
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = colors[i % colors.length];
+      g.fillRect(0, i * h, S, h);
+    }
+  } else if (kind === 'floral') {
+    for (let i = 0; i < 16; i++) {
+      const x = r() * S, y = r() * S, rad = 10 + r() * 12;
+      g.fillStyle = colors[1 + Math.floor(r() * (colors.length - 1))];
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2 + i;
+        g.beginPath();
+        g.ellipse(x + Math.cos(a) * rad * 0.7, y + Math.sin(a) * rad * 0.7, rad * 0.6, rad * 0.35, a, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = '#fff3c4';
+      g.beginPath();
+      g.arc(x, y, rad * 0.25, 0, Math.PI * 2);
+      g.fill();
+    }
   } else if (kind === 'rust') {
     for (let i = 0; i < 70; i++) {
       const x = r() * S, y = r() * S, rad = 6 + r() * 26;

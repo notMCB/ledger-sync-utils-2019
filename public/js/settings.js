@@ -15,9 +15,12 @@ export const ACTIONS = [
   { id: 'secondary', label: 'Pistol', key: 'Digit2', group: 'Combat' },
   { id: 'swap', label: 'Switch weapon', key: 'KeyQ', alt: 'WheelDown', group: 'Combat' },
   { id: 'grenade', label: 'Throw grenade', key: 'KeyG', group: 'Combat' },
+  { id: 'perk', label: 'Use perk', key: 'KeyX', group: 'Combat' },
   { id: 'interact', label: 'Plant / defuse bomb', key: 'KeyE', group: 'Other' },
   { id: 'scores', label: 'Scoreboard', key: 'Tab', group: 'Other' },
   { id: 'loadout', label: 'Change loadout', key: 'KeyB', group: 'Other' },
+  { id: 'chat', label: 'Chat to everyone', key: 'Enter', group: 'Other' },
+  { id: 'teamchat', label: 'Chat to your team', key: 'KeyY', group: 'Other' },
 ];
 
 const DEFAULTS = {
