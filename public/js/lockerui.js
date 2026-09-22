@@ -319,7 +319,8 @@ function render() {
   else renderOutfits(host);
   const all = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol'].reduce((a, w) => a + locker.gunSkins(w).length, 0);
   $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${OUTFITS.length} outfits`;
-  $('lk-account').textContent = locker.signedIn ? 'Saved to your account' : 'Saved in this browser — sign in to keep it everywhere';
+  const accountsOn = !$('account-strip').classList.contains('no-accounts');
+  $('lk-account').textContent = locker.signedIn ? 'Saved to your account' : accountsOn ? 'Saved in this browser — sign in to keep it everywhere' : 'Saved in this browser';
   restoreScroll(keep);
 }
 

@@ -7,3 +7,6 @@ services:
     buildCommand: "echo nothing to build"
     startCommand: "python3 server/server.py"
     healthCheckPath: /healthz
+    envVars:
+      - key: ACCOUNTS
+        value: "0"      # the free plan's disk is wiped on restart; turn on with a persistent disk

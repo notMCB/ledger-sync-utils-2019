@@ -7,10 +7,10 @@ export const VERSION = '2.0.0';
 export const PATCH_NOTES = [
   {
     version: '2.0.0',
-    date: 'Coming soon',
-    title: 'Loadouts, the Locker and accounts',
+    date: '22 September 2026',
+    title: 'Loadouts and the Locker',
     notes: [
-      'Accounts: create one with a username, email and password to keep your dinars, skins and loadouts on any computer. What you unlocked as a guest comes with you.',
+      'Your dinars, skins and loadouts are saved in this browser. (Accounts that follow you to any computer are coming.)',
       'Chat: press Enter to talk to everyone, or Y for just your team.',
       'Slide: crouch while running to slide. Jump out of a slide to keep your speed.',
       'Vault: jump at a window, crate or low wall to climb over it — in and out of buildings, even from upstairs.',

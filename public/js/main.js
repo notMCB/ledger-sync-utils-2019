@@ -19,7 +19,8 @@ input.attach(canvas);
 
 // ?autotest=<mode> joins straight away and drives the controls, for checking a build
 const params = new URLSearchParams(location.search);
-const AUTOTEST = params.get('autotest');
+const LOCAL = location.hostname === 'localhost';
+const AUTOTEST = LOCAL ? params.get('autotest') : null;
 const MODE_ORDER = ['tdm', 'ffa', 'koth', 'bomb'];
 const PHASE_TEXT = { waiting: 'Waiting for players', countdown: 'Starting', live: 'In progress', freeze: 'In progress', post: 'In progress', ended: 'Between matches' };
 let rooms = [];
@@ -78,7 +79,10 @@ function onMessage(m) {
   if (auth.onMessage(m)) return;
   if (m.t === 'welcome') {
     game.myId = m.id;
-    if (!auth.user) auth.resume();
+    // sign-in is only offered where the server can keep accounts
+    const acc = m.acc !== false;
+    document.getElementById('account-strip').classList.toggle('no-accounts', !acc);
+    if (acc && !auth.user) auth.resume();
     if (!game.inRoom) net.send({ t: 'preview' });
     if (AUTOTEST && !game.inRoom) {
       $('notes').hidden = true;
@@ -557,7 +561,7 @@ if (location.hostname === 'localhost' && params.get('demo') === 'stability') {
 // testing on this Mac only: ?dinars=500 tops up the locker
 if (location.hostname === 'localhost' && params.get('dinars')) locker.earn(Number(params.get('dinars')) || 0);
 // ?locker opens the locker straight away (for checking a build); ?crate=gun|outfit also spins one
-if (params.has('locker') || params.has('crate')) {
+if (LOCAL && (params.has('locker') || params.has('crate'))) {
   $('notes').hidden = true;
   showLocker();
   if (params.get('crate')) setTimeout(() => document.getElementById(params.get('crate') === 'outfit' ? 'crate-outfit' : 'crate-gun').click(), 600);
@@ -591,7 +595,7 @@ renderModes();
 renderRooms();
 game.applySettings();
 // the patch notes open on every visit (not when a test link opens the locker)
-if (!params.has('locker') && !params.has('crate') && !params.has('demo')) openNotes();
+if (!LOCAL || (!params.has('locker') && !params.has('crate') && !params.has('demo'))) openNotes();
 
 // -- autotest ---------------------------------------------------------------------
 // A scripted run through the controls, reporting to the server log. Only with ?autotest=<mode>.
@@ -917,7 +921,7 @@ async function runV2() {
 }
 
 // ?range=1&autotest=range : the firing range, one shot at the nearest target
-if (params.get('rangetest')) {
+if (LOCAL && params.get('rangetest')) {
   const log = (s) => fetch('/__log?m=' + encodeURIComponent('[range] ' + s));
   setTimeout(async () => {
     $('notes').hidden = true;

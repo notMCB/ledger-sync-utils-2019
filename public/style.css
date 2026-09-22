@@ -476,3 +476,7 @@ button { cursor: pointer; }
 .locker-panel { overscroll-behavior: contain; scroll-behavior: auto; }
 .lk-preview { position: sticky; top: 0; align-self: start; }
 .lk-row { overscroll-behavior-x: contain; }
+
+/* where the server can't keep accounts, the sign-in buttons stay hidden */
+.account-strip.no-accounts .account-buttons, .account-strip.no-accounts .signed-in { display: none !important; }
+.account-strip.no-accounts #name-field { display: grid !important; }

@@ -36,6 +36,8 @@ import catalog  # noqa: E402
 import accounts  # noqa: E402
 
 VERSION = '2.0.0'
+# accounts need a disk that survives restarts; switch them off where there isn't one
+ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
 TICK = 1 / 20
 MAX_PLAYERS = 8
@@ -1239,7 +1241,7 @@ class Conn:
                 p.name = name
             if 'cos' in m:
                 self.player.cos = owned_cos(self.player, clean_cos(m.get('cos')))
-            self.send({'t': 'welcome', 'id': self.player.id, 'v': VERSION})
+            self.send({'t': 'welcome', 'id': self.player.id, 'v': VERSION, 'acc': ACCOUNTS})
             if m.get('v') and m.get('v') != VERSION:
                 self.send({'t': 'reload', 'v': VERSION})
             lobby.add(self)
@@ -1281,6 +1283,8 @@ class Conn:
             lobby.add(self)
             self.send(room_list())
         elif t in ('signup', 'login', 'resume'):
+            if not ACCOUNTS:
+                return self.send({'t': 'auth', 'user': None, 'off': True})
             asyncio.ensure_future(self.auth(m))
         elif t == 'logout':
             accounts.logout(m.get('token'))
