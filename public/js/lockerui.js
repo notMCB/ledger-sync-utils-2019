@@ -45,7 +45,7 @@ function setupPreview() {
 
 function showModel(sel) {
   const p = setupPreview();
-  const key = sel ? JSON.stringify(sel) : '';
+  const key = sel ? JSON.stringify(sel) + (settings.lastLoadout || 0) : '';
   if (key === p.key) return;
   p.key = key;
   if (p.model) {
@@ -73,6 +73,7 @@ function showModel(sel) {
       p.avatar.tag.visible = false;
     }
     p.avatar.setOutfit(sel.outfit);
+    p.avatar.setGear(settings.lastLoadout || 0);
     p.avatar.group.visible = true;
     p.avatar.group.position.set(0, -0.95, 0);
     p.model = p.avatar.group;

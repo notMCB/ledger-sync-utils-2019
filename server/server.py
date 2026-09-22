@@ -66,7 +66,8 @@ LADDER_LIFE = 120.0
 BEACON_LIFE = 20.0
 BEACON_RANGE = 30.0
 BEACON_EVERY = 3.0
-NADE_MAX = 2
+NADES = [3, 2, 2, 2]   # grenades per life, by loadout (Assault carries three)
+NADE_MAX = 3
 NADE_RADIUS = 7.0
 NADE_DMG = 125
 
@@ -273,7 +274,7 @@ class Room:
                 'you': p.id, 'team': p.team})
         p.conn.send_raw(self.map_msg)
         for oid, L in self.ladders.items():
-            p.send({'t': 'ladder', 'id': oid, 'p': L['p'], 'y': L['y']})
+            p.send({'t': 'ladder', 'id': oid, 'p': L['p'], 'y': L['y'], 'h': L['h']})
         for oid, B in self.beacons.items():
             p.send({'t': 'beacon', 'id': oid, 'p': B['p'], 'tm': B['team']})
         self.roster_dirty = True
@@ -357,33 +358,47 @@ class Room:
         m = self.map
         others = [q for q in self.players.values() if q is not p and q.alive]
         warmup = self.phase in ('waiting', 'countdown')
-        if self.mode in TEAM_MODES and not warmup and p.team in (0, 1):
+        if self.mode == 'bomb' and not warmup and p.team in (0, 1):
+            # bomb rounds start from each side's end of town
             pts = list(m['teamSpawns'][self.spawn_side(p)])
             random.shuffle(pts)
             best = next((pt for pt in pts if all(math.hypot(pt[0] - q.pos[0], pt[1] - q.pos[2]) > 1.2
                                                  for q in others)), pts[0])
         else:
-            pts = m['ffaSpawns']
-            enemies = [q for q in others if warmup or p.team < 0 or q.team != p.team]
-            if enemies:
-                scored = sorted(pts, key=lambda pt: -min(math.hypot(pt[0] - q.pos[0], pt[1] - q.pos[2])
-                                                         for q in enemies))
-                best = random.choice(scored[:4])
-            else:
-                best = random.choice(pts)
+            best = self.random_spawn(p, others, warmup)
         x, z = best
-        yaw = math.atan2(x, z)  # face the middle of town
+        yaw = random.uniform(-math.pi, math.pi)
         p.pos = [x, 0.0, z]
         p.yaw = yaw
         p.hp = 100
         p.alive = True
-        p.nades = NADE_MAX
+        p.nades = NADES[p.loadout]
         p.perk_left = PERK_USES[PERKS[p.loadout]]
         p.sc += 1
         p.protect_until = now() + PROTECT
         p.in_round = True
         p.send({'t': 'spawn', 'p': [x, 0.0, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team})
         self.roster_dirty = True
+
+    def random_spawn(self, p, others, warmup):
+        """Anywhere in town, away from enemies and out of their sight where possible."""
+        pts = list(self.map['ffaSpawns'])
+        random.shuffle(pts)
+        enemies = [q for q in others if warmup or p.team < 0 or q.team != p.team]
+        if not enemies:
+            return pts[0]
+        def near(pt):
+            return min(math.hypot(pt[0] - q.pos[0], pt[1] - q.pos[2]) for q in enemies)
+        safe = [pt for pt in pts if near(pt) > 22]
+        if len(safe) < 3:
+            safe = sorted(pts, key=near, reverse=True)[:6]
+        for pt in safe[:10]:
+            eye = [pt[0], 1.6, pt[1]]
+            seen = any(dist3(eye, q.pos) < 45 and not self.solid.blocked(eye, [q.pos[0], q.pos[1] + 1.5, q.pos[2]])
+                       for q in enemies)
+            if not seen:
+                return pt
+        return safe[0]
 
     # -- match flow --
 
@@ -716,15 +731,15 @@ class Room:
             p.hp = min(100, p.hp + MED_HEAL)
             p.send({'t': 'heal', 'hp': p.hp})
         elif k == 'ammo':
-            p.nades = min(NADE_MAX, p.nades + 1)
             p.send({'t': 'perkok', 'k': 'ammo'})
         elif k == 'ladder':
             pos = vec3(m.get('p'))
             if dist2(pos, p.pos) > 4.0 or abs(pos[1] - p.pos[1]) > 1.5:
                 return
-            L = {'p': [round(v, 3) for v in pos], 'y': round(num(m.get('y')), 4), 'until': t + LADDER_LIFE}
+            L = {'p': [round(v, 3) for v in pos], 'y': round(num(m.get('y')), 4), 'h': round(num(m.get('h'), 2.0, 5.6, 5.4), 2),
+                 'until': t + LADDER_LIFE}
             self.ladders[p.id] = L
-            self.broadcast({'t': 'ladder', 'id': p.id, 'p': L['p'], 'y': L['y']})
+            self.broadcast({'t': 'ladder', 'id': p.id, 'p': L['p'], 'y': L['y'], 'h': L['h']})
         elif k == 'beacon':
             pos = vec3(m.get('p'))
             if dist3(pos, p.pos) > 4.0:
@@ -1264,6 +1279,7 @@ class Conn:
             if p.alive and (r.phase in ('waiting', 'countdown', 'freeze') or now() - (p.protect_until - PROTECT) < 8):
                 # the new loadout's perk, but never more uses than you had left
                 p.perk_left = min(p.perk_left, PERK_USES[PERKS[p.loadout]])
+                p.nades = min(p.nades, NADES[p.loadout])
                 p.send({'t': 'ldnow', 'ld': p.loadout})
                 p.send({'t': 'perkleft', 'k': PERKS[p.loadout], 'n': p.perk_left})
         elif t == 'cos':

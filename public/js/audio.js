@@ -107,8 +107,9 @@ const GUN = {
   pistol:  { crack: [2900, 800, 0.08, 0.75], body: [160, 70, 0.07, 0.45], tail: 0.22 },
 };
 
-export function gunshot(weapon, pos, local) {
+export function gunshot(weapon, pos, local, suppressed = false) {
   if (!ensure()) return;
+  if (suppressed) return suppressedShot(weapon, pos, local);
   const sp = spatial(pos, weapon === 'sniper' ? 160 : 110);
   if (!sp) return;
   const g = GUN[weapon] || GUN.smg;
@@ -122,6 +123,18 @@ export function gunshot(weapon, pos, local) {
   thump(sp.input, t, b0, b1, bd, bv);
   // mechanical clack for the shooter
   if (local) click(sp.input, t + 0.01, 4200, 0.12, 0.02);
+}
+
+// a suppressed shot: a muffled thump and the action cycling, heard much closer in
+function suppressedShot(weapon, pos, local) {
+  const sp = spatial(pos, 35);
+  if (!sp) return;
+  const t = ctx.currentTime;
+  sp.input.gain.value = sp.gain * (local ? 0.5 : 0.7);
+  sp.output.connect(master);
+  noiseBurst(sp.input, t, 0.09, 1400, 400, 0.6, weapon === 'sniper' ? 0.7 : 0.5, 'lowpass');
+  thump(sp.input, t, weapon === 'sniper' ? 120 : 170, 60, 0.07, 0.35);
+  click(sp.input, t + 0.015, 3200, 0.18, 0.02);
 }
 
 export function dryFire() {
@@ -310,4 +323,24 @@ export function flashRing(strength) {
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.connect(g); g.connect(master);
   o.start(t); o.stop(t + dur + 0.05);
+}
+
+// a steel target ringing when it's hit
+export function ding(pos, head) {
+  if (!ensure()) return;
+  const sp = spatial(pos, 140);
+  if (!sp) return;
+  sp.input.gain.value = Math.max(0.25, sp.gain);
+  sp.output.connect(master);
+  const t = ctx.currentTime;
+  for (const [f, v] of [[head ? 2400 : 1700, 0.3], [head ? 3900 : 2750, 0.12]]) {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(v, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(g); g.connect(sp.input);
+    o.start(t); o.stop(t + 0.65);
+  }
 }

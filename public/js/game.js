@@ -8,13 +8,14 @@ import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
 import { Hud, MODE_INFO } from './hud.js';
 import { input } from './input.js';
 import { settings, keyName } from './settings.js';
-import { WEAPONS, LOADOUTS, PERKS, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState } from './weapons.js';
+import { WEAPONS, LOADOUTS, PERKS, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor, isSuppressed } from './weapons.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
 import { tickSkins, OUTFIT } from './skins.js';
+import { buildRangeMap, Range } from './range.js';
 
 const GRAVITY = 18;
-const JUMP_V = 6.1;
+const JUMP_V = 6.6;
 const RADIUS = 0.34;
 const STAND_H = 1.8;
 const CROUCH_H = 1.2;
@@ -163,6 +164,42 @@ export class Game {
 
   // -- network ------------------------------------------------------------------
 
+  // nothing goes to the server while training offline
+  send(m) {
+    if (!this.offline && this.net) this.net.send(m);
+  }
+
+  // -- aim training ------------------------------------------------------------------
+
+  startRange() {
+    if (this.inRoom) this.leave();
+    this.offline = true;
+    this.inRoom = true;
+    this.room = { id: 0, mode: 'range', name: 'Aim Training' };
+    this.myId = -1;
+    this.g = { ph: 'live', mode: 'range', n: 1 };
+    this.roster = new Map();
+    this.avatars.clear();
+    this.loadMap(buildRangeMap());
+    this.range = new Range(this.scene);
+    this.hud.show(true);
+    document.getElementById('minimap').hidden = true;
+    this.onSpawn({ p: [0, 0, 3], y: 0, sc: 0, ld: settings.lastLoadout || 0, tm: -1 });
+    this.hud.center('Aim Training', `Shoot the targets · ${keyName(settings.binds.interact)} resets your score`, '', 4, 2);
+  }
+
+  // perks work locally on the range
+  localPerk(m) {
+    const me = this.me;
+    if (m.k === 'med') {
+      me.hp = Math.min(100, me.hp + 50);
+      this.onMessage({ t: 'heal', hp: me.hp });
+    } else if (m.k === 'ammo') this.refillAmmo();
+    else if (m.k === 'ladder') this.onLadder({ id: -1, p: m.p, y: m.y, h: m.h });
+    else if (m.k === 'beacon') this.onBeacon({ id: -1, p: m.p });
+    me.perkLeft = Math.max(0, me.perkLeft - 1);
+  }
+
   onMessage(m) {
     switch (m.t) {
       case 'map': return this.loadMap(m.map);
@@ -234,7 +271,13 @@ export class Game {
   }
 
   leave() {
-    if (this.inRoom && this.net) this.net.send({ t: 'leave' });
+    if (this.inRoom && this.net) this.send({ t: 'leave' });
+    if (this.range) {
+      this.range.dispose();
+      this.range = null;
+      document.getElementById('minimap').hidden = false;
+    }
+    this.offline = false;
     this.inRoom = false;
     this.room = null;
     this.me.alive = false;
@@ -251,7 +294,7 @@ export class Game {
   }
 
   isTeamMode() {
-    return this.room && this.room.mode !== 'ffa';
+    return !!this.room && ['tdm', 'koth', 'bomb'].includes(this.room.mode);
   }
 
   warmup() {
@@ -285,7 +328,7 @@ export class Game {
     this.vm.setSkins(locker.cosmetics(ld).g);
     this.me.nadeKind = locker.nadeFor(ld);
     this.updateTeamLook();
-    if (this.inRoom && this.net) this.net.send({ t: 'cos', cos: locker.cosmetics(ld) });
+    if (this.inRoom && this.net) this.send({ t: 'cos', cos: locker.cosmetics(ld) });
   }
 
   applyLoadout(ld) {
@@ -293,12 +336,14 @@ export class Game {
     me.loadout = ld;
     me.nadeKind = locker.nadeFor(ld);
     me.perkLeft = PERKS[LOADOUTS[ld].perk].uses;
+    me.nades = Math.min(me.nades, nadesFor(ld));
     const primary = LOADOUTS[ld].weapon;
     me.weapons = { primary: makeWeaponState(primary), pistol: makeWeaponState('pistol') };
     me.slot = 'primary';
     this.vm.setSkins(locker.cosmetics(ld).g);
+    this.vm.setPistolSuppressor(isSuppressed('pistol', ld));
     this.vm.setWeapon(primary);
-    if (this.inRoom && this.net) this.net.send({ t: 'cos', cos: locker.cosmetics(ld) });
+    if (this.inRoom && this.net) this.send({ t: 'cos', cos: locker.cosmetics(ld) });
     this.hud.lastAmmo = '';
   }
 
@@ -312,7 +357,7 @@ export class Game {
     me.alive = true;
     me.hp = 100;
     me.team = m.tm;
-    me.nades = NADES_PER_LIFE;
+    me.nades = nadesFor(m.ld);
     me.crouch = false;
     me.crouchK = 0;
     me.adsK = 0;
@@ -481,9 +526,11 @@ export class Game {
     const a = this.avatars.get(m.id);
     const w = WEAPONS[m.w] || WEAPONS.smg;
     const from = a && a.alive ? a.muzzle(V()) : new THREE.Vector3(m.o[0], m.o[1] - 0.2, m.o[2]);
-    this.fx.muzzleFlash(from, m.w === 'shotgun' || m.w === 'lmg' ? 0.8 : 0.55);
-    sfx.gunshot(m.w, from, false);
-    if (a) a.revealT = 2;
+    const quiet = isSuppressed(m.w, a ? a.loadout : -1);
+    this.fx.muzzleFlash(from, quiet ? 0.18 : m.w === 'shotgun' || m.w === 'lmg' ? 0.8 : 0.55, quiet);
+    sfx.gunshot(m.w, from, false, quiet);
+    // loud guns show up on the minimap; suppressed ones don't
+    if (a && !quiet) a.revealT = 2;
     const ends = m.e || [];
     ends.forEach((e, i) => {
       const to = new THREE.Vector3(e[0], e[1], e[2]);
@@ -518,6 +565,7 @@ export class Game {
     this.fx.explosion(p);
     sfx.explosion(p);
     this.shakeFrom(p, 16);
+    if (this.range) this.range.blast(p, 6);
   }
 
   // how blinded you are by a flash depends on distance, line of sight and whether you were looking at it
@@ -554,27 +602,31 @@ export class Game {
     }
     if (perk === 'med') {
       if (me.hp >= 100) return this.hud.center('Already at full health', '', '', 1.2, 1);
-      this.net.send({ t: 'perk', k: 'med' });
+      this.perkSend({ t: 'perk', k: 'med' });
     } else if (perk === 'ammo') {
-      const full = Object.values(me.weapons).every((w) => w.reserve >= w.def.reserve) && me.nades >= NADES_PER_LIFE;
+      const full = Object.values(me.weapons).every((w) => w.reserve >= w.def.reserve);
       if (full) return this.hud.center('Ammo is already full', '', '', 1.2, 1);
-      this.net.send({ t: 'perk', k: 'ammo' });
+      this.perkSend({ t: 'perk', k: 'ammo' });
     } else if (perk === 'ladder') {
       const spot = this.ladderSpot();
       if (!spot) return this.hud.center('Face a wall to stand the ladder against', 'Get close to it first', '', 1.8, 1);
-      this.net.send({ t: 'perk', k: 'ladder', p: [spot.x, spot.y, spot.z].map((v) => +v.toFixed(3)), y: +spot.yaw.toFixed(4) });
+      this.perkSend({ t: 'perk', k: 'ladder', p: [spot.x, spot.y, spot.z].map((v) => +v.toFixed(3)), y: +spot.yaw.toFixed(4), h: +spot.h.toFixed(2) });
     } else if (perk === 'beacon') {
       const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
       let p = new THREE.Vector3(me.pos.x + fx * 0.6, me.pos.y + 0.05, me.pos.z + fz * 0.6);
       if (this.world.physics.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 0.3, me.pos.z), new THREE.Vector3(fx, 0, fz), 0.8)) p = new THREE.Vector3(me.pos.x, me.pos.y + 0.05, me.pos.z);
-      this.net.send({ t: 'perk', k: 'beacon', p: [p.x, p.y, p.z].map((v) => +v.toFixed(3)) });
+      this.perkSend({ t: 'perk', k: 'beacon', p: [p.x, p.y, p.z].map((v) => +v.toFixed(3)) });
     }
+  }
+
+  perkSend(m) {
+    if (this.offline) this.localPerk(m);
+    else this.send(m);
   }
 
   refillAmmo() {
     const me = this.me;
     for (const w of Object.values(me.weapons)) w.reserve = w.def.reserve;
-    me.nades = Math.min(NADES_PER_LIFE, me.nades + 1);
     this.hud.lastAmmo = '';
     sfx.reloadSound('smg', 0.8, false, null);
     this.hud.center('Ammo refilled', '', '', 1.2, 1);
@@ -585,12 +637,21 @@ export class Game {
     const me = this.me;
     const phys = this.world.physics;
     const dir = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
-    const hit = phys.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 1.0, me.pos.z), dir, 2.2);
+    // it has to lean on solid wall: check at knee height and above head height,
+    // so a doorway or a window at chest height doesn't count
+    const hit = phys.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 0.6, me.pos.z), dir, 2.2);
     if (!hit || hit.ground || Math.abs(hit.normal.y) > 0.3) return null;
+    const high = phys.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 2.5, me.pos.z), dir, 2.6);
+    if (!high || Math.abs(high.t - hit.t) > 0.35) return null;
     const n = new THREE.Vector3(hit.normal.x, 0, hit.normal.z).normalize();
     const base = hit.point.clone().addScaledVector(n, 0.26);
     base.y = me.pos.y;
-    return { x: base.x, y: base.y, z: base.z, yaw: Math.atan2(n.x, n.z) };
+    // how tall the wall is right there: a one-storey roof, or high enough for the upstairs
+    const inside = hit.point.clone().addScaledVector(n, -0.1);
+    const top = phys.raycast(new THREE.Vector3(inside.x, base.y + 12, inside.z), DOWN, 12);
+    const wallTop = top ? top.point.y - base.y : 12;
+    const h = Math.max(2, Math.min(LADDER_H, wallTop + 0.8));
+    return { x: base.x, y: base.y, z: base.z, yaw: Math.atan2(n.x, n.z), h };
   }
 
   onLadder(m) {
@@ -600,11 +661,12 @@ export class Game {
     if (m.off) return;
     const [x, y, z] = m.p;
     const nx = Math.sin(m.y), nz = Math.cos(m.y);
-    const mesh = makeLadderMesh();
+    const h = m.h || LADDER_H;
+    const mesh = makeLadderMesh(h);
     mesh.position.set(x, y, z);
     mesh.rotation.y = m.y;
     this.scene.add(mesh);
-    this.ladders.set(m.id, { x, y, z, nx, nz, top: y + LADDER_H - 0.9, mesh });
+    this.ladders.set(m.id, { x, y, z, nx, nz, top: y + h - 0.9, mesh });
     sfx.footstep(new THREE.Vector3(x, y, z), 1.4);
   }
 
@@ -742,7 +804,15 @@ export class Game {
     if (!me.alive && this.inRoom && input.pressed('fire')) this.spectateIdx++;
 
     if (this.inRoom && input.pressed('loadout')) this.ui.openLoadout();
-    if (this.inRoom && this.chat) {
+    if (this.range) {
+      if (input.pressed('interact')) {
+        this.range.reset();
+        this.hud.center('Score reset', '', '', 1.2, 1);
+      }
+      for (const w of Object.values(me.weapons || {})) w.reserve = w.def.reserve;
+      me.nades = nadesFor(me.loadout);
+    }
+    if (this.inRoom && this.chat && !this.offline) {
       if (input.pressed('chat')) this.chat.open(false);
       else if (input.pressed('teamchat')) this.chat.open(this.isTeamMode());
     }
@@ -758,7 +828,7 @@ export class Game {
       if (me.adsK > 0.5) f |= 8;
       if (ws && ws.reloading) f |= 16;
       if (me.sprinting) f |= 32;
-      this.net.send({ t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +me.yaw.toFixed(4),
+      this.send({ t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +me.yaw.toFixed(4),
         pi: +me.pitch.toFixed(4), f, sl: me.slot === 'pistol' ? 1 : 0, sc: me.sc });
     }
   }
@@ -842,7 +912,7 @@ export class Game {
         me.climbing = false;
         me.vel.set(lad.nx * 3.5, 3.5, lad.nz * 3.5);
         gravity = GRAVITY;
-      } else if (f > 0 && this.tryVault(true)) {
+      } else if (f > 0 && this.tryVault(true, lad.y + 2.5)) {
         return;
       }
     } else if (me.slide) {
@@ -923,7 +993,7 @@ export class Game {
 
   // -- vaulting: over windowsills, crates and low walls --
 
-  tryVault(climbing) {
+  tryVault(climbing, minLedge = -Infinity) {
     const me = this.me;
     const phys = this.world.physics;
     const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
@@ -936,6 +1006,9 @@ export class Game {
       const ledge = hit.point.y;
       const rise = ledge - feet;
       if (rise < (climbing ? -0.6 : 0.5) || rise > 1.55) continue;
+      // a ladder reaches one storey — never the top of the town wall or a two-storey roof —
+      // and you only step off it at the top, not into a window you're climbing past
+      if (climbing && (ledge > 4.9 || ledge < minLedge)) continue;
       const top = new THREE.Vector3(px, ledge + 0.02, pz);
       // room to get over it crouched
       if (!phys.fits(top, 0.3, VAULT_H)) continue;
@@ -1130,7 +1203,7 @@ export class Game {
     const d = ws.def;
     ws.reloading = true;
     me.adsK = Math.min(me.adsK, 0.5);
-    this.net.send({ t: 'reload' });
+    this.send({ t: 'reload' });
     if (d.perShell) {
       me.shellNext = this.clock + d.reload + 0.15;
       this.vm.shell(d.reload + 0.15);
@@ -1158,10 +1231,10 @@ export class Game {
     const nid = me.nextNade++;
     const kind = me.loadout === 2 ? me.nadeKind : 'frag';
     this.fx.throwNade(this.myId, nid, origin, vel, true, (p) => {
-      this.net.send({ t: 'boom', n: nid, p: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] });
+      this.send({ t: 'boom', n: nid, p: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] });
       this.detonate(p, kind);
     }, kind);
-    this.net.send({ t: 'nade', n: nid, k: kind, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(3)), v: [vel.x, vel.y, vel.z].map((v) => +v.toFixed(3)) });
+    this.send({ t: 'nade', n: nid, k: kind, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(3)), v: [vel.x, vel.y, vel.z].map((v) => +v.toFixed(3)) });
   }
 
   fire(ws) {
@@ -1182,6 +1255,8 @@ export class Game {
     if (scoped) muzzle.copy(origin).addScaledVector(up, -0.08).addScaledVector(fwd, 0.4);
     const hits = [], ends = [];
     const phys = this.world.physics;
+    let rangeHit = false;
+    if (this.range) this.range.stats.shots++;
     const teamMode = this.isTeamMode() && !this.warmup();
     const skip = (a) => teamMode && a.team === me.team;
     for (let i = 0; i < d.pellets; i++) {
@@ -1194,8 +1269,15 @@ export class Game {
       const wh = phys.raycast(origin, dir, d.range);
       const wt = wh ? wh.t : d.range;
       const ph = this.avatars.raycast(origin, dir, wt, skip);
+      const rh = this.range && this.range.raycast(origin, dir, wt);
       let end;
-      if (ph) {
+      if (rh) {
+        end = origin.clone().addScaledVector(dir, rh.t);
+        if (!rangeHit) this.range.hit(rh, rh.t);
+        rangeHit = true;
+        this.hud.hit(false, rh.part === 'h');
+        this.fx.impact(end, dir.clone().negate(), 'car');
+      } else if (ph) {
         end = origin.clone().addScaledVector(dir, ph.t);
         hits.push([ph.id, ph.part]);
         this.fx.blood(end, dir);
@@ -1210,9 +1292,10 @@ export class Game {
       if (d.pellets === 1 || i < 6) this.fx.tracer(muzzle, end, d.tracer, d.id === 'sniper' ? 1.6 : 1);
     }
     // muzzle flash lights the street around you
-    this.fx.light(muzzle, d.id === 'shotgun' ? 8 : 5);
-    this.vm.fire(d.kick * (me.adsK > 0.5 ? 0.6 : 1));
-    sfx.gunshot(d.id, null, true);
+    if (!isSuppressed(d.id, me.loadout)) this.fx.light(muzzle, d.id === 'shotgun' ? 8 : 5);
+    const quiet = isSuppressed(d.id, me.loadout);
+    this.vm.fire(d.kick * (me.adsK > 0.5 ? 0.6 : 1), quiet);
+    sfx.gunshot(d.id, null, true, quiet);
     // recoil climbs; spread blooms
     const recoilMul = (1 - 0.25 * me.adsK) * (me.crouch ? 0.85 : 1);
     const upK = d.recoilUp * recoilMul * (0.85 + Math.random() * 0.3);
@@ -1221,7 +1304,8 @@ export class Game {
     me.yaw += d.recoilSide * recoilMul * (Math.random() * 2 - 1);
     me.punch += upK * 0.5;
     ws.bloom = Math.min(d.bloomMax, ws.bloom + d.bloomShot);
-    this.net.send({
+    if (this.range && !rangeHit) this.range.miss();
+    this.send({
       t: 'shot', w: d.id, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)),
       e: ends.map((e) => [+e.x.toFixed(2), +e.y.toFixed(2), +e.z.toFixed(2)]), h: hits,
     });
@@ -1254,14 +1338,14 @@ export class Game {
     if (opt && held) {
       if (!this.me.interacting) {
         this.me.interacting = true;
-        this.net.send({ t: 'plant', on: true });
+        this.send({ t: 'plant', on: true });
       }
     } else if (this.me.interacting) this.stopInteract();
   }
 
   stopInteract() {
     this.me.interacting = false;
-    this.net.send({ t: 'plant', on: false });
+    this.send({ t: 'plant', on: false });
   }
 
   // -- camera ------------------------------------------------------------------
@@ -1434,11 +1518,12 @@ export class Game {
     hud.update(dt);
     if (!this.inRoom) return;
     const ws = this.weapon();
-    if (ws) hud.setAmmo(ws, me.nades, NADES_PER_LIFE, keyName(settings.binds.reload));
+    if (ws) hud.setAmmo(ws, me.nades, nadesFor(me.loadout), keyName(settings.binds.reload));
     const perk = PERKS[LOADOUTS[me.loadout].perk];
     hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), me.loadout === 2 && me.nadeKind === 'flash' ? 'Flash' : 'Frag');
     hud.setHP(me.alive ? me.hp : 0);
-    hud.top(g, me.team, this.myId, this.roster, this.clock);
+    if (this.range) hud.rangeTop(this.range.stats);
+    else hud.top(g, me.team, this.myId, this.roster, this.clock);
     // crosshair: its gap is the real spread cone at this field of view
     if (ws && me.alive) {
       const spread = THREE.MathUtils.degToRad(ws.def.pelletSpread ? ws.def.pelletSpread * (1 + (0.72 - 1) * me.adsK) + ws.bloom * 0.3 : this.spreadDeg(ws));
@@ -1478,6 +1563,7 @@ export class Game {
     const objs = this.updateObjectives(dt);
     const view = me.alive ? { x: me.pos.x, z: me.pos.z, yaw: me.yaw } : { x: this.camera.position.x, z: this.camera.position.z, yaw: this.camera.rotation.y };
     hud.minimap(view, others, objs);
+    hud.area(view.x, view.z);
     hud.scoreboard(this.showScoresHeld || this.showScores, this.roster, g, this.myId,
       (id) => (id === this.myId ? me.alive : !!(this.avatars.get(id) && this.avatars.get(id).alive)), this.room && this.room.name);
   }
@@ -1519,6 +1605,7 @@ export class Game {
       }
       this.fx.update(dt, this.world.physics, this.camera, NADE_FUSE);
       this.updateDevices(dt);
+      if (this.range) this.range.update(dt);
       const me = this.me;
       if (this.inRoom && me.alive) {
         this.indoorT -= dt;
@@ -1557,16 +1644,16 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function makeLadderMesh() {
+function makeLadderMesh(H = LADDER_H) {
   const g = new THREE.Group();
   const wood = new THREE.MeshLambertMaterial({ color: '#8a6a44' });
   const metal = new THREE.MeshLambertMaterial({ color: '#5c5f62' });
   for (const x of [-0.26, 0.26]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.07, LADDER_H, 0.07), metal);
-    rail.position.set(x, LADDER_H / 2, 0);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.07, H, 0.07), metal);
+    rail.position.set(x, H / 2, 0);
     g.add(rail);
   }
-  for (let y = 0.3; y < LADDER_H - 0.1; y += 0.32) {
+  for (let y = 0.3; y < H - 0.1; y += 0.32) {
     const rung = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.045, 0.06), wood);
     rung.position.set(0, y, 0);
     g.add(rung);

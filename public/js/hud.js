@@ -11,6 +11,7 @@ export const MODE_INFO = {
   ffa: { name: 'Free for All', short: 'FFA', desc: 'Everyone for themselves. First to 25 kills.' },
   koth: { name: 'King of the Hill', short: 'KOTH', desc: 'Hold the marked ground alone to score. It moves every 75 seconds. First to 150.' },
   bomb: { name: 'Bomb Defusal', short: 'Bomb', desc: 'Attackers plant at A or B, defenders stop them. One life per round, first to 7 rounds.' },
+  range: { name: 'Aim Training', short: 'Range', desc: 'Just you, a bunker under the souk and steel targets from 10 to 105 m. Works offline.' },
 };
 
 function fmtTime(s) {
@@ -57,7 +58,7 @@ export class Hud {
   }
 
   setAmmo(ws, nades, maxNades, reloadKey) {
-    const key = `${ws.id}|${ws.mag}|${ws.reserve}|${nades}|${ws.reloading}`;
+    const key = `${ws.id}|${ws.mag}|${ws.reserve}|${nades}|${maxNades}|${ws.reloading}`;
     if (key === this.lastAmmo) return;
     this.lastAmmo = key;
     const m = $('ammo-mag');
@@ -216,6 +217,18 @@ export class Hud {
     }
   }
 
+  // the firing range's scoreboard
+  rangeTop(s) {
+    const acc = s.shots ? Math.round((s.hits / s.shots) * 100) : 0;
+    const cell = (n, l) => `<div class="tb-team"><div class="n">${n}</div><div class="l">${l}</div></div>`;
+    const html = cell(s.hits, 'Hits') + cell(`${acc}%`, 'Accuracy') + `<div class="tb-mid"><div class="time">${s.streak}</div><div class="sub">Streak · best ${s.bestStreak}</div></div>` +
+      cell(s.heads, 'Headshots') + cell(`${s.best}m`, 'Longest');
+    if (html !== this.lastTop) {
+      $('topbar').innerHTML = html;
+      this.lastTop = html;
+    }
+  }
+
   // objective markers projected to the screen: [{key, x, y, cls, label, dist}]
   markers(list) {
     const host = $('markers');
@@ -267,6 +280,25 @@ export class Hud {
         g.restore();
       }
     };
+    // dirt roads under everything
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    for (const d of map.deco) {
+      if (d.k !== 'road') continue;
+      g.strokeStyle = 'rgba(140, 105, 62, 0.85)';
+      g.lineWidth = Math.max(3, d.w * scale);
+      g.beginPath();
+      d.pts.forEach(([x, z], i) => (i ? g.lineTo(S / 2 + x * scale, S / 2 + z * scale) : g.moveTo(S / 2 + x * scale, S / 2 + z * scale)));
+      g.stroke();
+    }
+    for (const d of map.deco) {
+      if (d.k === 'pond') {
+        g.fillStyle = 'rgba(60, 140, 160, 0.9)';
+        g.beginPath();
+        g.arc(S / 2 + d.x * scale, S / 2 + d.z * scale, d.r * scale, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
     const fp = world.footprints();
     draw(fp.filter((f) => f.h < 4), 'rgba(239, 228, 207, 0.75)');
     draw(fp.filter((f) => f.h >= 4), 'rgba(255, 246, 228, 0.95)');
@@ -275,6 +307,26 @@ export class Hud {
     g.lineWidth = 2;
     g.strokeRect(S / 2 - bx * scale, S / 2 - bz * scale, bx * 2 * scale, bz * 2 * scale);
     this.mmBase = c;
+    this.areas = map.areas || [];
+    this.areaName = '';
+  }
+
+  // the name of wherever you're standing, under the minimap
+  area(x, z) {
+    let name = '';
+    let best = 1e9;
+    for (const a of this.areas) {
+      const d = Math.hypot(x - a.x, z - a.z);
+      if (d < a.r && d < best) {
+        best = d;
+        name = a.n;
+      }
+    }
+    if (name === this.areaName) return;
+    this.areaName = name;
+    const el = $('area');
+    el.textContent = name;
+    el.classList.toggle('on', !!name);
   }
 
   minimap(me, others, objectives) {

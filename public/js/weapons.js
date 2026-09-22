@@ -4,7 +4,7 @@
 
 export const WEAPONS = {
   smg: {
-    id: 'smg', name: 'Qadir SMG', short: 'SMG', auto: true, rpm: 800, mag: 30, reserve: 150,
+    id: 'smg', name: 'Qadir SMG', short: 'SMG', auto: true, rpm: 800, mag: 30, reserve: 75,
     reload: 2.1, pellets: 1, dmg: 24, range: 120,
     base: 1.5, bloomShot: 0.32, bloomMax: 5.0, recover: 9, move: 1.6, air: 5,
     adsMul: 0.32, sight: 'reddot', zoom: 1.1, adsTime: 0.16, moveMul: 1.05,
@@ -12,7 +12,7 @@ export const WEAPONS = {
     tracer: 0xffd27a, sound: 'smg',
   },
   lmg: {
-    id: 'lmg', name: 'Barakh LMG', short: 'LMG', auto: true, rpm: 640, mag: 100, reserve: 200,
+    id: 'lmg', name: 'Barakh LMG', short: 'LMG', auto: true, rpm: 640, mag: 100, reserve: 100,
     reload: 4.6, pellets: 1, dmg: 30, range: 160,
     base: 2.2, bloomShot: 0.28, bloomMax: 6.5, recover: 6, move: 2.4, air: 6,
     adsMul: 0.3, sight: 'holo', zoom: 2.0, adsTime: 0.28, moveMul: 0.86,
@@ -20,7 +20,7 @@ export const WEAPONS = {
     tracer: 0xff9a4a, sound: 'lmg',
   },
   shotgun: {
-    id: 'shotgun', name: 'Hamada 12-gauge', short: 'Shotgun', auto: false, rpm: 70, mag: 6, reserve: 36,
+    id: 'shotgun', name: 'Hamada 12-gauge', short: 'Shotgun', auto: false, rpm: 70, mag: 6, reserve: 18,
     reload: 0.52, pellets: 9, dmg: 16, range: 60, perShell: true,
     base: 4.2, pelletSpread: 4.2, bloomShot: 1.0, bloomMax: 2.0, recover: 4, move: 1.0, air: 3,
     adsMul: 0.72, sight: 'irons', zoom: 1.15, adsTime: 0.2, moveMul: 0.98,
@@ -28,15 +28,15 @@ export const WEAPONS = {
     tracer: 0xffe0a0, sound: 'shotgun',
   },
   sniper: {
-    id: 'sniper', name: 'Saqr .338', short: 'Sniper', auto: false, rpm: 45, mag: 5, reserve: 25,
+    id: 'sniper', name: 'Saqr .338', short: 'Sniper', auto: false, rpm: 45, mag: 5, reserve: 12,
     reload: 3.2, pellets: 1, dmg: 95, range: 300, bolt: true,
     base: 7.0, bloomShot: 4, bloomMax: 6, recover: 5, move: 5, air: 9,
     adsMul: 0.004, sight: 'scope', zoom: 6.0, adsTime: 0.3, moveMul: 0.92,
     recoilUp: 0.06, recoilSide: 0.01, kick: 0.14,
-    tracer: 0xfff2c0, sound: 'sniper',
+    tracer: 0xfff2c0, sound: 'sniper', suppressed: true,
   },
   pistol: {
-    id: 'pistol', name: 'Nimr 9mm', short: 'Pistol', auto: false, rpm: 380, mag: 12, reserve: 60,
+    id: 'pistol', name: 'Nimr 9mm', short: 'Pistol', auto: false, rpm: 380, mag: 12, reserve: 30,
     reload: 1.6, pellets: 1, dmg: 34, range: 120,
     base: 1.1, bloomShot: 0.85, bloomMax: 4.5, recover: 7, move: 1.2, air: 4,
     adsMul: 0.35, sight: 'irons', zoom: 1.2, adsTime: 0.13, moveMul: 1.08,
@@ -47,20 +47,27 @@ export const WEAPONS = {
 
 // Each loadout's perk. Uses are per life.
 export const PERKS = {
-  ammo: { id: 'ammo', name: 'Ammo Kit', uses: 2, blurb: 'Refills the ammo for both your guns and gives back a grenade.' },
+  ammo: { id: 'ammo', name: 'Ammo Kit', uses: 2, blurb: 'Refills the spare ammo for both your guns. (Grenades don’t come back.)' },
   med: { id: 'med', name: 'Medical Kit', uses: 2, blurb: 'Patches you up for 50 health.' },
   ladder: { id: 'ladder', name: 'Breaching Ladder', uses: 1, blurb: 'Stand it against a wall to climb in through high windows. Anyone can use it.' },
   beacon: { id: 'beacon', name: 'Recon Beacon', uses: 1, blurb: 'Drop it to reveal enemies within 30 m to your team every few seconds, for 20 seconds.' },
 };
 
 export const LOADOUTS = [
-  { id: 0, weapon: 'smg', perk: 'ammo', title: 'Assault', blurb: 'Fast-firing SMG with a red dot. Quick to aim, strong up close.' },
-  { id: 1, weapon: 'lmg', perk: 'med', title: 'Support', blurb: '100-round LMG with a 2× holographic sight. Heavy, slow to reload.' },
-  { id: 2, weapon: 'shotgun', perk: 'ladder', title: 'Breacher', blurb: 'Pump shotgun. Devastating in rooms and doorways. Frag or flash grenades.' },
-  { id: 3, weapon: 'sniper', perk: 'beacon', title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope. One headshot kills.' },
+  { id: 0, weapon: 'smg', perk: 'ammo', nades: 3, title: 'Assault', blurb: 'Fast-firing SMG with a red dot and three grenades. Quick to aim, strong up close.' },
+  { id: 1, weapon: 'lmg', perk: 'med', nades: 2, title: 'Support', blurb: '100-round LMG with a 2× holographic sight. Heavy, slow to reload.' },
+  { id: 2, weapon: 'shotgun', perk: 'ladder', nades: 2, suppressedPistol: true, title: 'Breacher', blurb: 'Pump shotgun and a suppressed pistol. Devastating in rooms and doorways. Frag or flash grenades.' },
+  { id: 3, weapon: 'sniper', perk: 'beacon', nades: 2, suppressedPistol: true, title: 'Marksman', blurb: 'Suppressed bolt-action rifle with a 6× scope, and a suppressed pistol. One headshot kills.' },
 ];
 
 export const NADES_PER_LIFE = 2;
+export const nadesFor = (ld) => (LOADOUTS[ld] ? LOADOUTS[ld].nades : 2);
+
+// suppressed guns are quieter, flash less and don't show you on enemy minimaps
+export function isSuppressed(weapon, ld) {
+  if (weapon === 'sniper') return true;
+  return weapon === 'pistol' && !!(LOADOUTS[ld] && LOADOUTS[ld].suppressedPistol);
+}
 export const NADE_FUSE = 2.2;
 export const NADE_RADIUS = 7;
 export const FLASH_RANGE = 22;

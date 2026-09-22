@@ -6,7 +6,7 @@ import * as T from './textures.js';
 import { Physics } from './physics.js';
 
 const WALL_TINTS = ['#f3e9d6', '#ecd3a6', '#dcb68a', '#e9cdbd', '#d4c7ad', '#e0ab7e'];
-const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b'];
+const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b', '#3b3430'];
 const CLOTH = ['#b3352b', '#2f7f7a', '#d49a2a', '#6b3f7a', '#2d5f9a', '#c46a2e'];
 const BARREL = ['#35577a', '#8a4a26', '#5a6b3a'];
 
@@ -194,6 +194,26 @@ export class World {
     scene.add(this.sun.target);
   }
 
+  // underground: the sun is shut out, lamps light the hall
+  setIndoor(on, root, map) {
+    if (!this.outdoor) this.outdoor = { sun: this.sun.intensity, hemi: this.hemi.intensity, fog: this.scene.fog.color.clone(), near: this.scene.fog.near, far: this.scene.fog.far };
+    const o = this.outdoor;
+    this.sky.visible = !on;
+    this.sun.intensity = on ? 0 : o.sun;
+    this.hemi.intensity = on ? 0.55 : o.hemi;
+    this.scene.fog.color.set(on ? '#2a2016' : o.fog);
+    this.scene.fog.near = on ? 30 : o.near;
+    this.scene.fog.far = on ? 190 : o.far;
+    if (on && root) {
+      // three lamps actually light the hall — the rest just glow — to keep it smooth
+      for (const z of [0, -40, -85]) {
+        const l = new THREE.PointLight('#ffc27a', 14, 45, 1.4);
+        l.position.set(0, 4.2, z);
+        root.add(l);
+      }
+    }
+  }
+
   setShadows(on) {
     this.renderer.shadowMap.enabled = on;
     this.sun.castShadow = on;
@@ -255,7 +275,9 @@ export class World {
       } else if (mat === 'crate') {
         B('crate').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 1, { unitUV: true });
       } else if (mat === 'car') {
-        B('car').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CAR_TINTS[tint % 5]), 2);
+        B('car').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CAR_TINTS[tint % CAR_TINTS.length]), 2);
+      } else if (mat === 'hay') {
+        B('wood').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#e8c96a', 1.25), 1.2);
       }
     }
     for (const k in builders) {
@@ -277,6 +299,7 @@ export class World {
     root.add(ground);
 
     this.buildDeco(map, root, tx);
+    this.setIndoor(!!map.indoor, root, map);
     this.scene.add(root);
     this.renderer.shadowMap.needsUpdate = true;
   }
@@ -361,6 +384,152 @@ export class World {
           const sg = new THREE.SphereGeometry(0.22, 8, 6);
           goods.push({ geo: sg, matrix: mtx(d.x + c * gx + s * gz, 0.98, d.z - s * gx + c * gz, 0, 0, 0, 1, 0.55, 1), color: colorOf(gcol[i % 3]) });
         }
+      } else if (d.k === 'lamp') {
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffdc9a' }));
+        bulb.position.set(d.x, d.y, d.z);
+        root.add(bulb);
+        const shade = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.3, 12, 1, true), new THREE.MeshLambertMaterial({ color: '#3a3a36', side: THREE.DoubleSide }));
+        shade.position.set(d.x, d.y + 0.15, d.z);
+        root.add(shade);
+        const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.6, 4), new THREE.MeshBasicMaterial({ color: '#1a1a1a' }));
+        cord.position.set(d.x, d.y + 0.6, d.z);
+        root.add(cord);
+      } else if (d.k === 'sign') {
+        const c = document.createElement('canvas');
+        c.width = d.big ? 512 : 256; c.height = 96;
+        const g = c.getContext('2d');
+        g.fillStyle = d.big ? '#2f5f5a' : '#e9dcc3';
+        g.fillRect(0, 0, c.width, 96);
+        g.fillStyle = d.big ? '#f1e3c0' : '#2a2016';
+        g.font = `700 ${d.big ? 40 : 60}px "Reem Kufi", "Arial Black", sans-serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(d.text, c.width / 2, 52);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const mat = new THREE.MeshLambertMaterial({ map: tex, emissive: '#221a10' });
+        mat.userData.own = true;
+        const plate = new THREE.Mesh(new THREE.PlaneGeometry(d.big ? 4.4 : 1.6, d.big ? 0.83 : 0.6), mat);
+        if (d.big) {
+          // hung from the first arch downrange, facing the shooters
+          plate.position.set(d.x, 3.7, -8.6);
+        } else {
+          plate.position.set(d.x + 8.55, 2.2, d.z);
+          plate.rotation.y = -Math.PI / 2;
+        }
+        root.add(plate);
+      } else if (d.k === 'road') {
+        this.addRoad(root, d);
+      } else if (d.k === 'pond') {
+        const water = new THREE.Mesh(new THREE.CircleGeometry(d.r, 48), new THREE.MeshPhongMaterial({ color: '#2f7f8f', shininess: 90, specular: '#cfefff', transparent: true, opacity: 0.88 }));
+        water.rotation.x = -Math.PI / 2;
+        water.position.set(d.x, 0.05, d.z);
+        root.add(water);
+        const rim = new THREE.Mesh(new THREE.RingGeometry(d.r - 0.05, d.r + 1.1, 48), new THREE.MeshLambertMaterial({ color: '#8a7250' }));
+        rim.rotation.x = -Math.PI / 2;
+        rim.position.set(d.x, 0.035, d.z);
+        rim.receiveShadow = true;
+        root.add(rim);
+      } else if (d.k === 'paving' || d.k === 'scorch' || d.k === 'rug') {
+        this.addDecal(root, d);
+      } else if (d.k === 'well') {
+        const stone = new THREE.MeshLambertMaterial({ map: tx.stone, color: '#e8dcc6' });
+        const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.0, 1.0, 20), stone);
+        ring.position.set(d.x, 0.5, d.z);
+        ring.castShadow = true;
+        root.add(ring);
+        const hole = new THREE.Mesh(new THREE.CircleGeometry(0.72, 20), new THREE.MeshBasicMaterial({ color: '#10141a' }));
+        hole.rotation.x = -Math.PI / 2;
+        hole.position.set(d.x, 1.005, d.z);
+        root.add(hole);
+        const woodM = new THREE.MeshLambertMaterial({ map: tx.wood });
+        for (const sx of [-0.85, 0.85]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.2, 0.12), woodM);
+          post.position.set(d.x + sx, 1.1, d.z);
+          root.add(post);
+        }
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, 0.12), woodM);
+        beam.position.set(d.x, 2.1, d.z);
+        root.add(beam);
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(1.5, 0.8, 4), new THREE.MeshLambertMaterial({ color: '#a4452f' }));
+        roof.position.set(d.x, 2.55, d.z);
+        roof.rotation.y = Math.PI / 4;
+        roof.castShadow = true;
+        root.add(roof);
+      } else if (d.k === 'clock') {
+        const face = new THREE.MeshLambertMaterial({ map: T.clockFace(), emissive: '#2a2418' });
+        face.userData.own = true;
+        const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+        for (let i = 0; i < 4; i++) {
+          const a = d.yaw + (i * Math.PI) / 2;
+          const m = new THREE.Mesh(new THREE.CircleGeometry(1.15, 32), face);
+          m.position.set(d.x + Math.sin(a) * 1.72, d.y - 2.2, d.z + Math.cos(a) * 1.72);
+          m.rotation.y = a;
+          root.add(m);
+        }
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.4, 3.8), new THREE.MeshLambertMaterial({ map: tx.plaster, color: '#d9c4a0' }));
+        cap.position.set(d.x, d.y + 0.2, d.z);
+        cap.rotation.y = d.yaw;
+        root.add(cap);
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 3.4, 4), new THREE.MeshLambertMaterial({ color: '#2f8f8a' }));
+        roof.position.set(d.x, d.y + 2.1, d.z);
+        roof.rotation.y = d.yaw + Math.PI / 4;
+        roof.castShadow = true;
+        root.add(roof);
+        void c; void s;
+      } else if (d.k === 'watertower') {
+        const metalM = new THREE.MeshLambertMaterial({ map: tx.metal, color: '#8a6a4a' });
+        for (const sx of [-1.6, 1.6]) {
+          for (const sz of [-1.6, 1.6]) {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, d.h, 8), metalM);
+            leg.position.set(d.x + sx, d.h / 2, d.z + sz);
+            leg.castShadow = true;
+            root.add(leg);
+          }
+        }
+        for (const y of [2.5, 5.5]) {
+          for (const [ax, az, len, ry] of [[0, -1.6, 3.2, 0], [0, 1.6, 3.2, 0], [-1.6, 0, 3.2, Math.PI / 2], [1.6, 0, 3.2, Math.PI / 2]]) {
+            const b = new THREE.Mesh(new THREE.BoxGeometry(len, 0.08, 0.08), metalM);
+            b.position.set(d.x + ax, y, d.z + az);
+            b.rotation.y = ry;
+            root.add(b);
+          }
+        }
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 3.2, 24), new THREE.MeshLambertMaterial({ map: tx.metal, color: '#5f9a93' }));
+        tank.position.set(d.x, d.h + 1.6, d.z);
+        tank.castShadow = true;
+        root.add(tank);
+        const top = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.2, 24), new THREE.MeshLambertMaterial({ color: '#4a7a74' }));
+        top.position.set(d.x, d.h + 3.8, d.z);
+        root.add(top);
+      } else if (d.k === 'column') {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, d.h, 12), new THREE.MeshLambertMaterial({ map: tx.stone, color: '#efe2c8' }));
+        col.position.set(d.x, d.h / 2, d.z);
+        col.castShadow = true;
+        col.receiveShadow = true;
+        root.add(col);
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.3, 0.85), new THREE.MeshLambertMaterial({ map: tx.stone }));
+        base.position.set(d.x, 0.15, d.z);
+        root.add(base);
+      } else if (d.k === 'lanterns') {
+        const [ax, az] = d.a, [bx, bz] = d.b;
+        const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, Math.hypot(bx - ax, bz - az), 4), new THREE.MeshBasicMaterial({ color: '#2a2016' }));
+        wire.position.set((ax + bx) / 2, 3.4, (az + bz) / 2);
+        wire.rotation.set(0, Math.atan2(bx - ax, bz - az), 0);
+        wire.rotateX(Math.PI / 2);
+        root.add(wire);
+        const cols = ['#ffcf6a', '#ff8a5a', '#9fe36a', '#6ad0ff'];
+        for (let i = 0; i <= 10; i++) {
+          const t = i / 10;
+          const l = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), new THREE.MeshBasicMaterial({ color: cols[i % 4] }));
+          l.position.set(ax + (bx - ax) * t, 3.25 - Math.sin(t * Math.PI) * 0.35, az + (bz - az) * t);
+          root.add(l);
+        }
+        for (const [px, pz] of [[ax, az], [bx, bz]]) {
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.5, 6), new THREE.MeshLambertMaterial({ color: '#5a4630' }));
+          pole.position.set(px, 1.75, pz);
+          root.add(pole);
+        }
       } else if (d.k === 'site') {
         const g = new THREE.PlaneGeometry(d.r * 2, d.r * 2);
         g.rotateX(-Math.PI / 2);
@@ -388,6 +557,66 @@ export class World {
     add(goods, new THREE.MeshLambertMaterial({ vertexColors: true }));
     cloth.forEach((list, i) => add(list, new THREE.MeshLambertMaterial({ map: tx.cloth[i], side: THREE.DoubleSide, vertexColors: true })));
     cyl.dispose(); trunkSeg.dispose(); leafGeo.dispose();
+  }
+
+  // a dirt road: one strip following the points, a little above the sand
+  addRoad(root, d) {
+    const pos = [], uv = [], idx = [];
+    const pts = d.pts;
+    let along = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [x, z] = pts[i];
+      const p = pts[Math.max(0, i - 1)], n = pts[Math.min(pts.length - 1, i + 1)];
+      let tx = n[0] - p[0], tz = n[1] - p[1];
+      const L = Math.hypot(tx, tz) || 1;
+      tx /= L; tz /= L;
+      const nx = -tz * d.w / 2, nz = tx * d.w / 2;
+      if (i) along += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
+      pos.push(x + nx, 0.02, z + nz, x - nx, 0.02, z - nz);
+      uv.push(0, along / 5, 1, along / 5);
+      if (i) {
+        const a = (i - 1) * 2;
+        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    if (!this._roadTex) this._roadTex = T.road();
+    const mat = new THREE.MeshLambertMaterial({ map: this._roadTex, polygonOffset: true, polygonOffsetFactor: -1, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+
+  // flat things on the ground: paved squares, scorch marks, rugs
+  addDecal(root, d) {
+    let geo, mat;
+    if (d.k === 'rug') {
+      geo = new THREE.PlaneGeometry(2.2, 1.5);
+      mat = new THREE.MeshLambertMaterial({ map: T.rug(['#a33a2c', '#2f5f8f', '#c98a2a', '#6b3f7a', '#2f7f7a', '#8a2a4a'][d.c % 6]) });
+      mat.userData.own = true;
+    } else if (d.k === 'scorch') {
+      geo = new THREE.CircleGeometry(d.r, 32);
+      mat = new THREE.MeshBasicMaterial({ map: T.softDot('rgba(25,18,12,0.85)', 'rgba(25,18,12,0)'), transparent: true, depthWrite: false });
+      mat.userData.own = true;
+    } else {
+      geo = new THREE.CircleGeometry(d.r, 40);
+      const tex = T.paving(!!d.dirt);
+      tex.repeat.set(d.r / 2.5, d.r / 2.5);
+      mat = new THREE.MeshLambertMaterial({ map: tex });
+      mat.userData.own = true;
+    }
+    mat.polygonOffset = true;
+    mat.polygonOffsetFactor = -2;
+    const m = new THREE.Mesh(geo, mat);
+    m.rotation.x = -Math.PI / 2;
+    if (d.k === 'rug') m.rotation.z = d.yaw || 0;
+    m.position.set(d.x, d.k === 'rug' ? 0.035 : 0.025, d.z);
+    m.receiveShadow = true;
+    root.add(m);
   }
 
   // footprints of every building, for the minimap

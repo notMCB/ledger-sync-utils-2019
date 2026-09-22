@@ -318,3 +318,101 @@ export function nameTag(text, color) {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+// packed dirt road with two worn wheel ruts along it (v runs along the road)
+export function road() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(21);
+  g.fillStyle = '#a88a5c';
+  g.fillRect(0, 0, S, S);
+  for (const x of [0.28, 0.72]) {
+    const grd = g.createLinearGradient((x - 0.1) * S, 0, (x + 0.1) * S, 0);
+    grd.addColorStop(0, 'rgba(90,68,40,0)');
+    grd.addColorStop(0.5, 'rgba(90,68,40,0.45)');
+    grd.addColorStop(1, 'rgba(90,68,40,0)');
+    g.fillStyle = grd;
+    g.fillRect((x - 0.1) * S, 0, 0.2 * S, S);
+  }
+  // soft edges blend into the sand
+  const e = g.createLinearGradient(0, 0, S, 0);
+  e.addColorStop(0, 'rgba(201,168,119,0.9)');
+  e.addColorStop(0.12, 'rgba(201,168,119,0)');
+  e.addColorStop(0.88, 'rgba(201,168,119,0)');
+  e.addColorStop(1, 'rgba(201,168,119,0.9)');
+  g.fillStyle = e;
+  g.fillRect(0, 0, S, S);
+  speckle(g, S, r, 3000, ['rgba(70,52,30,0.3)', 'rgba(230,205,160,0.25)'], 1, 2.5);
+  const tx = tex(c);
+  return tx;
+}
+
+export function clockFace() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  g.fillStyle = '#efe6cf';
+  g.beginPath(); g.arc(S / 2, S / 2, S / 2 - 4, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#3a2c1c';
+  g.lineWidth = 10;
+  g.stroke();
+  g.fillStyle = '#3a2c1c';
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    g.save();
+    g.translate(S / 2 + Math.sin(a) * 96, S / 2 - Math.cos(a) * 96);
+    g.rotate(a);
+    g.fillRect(-4, -12, 8, 24);
+    g.restore();
+  }
+  g.lineCap = 'round';
+  g.lineWidth = 9;
+  g.beginPath(); g.moveTo(S / 2, S / 2); g.lineTo(S / 2 + 45, S / 2 - 30); g.stroke();
+  g.lineWidth = 6;
+  g.beginPath(); g.moveTo(S / 2, S / 2); g.lineTo(S / 2 - 20, S / 2 - 80); g.stroke();
+  return tex(c, false);
+}
+
+export function paving(dirt) {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(dirt ? 31 : 29);
+  if (dirt) {
+    g.fillStyle = '#b39468';
+    g.fillRect(0, 0, S, S);
+    speckle(g, S, r, 4000, ['rgba(80,60,35,0.3)', 'rgba(230,205,160,0.3)', 'rgba(120,150,60,0.15)'], 1, 3);
+  } else {
+    const n = 8, t = S / n;
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        g.fillStyle = `hsl(${34 + r() * 8}, ${22 + r() * 10}%, ${64 + r() * 10}%)`;
+        g.fillRect(x * t + 1.5, y * t + 1.5, t - 3, t - 3);
+      }
+    }
+  }
+  const tx = tex(c);
+  return tx;
+}
+
+export function rug(color) {
+  const S = 128;
+  const [c, g] = canvas(S);
+  g.fillStyle = color;
+  g.fillRect(0, 0, S, S);
+  g.strokeStyle = '#f1e3c0';
+  g.lineWidth = 6;
+  g.strokeRect(8, 8, S - 16, S - 16);
+  g.strokeStyle = 'rgba(20,10,5,0.5)';
+  g.lineWidth = 3;
+  g.strokeRect(18, 18, S - 36, S - 36);
+  g.fillStyle = '#f1e3c0';
+  g.beginPath();
+  g.moveTo(S / 2, 30); g.lineTo(S - 34, S / 2); g.lineTo(S / 2, S - 30); g.lineTo(34, S / 2);
+  g.closePath();
+  g.fill();
+  g.fillStyle = color;
+  g.beginPath();
+  g.moveTo(S / 2, 46); g.lineTo(S - 50, S / 2); g.lineTo(S / 2, S - 46); g.lineTo(50, S / 2);
+  g.closePath();
+  g.fill();
+  return tex(c, false);
+}

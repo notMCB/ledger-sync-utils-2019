@@ -71,6 +71,32 @@ def circle_rect_dist(px, pz, r):
     return math.hypot(max(lx, 0.0), max(lz, 0.0))
 
 
+def seg_dist(px, pz, ax, az, bx, bz):
+    dx, dz = bx - ax, bz - az
+    L2 = dx * dx + dz * dz
+    t = 0.0 if L2 < 1e-9 else max(0.0, min(1.0, ((px - ax) * dx + (pz - az) * dz) / L2))
+    return math.hypot(px - (ax + dx * t), pz - (az + dz * t))
+
+
+def catmull(p0, p1, p2, p3, t):
+    t2, t3 = t * t, t * t * t
+    return tuple(0.5 * ((2 * p1[i]) + (-p0[i] + p2[i]) * t + (2 * p0[i] - 5 * p1[i] + 4 * p2[i] - p3[i]) * t2 +
+                        (-p0[i] + 3 * p1[i] - 3 * p2[i] + p3[i]) * t3) for i in (0, 1))
+
+
+LANDMARKS = {
+    # kind: (name, clear radius)
+    'oasis': ('The Oasis', 11),
+    'well': ('Old Well Square', 8),
+    'clocktower': ('Clock Tower', 8),
+    'watertower': ('Water Tower', 7),
+    'ruins': ('The Ruins', 12),
+    'wreck': ('Tank Wreck', 8),
+    'bazaar': ('Grand Bazaar', 12),
+    'camelyard': ('Camel Yard', 13),
+}
+
+
 class Town:
     def __init__(self, seed):
         self.seed = seed
@@ -80,6 +106,10 @@ class Town:
         self.rects = []      # building footprints, for placement tests
         self.props = []      # (x, z, radius) of street props
         self.doors = []      # world positions just outside each door
+        self.roads = []      # {'w', 'pts'}
+        self.areas = []      # named places: {'n', 'x', 'z', 'r'}
+        self.landmarks = []  # (kind, x, z, r)
+        self.balconies = 0
 
     # -- primitives -------------------------------------------------------
 
@@ -168,6 +198,21 @@ class Town:
                 placed += 1
         if placed == 0:  # always leave a way in
             openings[('S', 0)].append((0.0, 1.5, 0.0, 2.4))
+        # a balcony off the upstairs, reached through a door
+        balcony = None
+        if floors == 2 and rng.random() < 0.7:
+            sides_b = ['S', 'N', 'W', 'E']
+            rng.shuffle(sides_b)
+            for s in sides_b:
+                ex = list(excl[s])
+                if s == 'N' and stairs:
+                    ex.append((stairs[0] - 0.4, stairs[1] + 0.4))
+                got = pick(s, 1, (1.1, 1.3), STORY, STORY + 2.3, ex, openings[(s, 1)])
+                if got:
+                    openings[(s, 1)] += got
+                    balcony = (s, got[0][0], got[0][1])
+                    break
+
         # windows
         for s in 'SNWE':
             for f in range(floors):
@@ -202,6 +247,31 @@ class Town:
         for s in 'SNWE':
             for f in range(floors):
                 wall_run(s, openings[(s, f)], f * STORY, (f + 1) * STORY)
+        if balcony:
+            bs, u, wid = balcony
+            bw = wid / 2 + 0.7   # half its width along the wall
+            depth = 1.3
+
+            def span(a0, a1, o0, o1, p0, p1, mat):
+                # a = along the wall, o = out from its face
+                if bs == 'S':
+                    lb(a0, a1, p0, p1, -hd - o1, -hd - o0, mat)
+                elif bs == 'N':
+                    lb(a0, a1, p0, p1, hd + o0, hd + o1, mat)
+                elif bs == 'W':
+                    lb(-hw - o1, -hw - o0, p0, p1, a0, a1, mat)
+                else:
+                    lb(hw + o0, hw + o1, p0, p1, a0, a1, mat)
+
+            y0, y1 = STORY - 0.2, STORY
+            span(u - bw, u + bw, 0, depth, y0, y1, 'wall')                        # floor
+            span(u - bw, u + bw, depth - 0.08, depth, y1, y1 + 1.0, 'wood')       # railings
+            span(u - bw, u - bw + 0.08, 0, depth - 0.08, y1, y1 + 1.0, 'wood')
+            span(u + bw - 0.08, u + bw, 0, depth - 0.08, y1, y1 + 1.0, 'wood')
+            for a in (u - bw + 0.15, u + bw - 0.27):
+                span(a, a + 0.12, 0, depth * 0.8, y0 - 0.4, y0, 'wood')          # brackets
+            self.balconies += 1
+
         # parapet around the roof
         lb(-hw, hw, H, H + 0.55, -hd, -hd + WT)
         lb(-hw, hw, H, H + 0.55, hd - WT, hd)
@@ -326,14 +396,17 @@ class Town:
         reserved = [(self.spawn_w[0], self.spawn_w[1], 11), (self.spawn_e[0], self.spawn_e[1], 11),
                     (self.site_a[0], self.site_a[1], 8.5), (self.site_b[0], self.site_b[1], 8.5)]
         reserved += [(x, z, 8) for (x, z) in self.hills]
+        self.make_roads()
+        self.choose_landmarks(reserved)
+        reserved += [(x, z, r) for (_, x, z, r) in self.landmarks]
 
         # buildings
         tints = 6
-        for _ in range(4000):
+        for _ in range(9000):
             if len(self.rects) >= 42:
                 break
-            w = rng.uniform(7.5, 14.5)
-            d = rng.uniform(7.5, 13.0)
+            w = rng.uniform(6.8, 14.5)
+            d = rng.uniform(6.8, 13.0)
             yaw = rng.choice([0.0, math.pi / 2]) + rng.uniform(-0.45, 0.45)
             x = rng.uniform(-BX + 6, BX - 6)
             z = rng.uniform(-BZ + 6, BZ - 6)
@@ -351,6 +424,8 @@ class Town:
             gap = rng.uniform(2.8, 5.0)
             if any(rects_overlap(r, o, gap) for o in self.rects):
                 continue
+            if self.rect_on_road(r):
+                continue
             self.rects.append(r)
 
         # pick a few big single-storey buildings for domes, most others random height
@@ -361,7 +436,7 @@ class Town:
             if i in dome_ids:
                 floors = 1
             else:
-                floors = 2 if (w >= 8.2 and d >= 7.8 and rng.random() < 0.5) else 1
+                floors = 2 if (w >= 8.2 and d >= 7.8 and rng.random() < 0.62) else 1
             tint = rng.randrange(tints)
             H = self.building(x, z, w, d, yaw, floors, tint)
             if i in dome_ids:
@@ -371,6 +446,7 @@ class Town:
                     mx, mz = rot(hw - 1.4, -hd + 1.4, yaw)
                     self.deco.append({'k': 'minaret', 'x': round(x + mx, 2), 'y': round(H, 2),
                                       'z': round(z + mz, 2), 'h': 13.0, 't': tint})
+                    self.areas.append({'n': 'Grand Mosque', 'x': round(x, 1), 'z': round(z, 1), 'r': round(max(hw, hd) + 5, 1)})
 
         # the town wall
         wh = 6.0
@@ -379,11 +455,249 @@ class Town:
         self.box(-BX - 0.5, wh / 2, 0, 0.5, wh / 2, BZ, 0, 'stone')
         self.box(BX + 0.5, wh / 2, 0, 0.5, wh / 2, BZ, 0, 'stone')
 
+        for (kind, x, z, r) in self.landmarks:
+            getattr(self, 'lm_' + kind)(x, z)
+            self.areas.append({'n': LANDMARKS[kind][0], 'x': round(x, 1), 'z': round(z, 1), 'r': r})
+        for rd in self.roads:
+            self.deco.append({'k': 'road', 'w': round(rd['w'], 2), 'pts': [[round(x, 2), round(z, 2)] for (x, z) in rd['pts']]})
+        self.areas.append({'n': 'West End', 'x': self.spawn_w[0], 'z': round(self.spawn_w[1], 1), 'r': 12})
+        self.areas.append({'n': 'East End', 'x': self.spawn_e[0], 'z': round(self.spawn_e[1], 1), 'r': 12})
+
         self.place_props()
         self.pick_spawns()
 
-    def free(self, x, z, r, bmargin=1.6, pmargin=0.6):
+    # -- roads -----------------------------------------------------------------
+
+    def make_roads(self):
+        rng = self.rng
+
+        def path(p0, p1, wiggle):
+            dx, dz = p1[0] - p0[0], p1[1] - p0[1]
+            L = math.hypot(dx, dz)
+            nx, nz = -dz / L, dx / L
+            ctrl = [p0]
+            n = 6
+            for i in range(1, n):
+                t = i / n
+                off = rng.uniform(-wiggle, wiggle)
+                ctrl.append((p0[0] + dx * t + nx * off, p0[1] + dz * t + nz * off))
+            ctrl.append(p1)
+            out = []
+            for i in range(len(ctrl) - 1):
+                a, b = ctrl[max(0, i - 1)], ctrl[i]
+                c, d = ctrl[i + 1], ctrl[min(len(ctrl) - 1, i + 2)]
+                for k in range(8):
+                    out.append(catmull(a, b, c, d, k / 8))
+            out.append(ctrl[-1])
+            return [(max(-BX, min(BX, x)), max(-BZ, min(BZ, z))) for (x, z) in out]
+
+        # one runs the length of town between the two ends, one crosses it, sometimes a third
+        self.roads.append({'w': rng.uniform(4.5, 6.0), 'pts': path((-BX, self.spawn_w[1]), (BX, self.spawn_e[1]), 14)})
+        x0 = rng.uniform(-40, 0)
+        self.roads.append({'w': rng.uniform(4.0, 5.5), 'pts': path((x0, -BZ), (x0 + rng.uniform(-18, 18), BZ), 10)})
+        if rng.random() < 0.65:
+            x0 = rng.uniform(8, 50)
+            self.roads.append({'w': rng.uniform(3.6, 4.6), 'pts': path((x0, -BZ), (x0 + rng.uniform(-25, 25), BZ), 12)})
+
+    def road_dist(self, x, z):
+        best = 1e9
+        for rd in self.roads:
+            pts = rd['pts']
+            for i in range(len(pts) - 1):
+                d = seg_dist(x, z, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]) - rd['w'] / 2
+                if d < best:
+                    best = d
+        return best
+
+    def rect_on_road(self, r, margin=1.2):
+        for rd in self.roads:
+            pts = rd['pts']
+            for i in range(len(pts) - 1):
+                (ax, az), (bx, bz) = pts[i], pts[i + 1]
+                steps = max(1, int(math.hypot(bx - ax, bz - az) / 1.5))
+                for k in range(steps + 1):
+                    t = k / steps
+                    if point_in_rect(ax + (bx - ax) * t, az + (bz - az) * t, r, rd['w'] / 2 + margin):
+                        return True
+        return False
+
+    # -- landmarks -----------------------------------------------------------------
+
+    def choose_landmarks(self, reserved):
+        rng = self.rng
+        kinds = list(LANDMARKS)
+        rng.shuffle(kinds)
+        for kind in kinds:
+            if len(self.landmarks) >= 5:
+                break
+            r = LANDMARKS[kind][1]
+            for _ in range(300):
+                x = rng.uniform(-BX + r + 4, BX - r - 4)
+                z = rng.uniform(-BZ + r + 4, BZ - r - 4)
+                if any(math.hypot(x - a, z - b) < r + c + 3 for (a, b, c) in reserved):
+                    continue
+                if any(math.hypot(x - a, z - b) < r + c + 12 for (_, a, b, c) in self.landmarks):
+                    continue
+                # the bazaar sits on a road; things with solid middles keep off them
+                rd = self.road_dist(x, z)
+                if kind == 'bazaar' and rd > 4:
+                    continue
+                if kind in ('oasis', 'clocktower', 'watertower', 'well', 'wreck') and rd < 4:
+                    continue
+                self.landmarks.append((kind, x, z, r))
+                break
+
+    def solid(self, x, y, z, hx, hy, hz, yaw=0.0, mat='stone', tint=0, rad=None):
+        self.box(x, y, z, hx, hy, hz, yaw, mat, tint)
+        self.props.append((x, z, rad if rad is not None else math.hypot(hx, hz)))
+
+    def lm_oasis(self, x, z):
+        rng = self.rng
+        self.deco.append({'k': 'pond', 'x': round(x, 2), 'z': round(z, 2), 'r': 5.2})
+        self.props.append((x, z, 5.0))
+        for i in range(9):
+            a = i / 9 * math.tau + rng.uniform(-0.2, 0.2)
+            rr = rng.uniform(6.3, 8.4)
+            px, pz = x + math.cos(a) * rr, z + math.sin(a) * rr
+            self.box(px, 1.5, pz, 0.2, 1.5, 0.2, 0, 'inv')
+            self.deco.append({'k': 'palm', 'x': round(px, 2), 'z': round(pz, 2), 'h': round(rng.uniform(6, 9), 2), 's': rng.randrange(1000)})
+            self.props.append((px, pz, 0.6))
+        for i in range(6):
+            a = rng.uniform(0, math.tau)
+            rr = rng.uniform(5.3, 6.2)
+            s = rng.uniform(0.35, 0.7)
+            self.solid(x + math.cos(a) * rr, s * 0.6, z + math.sin(a) * rr, s, s * 0.6, s * 0.8, rng.uniform(0, 3), 'stone')
+
+    def lm_well(self, x, z):
+        rng = self.rng
+        self.deco.append({'k': 'paving', 'x': round(x, 2), 'z': round(z, 2), 'r': 7.5})
+        self.solid(x, 0.5, z, 1.0, 0.5, 1.0, 0.0, 'inv', rad=1.4)
+        self.deco.append({'k': 'well', 'x': round(x, 2), 'z': round(z, 2)})
+        for i in range(4):
+            a = i / 4 * math.tau + 0.4
+            bx, bz = x + math.cos(a) * 4.8, z + math.sin(a) * 4.8
+            self.solid(bx, 0.22, bz, 0.9, 0.22, 0.25, -a + math.pi / 2, 'wood')
+        for i in range(3):
+            a = rng.uniform(0, math.tau)
+            px, pz = x + math.cos(a) * 6.5, z + math.sin(a) * 6.5
+            rad = self.crate_stack(px, pz, rng.uniform(0, 3))
+            self.props.append((px, pz, rad))
+
+    def lm_clocktower(self, x, z):
+        yaw = self.rng.uniform(0, math.pi)
+        h = 14.0
+        self.solid(x, h / 2, z, 1.7, h / 2, 1.7, yaw, 'wall', 1, rad=2.5)
+        self.solid(x, 0.4, z, 2.6, 0.4, 2.6, yaw, 'stone', rad=3.6)
+        self.deco.append({'k': 'clock', 'x': round(x, 2), 'z': round(z, 2), 'y': h, 'yaw': round(yaw, 4)})
+        self.deco.append({'k': 'paving', 'x': round(x, 2), 'z': round(z, 2), 'r': 7})
+
+    def lm_watertower(self, x, z):
+        h = 9.0
+        for sx in (-1.6, 1.6):
+            for sz in (-1.6, 1.6):
+                self.solid(x + sx, h / 2, z + sz, 0.14, h / 2, 0.14, 0, 'inv', rad=0.4)
+        self.deco.append({'k': 'watertower', 'x': round(x, 2), 'z': round(z, 2), 'h': h})
+        rad = self.crate_stack(x + 4, z + 1, 0.3)
+        self.props.append((x + 4, z + 1, rad))
+        self.barrel(x - 3.5, z - 2.5)
+        self.barrel(x - 3.0, z - 3.2)
+        self.props.append((x - 3.3, z - 2.8, 1.0))
+
+    def lm_ruins(self, x, z):
+        rng = self.rng
+        for i in range(7):
+            a = rng.uniform(0, math.tau)
+            rr = rng.uniform(2, 9)
+            L = rng.uniform(2.0, 5.0)
+            hgt = rng.uniform(0.8, 2.9)
+            self.solid(x + math.cos(a) * rr, hgt / 2, z + math.sin(a) * rr, L / 2, hgt / 2, 0.3,
+                       rng.uniform(0, math.pi), 'stone', rad=L / 2)
+        for i in range(5):
+            a = rng.uniform(0, math.tau)
+            rr = rng.uniform(3, 10)
+            px, pz = x + math.cos(a) * rr, z + math.sin(a) * rr
+            ch = rng.uniform(1.5, 4.5)
+            self.solid(px, ch / 2, pz, 0.32, ch / 2, 0.32, 0, 'inv', rad=0.5)
+            self.deco.append({'k': 'column', 'x': round(px, 2), 'z': round(pz, 2), 'h': round(ch, 2)})
+        for i in range(10):
+            a = rng.uniform(0, math.tau)
+            rr = rng.uniform(1, 11)
+            s = rng.uniform(0.25, 0.6)
+            self.solid(x + math.cos(a) * rr, s / 2, z + math.sin(a) * rr, s, s / 2, s * 0.8, rng.uniform(0, 3), 'stone')
+
+    def lm_wreck(self, x, z):
+        rng = self.rng
+        yaw = rng.uniform(0, math.pi)
+        self.solid(x, 0.75, z, 1.7, 0.75, 3.1, yaw, 'car', 5, rad=3.3)
+        ox, oz = rot(0, -0.3, yaw)
+        self.box(x + ox, 1.9, z + oz, 1.1, 0.4, 1.3, yaw + 0.25, 'car', 5)
+        bx, bz = rot(0.2, -3.3, yaw + 0.25)
+        self.box(x + bx, 1.95, z + bz, 0.12, 0.12, 1.8, yaw + 0.25, 'car', 5)
+        self.deco.append({'k': 'scorch', 'x': round(x, 2), 'z': round(z, 2), 'r': 6})
+        for i in range(2):
+            a = rng.uniform(0, math.tau)
+            self.car(x + math.cos(a) * 6, z + math.sin(a) * 6, rng.uniform(0, math.pi))
+            self.props.append((x + math.cos(a) * 6, z + math.sin(a) * 6, 2.4))
+
+    def lm_bazaar(self, x, z):
+        rng = self.rng
+        # line the stalls up along the nearest bit of road
+        best = None
+        for rd in self.roads:
+            pts = rd['pts']
+            for i in range(len(pts) - 1):
+                d = seg_dist(x, z, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1])
+                if best is None or d < best[0]:
+                    best = (d, pts[i], pts[i + 1], rd['w'])
+        _, a, b, w = best
+        ux, uz = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(ux, uz) or 1
+        ux, uz = ux / L, uz / L
+        yaw = math.atan2(ux, uz) + math.pi / 2
+        for side in (-1, 1):
+            for k in range(-2, 3):
+                off = w / 2 + 1.8
+                px = x + ux * k * 3.4 + (-uz) * off * side
+                pz = z + uz * k * 3.4 + ux * off * side
+                self.stall(px, pz, yaw)
+                self.props.append((px, pz, 1.5))
+        for k in range(5):
+            self.deco.append({'k': 'rug', 'x': round(x + ux * (k - 2) * 3.4 + rng.uniform(-0.4, 0.4), 2),
+                              'z': round(z + uz * (k - 2) * 3.4 + rng.uniform(-0.4, 0.4), 2),
+                              'yaw': round(yaw + rng.uniform(-0.3, 0.3), 3), 'c': rng.randrange(6)})
+        self.deco.append({'k': 'lanterns', 'a': [round(x - ux * 8, 2), round(z - uz * 8, 2)], 'b': [round(x + ux * 8, 2), round(z + uz * 8, 2)]})
+
+    def lm_camelyard(self, x, z):
+        rng = self.rng
+        # a broken rail fence round an open yard, troughs and hay
+        n = 16
+        R = 10.5
+        for i in range(n):
+            if rng.random() < 0.3:
+                continue
+            a0, a1 = i / n * math.tau, (i + 1) / n * math.tau
+            p0 = (x + math.cos(a0) * R, z + math.sin(a0) * R)
+            p1 = (x + math.cos(a1) * R, z + math.sin(a1) * R)
+            mx, mz = (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2
+            L = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+            yaw = math.atan2(p1[0] - p0[0], p1[1] - p0[1]) - math.pi / 2
+            self.solid(mx, 0.55, mz, L / 2, 0.06, 0.06, yaw, 'wood', rad=0.3)
+            self.solid(mx, 0.95, mz, L / 2, 0.06, 0.06, yaw, 'wood', rad=0.3)
+            self.solid(p0[0], 0.6, p0[1], 0.08, 0.6, 0.08, 0, 'wood', rad=0.2)
+        for i in range(3):
+            a = rng.uniform(0, math.tau)
+            rr = rng.uniform(2, 6)
+            self.solid(x + math.cos(a) * rr, 0.3, z + math.sin(a) * rr, 1.1, 0.3, 0.35, rng.uniform(0, 3), 'wood')
+        for i in range(6):
+            a = rng.uniform(0, math.tau)
+            rr = rng.uniform(1.5, 8)
+            self.solid(x + math.cos(a) * rr, 0.45, z + math.sin(a) * rr, 0.6, 0.45, 0.45, rng.uniform(0, 3), 'hay')
+        self.deco.append({'k': 'paving', 'x': round(x, 2), 'z': round(z, 2), 'r': R, 'dirt': 1})
+
+    def free(self, x, z, r, bmargin=1.6, pmargin=0.6, road=True):
         if abs(x) > BX - r - 0.8 or abs(z) > BZ - r - 0.8:
+            return False
+        if road and self.road_dist(x, z) < r:
             return False
         for rc in self.rects:
             if point_in_rect(x, z, rc, r + bmargin):
@@ -522,7 +836,7 @@ class Town:
         chosen = []
         if pts:
             chosen.append(pts[rng.randrange(len(pts))])
-            while len(chosen) < 36 and len(chosen) < len(pts):
+            while len(chosen) < 64 and len(chosen) < len(pts):
                 best, bd = None, -1
                 for p in pts:
                     dd = min(math.hypot(p[0] - c[0], p[1] - c[1]) for c in chosen)
@@ -557,6 +871,7 @@ class Town:
             'hills': [[round(x, 2), round(z, 2)] for (x, z) in self.hills],
             'teamSpawns': self.team_spawns,
             'ffaSpawns': self.ffa_spawns,
+            'areas': self.areas,
         }
 
 

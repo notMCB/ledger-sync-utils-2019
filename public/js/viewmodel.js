@@ -221,7 +221,9 @@ function buildSniper(sleeve) {
   const S = 0.078;
   box(g, 0.055, 0.07, 0.3, MAT.steel, 0, 0, -0.02);
   cyl(g, 0.014, 0.62, MAT.dark, 0, 0.012, -0.47);
-  cyl(g, 0.02, 0.08, MAT.dark, 0, 0.012, -0.8);
+  // suppressor: a fat can on the end of the barrel
+  cyl(g, 0.026, 0.24, MAT.dark, 0, 0.012, -0.88, 16);
+  cyl(g, 0.028, 0.02, MAT.steel, 0, 0.012, -0.77, 16);
   box(g, 0.06, 0.06, 0.4, MAT.tan, 0, -0.035, -0.2);                // fore-end
   // scope
   cyl(g, 0.02, 0.3, MAT.dark, 0, S, -0.04, 16);
@@ -248,7 +250,7 @@ function buildSniper(sleeve) {
   g.add(mag);
   const h = hands(g, new THREE.Vector3(0.002, -0.08, 0.14), new THREE.Vector3(0, -0.07, -0.25), sleeve);
   return {
-    group: g, sight: S, muzzle: new THREE.Vector3(0, 0.012, -0.85), mag, magHome: mag.position.clone(), bolt,
+    group: g, sight: S, muzzle: new THREE.Vector3(0, 0.012, -1.01), mag, magHome: mag.position.clone(), bolt,
     boltHome: bolt.position.clone(), hands: h, hip: new THREE.Vector3(0.15, -0.16, -0.42), ads: new THREE.Vector3(0, -S, -0.1),
     kind: 'bolt',
   };
@@ -281,8 +283,13 @@ function buildPistol(sleeve) {
   g.add(mag);
   const h = hands(g, new THREE.Vector3(0.002, -0.06, 0.03), new THREE.Vector3(-0.012, -0.07, 0.02), sleeve);
   h.left.rotation.set(0, 0.3, 0);
+  const can = new THREE.Group();
+  cyl(can, 0.014, 0.15, MAT.dark, 0, 0.03, -0.235, 14);
+  cyl(can, 0.0155, 0.015, MAT.steel, 0, 0.03, -0.165, 14);
+  can.visible = false;
+  g.add(can);
   return {
-    group: g, sight: S, muzzle: new THREE.Vector3(0, 0.03, -0.17), mag, magHome: mag.position.clone(), slide,
+    can, group: g, sight: S, muzzle: new THREE.Vector3(0, 0.03, -0.17), mag, magHome: mag.position.clone(), slide,
     slideHome: slide.position.clone(), hands: h, hip: new THREE.Vector3(0.13, -0.14, -0.38), ads: new THREE.Vector3(0, -S, -0.34),
     kind: 'pistol',
   };
@@ -382,6 +389,15 @@ export class ViewModel {
     this.sleeve.color.set(hex);
   }
 
+  // the Breacher and Marksman carry the pistol with a suppressor on
+  setPistolSuppressor(on) {
+    const p = this.guns.pistol;
+    p.can.visible = on;
+    p.muzzle.set(0, 0.03, on ? -0.315 : -0.17);
+    p.flash.position.copy(p.muzzle);
+    p.flash.position.z -= 0.03;
+  }
+
   // finishes per weapon: { smg: 'zellige', ... }
   setSkins(map) {
     for (const k in this.guns) skinGun(this.guns[k].group, (map && map[k]) || null);
@@ -443,9 +459,10 @@ export class ViewModel {
     this.boltAnim = 0;
   }
 
-  fire(kick) {
+  fire(kick, suppressed = false) {
     this.kickV += kick * 14;
     this.flashT = 0.05;
+    this.flashSmall = suppressed;
     if (this.cur && this.cur.slide) this.slideAnim = 0;
   }
 
@@ -542,10 +559,10 @@ export class ViewModel {
     g.flash.visible = this.flashT > 0 && !this.scoped;
     if (g.flash.visible) {
       g.flash.material.rotation = Math.random() * Math.PI;
-      const s = 0.05 + Math.random() * 0.04;
+      const s = (0.05 + Math.random() * 0.04) * (this.flashSmall ? 0.3 : 1);
       g.flash.scale.set(s, s, 1);
     }
-    this.flashLight.intensity = this.flashT > 0 ? 3 : 0;
+    this.flashLight.intensity = this.flashT > 0 ? (this.flashSmall ? 0.5 : 3) : 0;
     this.flashLight.position.copy(pos).add(g.muzzle);
     this.root.visible = this.visible && !this.scoped;
     const light = st.indoor ? 0.55 : 1;

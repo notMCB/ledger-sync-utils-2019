@@ -81,13 +81,13 @@ export class Effects {
     L.dur = dur;
   }
 
-  muzzleFlash(pos, scale = 0.6) {
+  muzzleFlash(pos, scale = 0.6, quiet = false) {
     const s = new THREE.Sprite(this.flashMat);
     s.position.copy(pos);
     s.scale.set(scale, scale, 1);
     this.group.add(s);
     this.flashes.push({ s, t: 0.05 });
-    this.light(pos, 5);
+    if (!quiet) this.light(pos, 5);
   }
 
   particle(tex, pos, vel, size, grow, life, gravity = 0, opacity = 1, additive = false) {

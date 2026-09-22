@@ -148,6 +148,21 @@ function renderModes() {
     b.addEventListener('click', () => join({ mode: id }));
     host.appendChild(b);
   }
+  // solo aim training: no server needed
+  const info = MODE_INFO.range;
+  const r = document.createElement('button');
+  r.className = 'mode range';
+  r.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
+    `<span class="m-meta"><span>Solo</span><span class="m-play">Train →</span></span>`;
+  r.addEventListener('click', () => {
+    unlockAudio();
+    uiBlip();
+    $('menu').hidden = true;
+    hideAll();
+    game.startRange();
+    input.lock();
+  });
+  host.appendChild(r);
 }
 
 function renderRooms() {
@@ -215,7 +230,8 @@ function renderLoadouts(host, compact) {
 function pickLoadout(i) {
   settings.lastLoadout = i;
   saveSettings();
-  if (game.inRoom) net.send({ t: 'ld', ld: i });
+  if (game.offline) game.applyLoadout(i);
+  else if (game.inRoom) net.send({ t: 'ld', ld: i });
   renderLoadouts($('death-loadouts'), true);
   renderLoadouts($('menu-loadouts'), false);
   uiBlip();
@@ -544,6 +560,12 @@ if (AUTOTEST) {
       game.me.pitch = -0.02;
     }
   };
+  const gearSteps = [
+    [2.0, () => { me.pitch = -0.12; }],
+    [3.0, () => log('CAPTURE gear')],
+    [3.2, () => { me.yaw += Math.PI; }],
+    [4.2, () => log('CAPTURE gearback')],
+  ];
   const aimSteps = [
     [2.0, faceNearest],
     [2.6, () => input.tap('Mouse2')],
@@ -568,7 +590,8 @@ if (AUTOTEST) {
   ];
   aimSteps.sort((a, b) => a[0] - b[0]);
   if (params.get('script') === 'sprintaim') aimSteps.splice(0, aimSteps.length, ...sprintAimSteps);
-  const steps = params.get('script') === 'v2' ? [] : ['aim', 'sprintaim'].includes(params.get('script')) ? aimSteps : ([
+  if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
+  const steps = params.get('script') === 'v2' ? [] : ['aim', 'sprintaim', 'gear'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -648,9 +671,14 @@ async function runV2() {
   };
   const cross = (b, spot, p) => (p.x - b[0]) * spot.n[0] + (p.z - b[2]) * spot.n[1];
 
-  // 1. slide
-  const open = sills(0)[0];
-  place(me.pos.x, 0, me.pos.z, me.yaw);
+  // 1. slide — face somewhere with a clear run first
+  let yaw = me.yaw;
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const eye = new T.Vector3(me.pos.x, 0.5, me.pos.z);
+    if (!phys.raycast(eye, new T.Vector3(-Math.sin(a), 0, -Math.cos(a)), 14)) { yaw = a; break; }
+  }
+  place(me.pos.x, 0, me.pos.z, yaw);
   input.hold('ShiftLeft', true); input.hold('KeyW', true);
   await sleep(900);
   const before = Math.hypot(me.vel.x, me.vel.z);
@@ -687,13 +715,24 @@ async function runV2() {
   log('CAPTURE vault');
 
   // 3. vault onto a crate
-  const crate = boxes.find((b) => b[7] === 'crate' && Math.abs(b[1] - b[4]) < 0.01 && b[1] + b[4] > 0.9 && b[1] + b[4] < 1.3 && b[3] > 0.45);
+  const crate = boxes.find((b) => b[7] === 'crate' && Math.abs(b[1] - b[4]) < 0.01 && b[1] + b[4] > 0.9 && b[1] + b[4] < 1.3 && b[3] > 0.45 &&
+    phys.fits(new T.Vector3(b[0], b[1] + b[4] + 0.02, b[2]), 0.3, 1.0));
   if (crate) {
-    const spot = facing([crate[0], crate[1], crate[2], 0.15, crate[4], crate[5], crate[6]], 1, crate[3] + 0.6);
+    let spot = null;
+    for (const side of [1, -1]) {
+      for (const thin of [[0.15, crate[4], crate[5]], [crate[3], crate[4], 0.15]]) {
+        const s = facing([crate[0], crate[1], crate[2], thin[0], thin[1], thin[2], crate[6]], side, (thin[0] === 0.15 ? crate[3] : crate[5]) + 0.6);
+        if (!spot && phys.fits(new T.Vector3(s.x, 0, s.z), 0.34, 1.8)) spot = s;
+      }
+    }
+    spot = spot || facing([crate[0], crate[1], crate[2], 0.15, crate[4], crate[5], crate[6]], 1, crate[3] + 0.6);
     place(spot.x, 0, spot.z, spot.yaw);
     await sleep(250);
+    log(`crate debug: at ${me.pos.x.toFixed(2)},${me.pos.z.toFixed(2)} grounded ${me.grounded} crate ${crate.map((v) => (typeof v === 'number' ? v.toFixed(2) : v)).join(' ')}`);
     input.tap('Space');
-    await sleep(900);
+    await sleep(80);
+    log(`crate debug: after jump vault ${!!me.vault} vy ${me.vel.y.toFixed(2)} y ${me.pos.y.toFixed(2)}`);
+    await sleep(820);
     log(`crate vault: feet at ${me.pos.y.toFixed(2)} (crate top ${(crate[1] + crate[4]).toFixed(2)}) ${me.pos.y > 0.8 ? '✓' : 'FAILED'}`);
   }
 
@@ -712,6 +751,7 @@ async function runV2() {
       if (me.loadout !== 2) { log('ladder: loadout did not switch to Breacher'); break; }
       const want = g.ladderSpot();
       if (!want) { log('ladder: no wall found'); continue; }
+      log(`ladder debug: spot ${want.x.toFixed(2)},${want.z.toFixed(2)} h ${want.h.toFixed(2)}; me ${me.pos.x.toFixed(2)},${me.pos.z.toFixed(2)}; sill ${b.slice(0, 7).map((v) => v.toFixed(2)).join(' ')}`);
       input.tap('KeyX');
       await sleep(500);
       const lad = g.ladders.get(g.myId);
@@ -726,7 +766,10 @@ async function runV2() {
       place(back[0], 0, back[1], spot.yaw);
       await sleep(200);
       input.hold('KeyW', true);
-      await sleep(3200);
+      for (let k = 0; k < 8; k++) {
+        await sleep(400);
+        log(`ladder debug t=${k * 0.4}: pos ${me.pos.x.toFixed(2)},${me.pos.y.toFixed(2)},${me.pos.z.toFixed(2)} climbing ${me.climbing} vault ${!!me.vault} onLadder ${!!g.ladderAt(me.pos)}`);
+      }
       input.hold('KeyW', false);
       await sleep(600);
       const inside = cross(b, spot, me.pos);
@@ -738,6 +781,36 @@ async function runV2() {
     if (laddered) break;
   }
   if (!laddered) log('ladder: no suitable upstairs window found');
+
+  // 4b. ladder onto a single-storey roof (over the parapet)
+  const parapets = boxes.filter((b) => b[7] === 'wall' && Math.abs(b[1] - b[4] - 3.2) < 0.02 && Math.abs(b[4] - 0.275) < 0.01 &&
+    (Math.abs(b[3] - 0.15) < 0.01 || Math.abs(b[5] - 0.15) < 0.01) && Math.max(b[3], b[5]) > 2);
+  let roofed = false;
+  for (const b of parapets.slice(0, 30)) {
+    for (const side of [1, -1]) {
+      const spot = facing(b, side, 0.7);
+      const pos = new T.Vector3(spot.x, 0, spot.z);
+      if (phys.covered(new T.Vector3(spot.x, 1.7, spot.z)) || !phys.fits(pos, 0.34, 1.8)) continue;
+      place(spot.x, 0, spot.z, spot.yaw);
+      await sleep(300);
+      me.perkLeft = 1;
+      g.ladders.delete(g.myId);
+      const want = g.ladderSpot();
+      if (!want) continue;
+      g.onLadder({ id: -7, p: [want.x, want.y, want.z], y: want.yaw, h: want.h });
+      input.hold('KeyW', true);
+      await sleep(3000);
+      input.hold('KeyW', false);
+      await sleep(500);
+      log(`roof ladder: height ${want.h.toFixed(2)} m, feet now at ${me.pos.y.toFixed(2)} ${me.pos.y > 3.1 && me.pos.y < 3.4 ? '✓ on the roof' : 'FAILED'}`);
+      log('CAPTURE roof');
+      g.onLadder({ id: -7, off: 1 });
+      roofed = true;
+      break;
+    }
+    if (roofed) break;
+  }
+  if (!roofed) log('roof ladder: no single-storey wall found');
 
   // 5. flashbang at your feet, looking at it
   place(me.pos.x, me.pos.y, me.pos.z, me.yaw);
@@ -774,4 +847,52 @@ async function runV2() {
     await sleep(300);
   }
   log('done');
+}
+
+// ?range=1&autotest=range : the firing range, one shot at the nearest target
+if (params.get('rangetest')) {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[range] ' + s));
+  setTimeout(async () => {
+    $('notes').hidden = true;
+    $('menu').hidden = true;
+    input.simulate(true);
+    game.startRange();
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    await sleep(1500);
+    game.me.yaw = 0;
+    game.me.pitch = Math.atan2(1.25 - 1.62, 13);
+    await sleep(300);
+    const cam = game.camera;
+    const fwd = new (await import('three')).Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    const direct = game.range.raycast(cam.position, fwd, 200);
+    log(`straight ray from the eye: ${direct ? `${direct.part} at ${direct.t.toFixed(1)} m` : 'nothing'}`);
+    input.hold('KeyF', true);
+    await sleep(500);
+    input.hold('Mouse0', true);
+    await sleep(60);
+    input.hold('Mouse0', false);
+    await sleep(400);
+    input.hold('KeyF', false);
+    const s = game.range.stats;
+    log(`shot at the 10 m target: shots ${s.shots}, hits ${s.hits} ${s.hits === 1 ? '✓' : 'FAILED'}`);
+    log('CAPTURE range');
+    input.tap('KeyF');
+    input.hold('KeyF', true);
+    game.me.pitch = Math.atan2(1.25 - 1.62, 88);
+    game.me.yaw = 0;
+    await sleep(900);
+    log('CAPTURE range2');
+    input.hold('KeyF', false);
+    const fps = async () => { let n = 0; const t0 = performance.now(); await new Promise((r) => { const f = () => { n++; if (performance.now() - t0 < 2000) requestAnimationFrame(f); else r(); }; requestAnimationFrame(f); }); return n / 2; };
+    log(`fps with lamps: ${await fps()}`);
+    const lamps = [];
+    game.scene.traverse((o) => { if (o.isPointLight && o.intensity === 14) lamps.push(o); });
+    lamps.forEach((l) => { l.visible = false; });
+    await sleep(300);
+    log(`fps without lamps (${lamps.length}): ${await fps()}`);
+    lamps.forEach((l) => { l.visible = true; });
+    game.leave();
+    await sleep(1500);
+    log(`fps back in the menu: ${await fps()}`);
+  }, 1500);
 }

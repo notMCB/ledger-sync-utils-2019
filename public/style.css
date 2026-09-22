@@ -463,3 +463,11 @@ button { cursor: pointer; }
   .lk-content.loadouts { grid-template-columns: 1fr; }
   .lk-loadouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+#area { position: absolute; top: 198px; left: 12px; width: 180px; text-align: center; font-family: var(--display); font-weight: 700; font-size: 15px;
+  letter-spacing: 0.02em; opacity: 0; transition: opacity 0.5s; }
+#area.on { opacity: 0.95; }
+
+.mode.range { grid-column: 1 / -1; background: linear-gradient(90deg, rgba(27, 32, 42, 0.9), rgba(46, 40, 28, 0.9)); }
+.mode.range .m-name::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 8px; border-radius: 50%;
+  border: 2px solid var(--saffron); box-shadow: inset 0 0 0 3px rgba(27, 32, 42, 0.9), inset 0 0 0 6px var(--saffron); vertical-align: 1px; }

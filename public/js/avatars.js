@@ -34,6 +34,90 @@ function bx(parent, w, h, d, mat, x, y, z) {
   return m;
 }
 
+// -- loadout gear: what marks each class out, whatever outfit they wear --
+
+let iconCache = null;
+function icons() {
+  if (iconCache) return iconCache;
+  const mk = (draw) => {
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 40;
+    draw(c.getContext('2d'));
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({ map: t });
+  };
+  iconCache = {
+    ammo: mk((g) => {
+      g.fillStyle = '#3f4428'; g.fillRect(0, 0, 64, 40);
+      for (let i = 0; i < 3; i++) {
+        const x = 14 + i * 14;
+        g.fillStyle = '#d9a441'; g.fillRect(x - 4, 14, 8, 18);
+        g.beginPath(); g.moveTo(x - 4, 14); g.lineTo(x, 5); g.lineTo(x + 4, 14); g.fill();
+        g.fillStyle = '#8a6a22'; g.fillRect(x - 4, 28, 8, 4);
+      }
+    }),
+    med: mk((g) => {
+      g.fillStyle = '#f3efe6'; g.fillRect(0, 0, 64, 40);
+      g.fillStyle = '#c9261c'; g.fillRect(26, 6, 12, 28); g.fillRect(18, 14, 28, 12);
+    }),
+  };
+  return iconCache;
+}
+
+// a shaggy ghillie hood: strips of burlap hanging from the crown to the shoulders
+let ghillieGeo = null;
+function ghillieGeometry() {
+  if (ghillieGeo) return ghillieGeo;
+  const parts = [];
+  const cols = ['#4f5a2e', '#6b6a3a', '#3e4a24', '#7a6a44', '#5c6b34', '#8a7a4a'].map((c) => new THREE.Color(c));
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 90; i++) {
+    const a = rnd() * Math.PI * 2;                 // round the head
+    const front = Math.cos(a) < -0.55;               // leave the face open
+    if (front && rnd() < 0.9) continue;
+    const up = rnd();                                // crown .. sides
+    const len = 0.18 + rnd() * 0.34;
+    const g = new THREE.BoxGeometry(0.045, len, 0.018);
+    g.translate(0, -len / 2, 0);
+    const r = 0.15 + up * 0.03;
+    const m = new THREE.Matrix4().makeRotationY(-a + Math.PI / 2);
+    m.multiply(new THREE.Matrix4().makeRotationX(-0.25 - rnd() * 0.35));
+    m.setPosition(Math.sin(a) * r, 0.12 - up * 0.1, Math.cos(a) * r * -1 * -1);
+    g.applyMatrix4(m);
+    const col = cols[Math.floor(rnd() * cols.length)];
+    const n = g.attributes.position.count;
+    const c = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) { c[k * 3] = col.r; c[k * 3 + 1] = col.g; c[k * 3 + 2] = col.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    parts.push(g.index ? g.toNonIndexed() : g);
+  }
+  // a cap of the same stuff over the crown
+  const cap = new THREE.SphereGeometry(0.17, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  cap.translate(0, 0.1, 0.02);
+  const cc = new Float32Array(cap.attributes.position.count * 3).fill(0.32);
+  for (let k = 0; k < cc.length; k += 3) { cc[k] = 0.31; cc[k + 1] = 0.35; cc[k + 2] = 0.18; }
+  cap.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+  parts.push(cap.toNonIndexed());
+  let total = 0;
+  for (const p of parts) total += p.attributes.position.count;
+  const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), col = new Float32Array(total * 3);
+  let o = 0;
+  for (const p of parts) {
+    if (!p.attributes.normal) p.computeVertexNormals();
+    pos.set(p.attributes.position.array, o * 3);
+    nor.set(p.attributes.normal.array, o * 3);
+    col.set(p.attributes.color.array, o * 3);
+    o += p.attributes.position.count;
+  }
+  ghillieGeo = new THREE.BufferGeometry();
+  ghillieGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  ghillieGeo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  ghillieGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return ghillieGeo;
+}
+
 const GUN_SIZES = {
   smg: [0.06, 0.1, 0.5], lmg: [0.09, 0.13, 0.85], shotgun: [0.06, 0.08, 0.85], sniper: [0.06, 0.09, 1.05], pistol: [0.04, 0.08, 0.2],
 };
@@ -139,6 +223,11 @@ export class Avatar {
     arms.add(this.gun);
     this.gunMesh = bx(this.gun, 0.06, 0.1, 0.6, SHARED.gun, 0, 0, -0.2);
     this.muzzleLocal = new THREE.Vector3(0, 0.02, -0.5);
+    this.can = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.22, 10), SHARED.gun);
+    this.can.rotation.x = Math.PI / 2;
+    this.can.visible = false;
+    this.gun.add(this.can);
+    this.buildGear(upper, head);
 
     this.tagMat = new THREE.SpriteMaterial({ transparent: true, depthTest: true, depthWrite: false });
     this.tag = new THREE.Sprite(this.tagMat);
@@ -152,6 +241,50 @@ export class Avatar {
     this.setOutfit('standard');
   }
 
+  buildGear(upper, head) {
+    const ic = icons();
+    const pouch = (bag, icon) => {
+      const g = new THREE.Group();
+      bx(g, 0.5, 0.06, 0.28, SHARED.strap, 0, 0.17, 0);                    // belt round the waist
+      bx(g, 0.32, 0.15, 0.12, lam(bag), 0, 0.15, -0.19);                  // the pouch
+      bx(g, 0.3, 0.03, 0.125, SHARED.strap, 0, 0.235, -0.19);             // flap seam
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.1), icon);
+      plate.position.set(0, 0.145, -0.2505);
+      plate.rotation.y = Math.PI;
+      g.add(plate);
+      upper.add(g);
+      return g;
+    };
+    const lad = new THREE.Group();
+    const metal = lam('#6a6d70'), woodM = lam('#8a6a44');
+    for (const x of [-0.13, 0.13]) bx(lad, 0.035, 1.15, 0.035, metal, x, 0, 0);
+    for (let y = -0.45; y <= 0.46; y += 0.22) bx(lad, 0.26, 0.03, 0.03, woodM, 0, y, 0);
+    bx(lad, 0.5, 0.04, 0.02, SHARED.strap, 0, 0.18, -0.02);
+    lad.position.set(0.03, 0.42, 0.2);
+    lad.rotation.set(0.08, 0, 0.12);
+    upper.add(lad);
+    const ghillie = new THREE.Mesh(ghillieGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    head.add(ghillie);
+    this.gear = { ammo: pouch('#4c5230', ic.ammo), med: pouch('#d8d2c4', ic.med), ladder: lad, ghillie };
+    this.setGear(0);
+  }
+
+  // each loadout's kit: 0 assault, 1 support, 2 breacher, 3 marksman
+  setGear(ld) {
+    this.gearLd = ld;
+    const g = this.gear;
+    g.ammo.visible = ld === 0;
+    g.med.visible = ld === 1;
+    g.ladder.visible = ld === 2;
+    g.ghillie.visible = ld === 3;
+    // the hood covers the headgear
+    for (const k in this.heads) if (ld === 3) this.heads[k].visible = false;
+    if (ld !== 3 && this.outfit) {
+      const m = outfitMaterials(this.outfit);
+      for (const k in this.heads) this.heads[k].visible = k === (m.head || 'wrap');
+    }
+  }
+
   // clothing from an outfit; anything the outfit leaves open uses team colours
   setOutfit(id) {
     this.outfit = id || 'standard';
@@ -160,7 +293,7 @@ export class Avatar {
     for (const x of this.parts.boots) x.material = m.boots;
     for (const x of this.parts.shirt) x.material = m.shirt || this.body;
     for (const x of this.parts.wrap) x.material = m.wrap || this.wrap;
-    for (const k in this.heads) this.heads[k].visible = k === (m.head || 'wrap');
+    for (const k in this.heads) this.heads[k].visible = k === (m.head || 'wrap') && this.gearLd !== 3;
     this.visor.visible = !!m.glow;
     if (m.glow) this.visor.material = m.glow;
   }
@@ -198,6 +331,12 @@ export class Avatar {
     const skin = this.gunSkins[w] && gunMaterials(this.gunSkins[w]);
     this.gunMesh.material = skin ? skin.body : w === 'sniper' || w === 'lmg' ? SHARED.gunTan : SHARED.gun;
     this.muzzleLocal.set(0, 0.02, -s[2] + 0.1);
+    const quiet = w === 'sniper' || (w === 'pistol' && (this.loadout === 2 || this.loadout === 3));
+    this.can.visible = quiet;
+    if (quiet) {
+      this.can.position.set(0, 0, -s[2] + 0.02);
+      this.muzzleLocal.z -= 0.22;
+    }
   }
 
   push(t, x, y, z, yaw, pitch, flags) {
@@ -389,7 +528,11 @@ export class Avatars {
           a.setCosmetics(r.cs);
         }
       }
-      a.loadout = ld;
+      if (a.loadout !== ld || a.gearLd !== ld) {
+        a.loadout = ld;
+        a.setGear(ld);
+        a.gunId = null;
+      }
       a.slot = slot;
       a.setGun(slot === 1 ? 'pistol' : ['smg', 'lmg', 'shotgun', 'sniper'][ld] || 'smg');
       a.push(t, x, y, z, yaw, pitch, flags);

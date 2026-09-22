@@ -62,7 +62,7 @@ async def bot(n, args):
     ws.send({'t': 'hello', 'name': 'Bot %d' % (n + 1), 'v': args.version})
     outfits = ['sultan', 'crimson', 'midnight', 'zelligeguard', 'tigercamo', 'nomad', 'mirage']
     finishes = ['gilded', 'zellige', 'neon', 'tiger', 'damascus', 'mirage']
-    ws.send({'t': 'join', 'mode': args.mode, 'ld': 0,
+    ws.send({'t': 'join', 'mode': args.mode, 'ld': (args.ld if args.ld >= 0 else n % 4),
              'cos': {'o': outfits[n % len(outfits)], 'g': {'smg': finishes[n % len(finishes)]}}})
     st = {'pos': [0, 0, 0], 'sc': 0, 'alive': False, 'id': 0, 'team': -1, 'yaw': 0.0, 'others': {}, 'teams': {}, 'phase': ''}
 
@@ -89,6 +89,7 @@ async def bot(n, args):
                 st['others'] = {p[0]: p for p in m['p'] if p[0] != st['id'] and p[6] & 1}
             elif t == 'roster':
                 st['teams'] = {p['id']: p['tm'] for p in m['pl']}
+                st['names'] = {p['id']: p['n'] for p in m['pl']}
             elif t == 'ev' and m.get('e') in ('kill', 'roundend', 'matchend', 'planted'):
                 print('bot %d saw event %s' % (n + 1, m), flush=True)
 
@@ -108,13 +109,14 @@ async def bot(n, args):
         a = t * 0.8 + n
         p = [home[0] + math.cos(a) * r, 0.0, home[2] + math.sin(a) * r]
         yaw = -a
-        if args.follow and st['others']:
-            o = next(iter(st['others'].values()))
+        humans = [o for o in st['others'].values() if not st.get('names', {}).get(o[0], 'Bot').startswith('Bot')]
+        if args.follow and humans:
+            o = humans[0]
             fy = o[4]
-            d = 9 + n * 2.5
-            side = math.sin(t * 0.9) * 2.5
+            d = 6 + (n // 4) * 3
+            side = (n % 4 - 1.5) * 1.6 if args.count > 1 else math.sin(t * 0.9) * 2.5
             p = [o[1] - math.sin(fy) * d + math.cos(fy) * side, o[2], o[3] - math.cos(fy) * d - math.sin(fy) * side]
-            yaw = math.atan2(p[0] - o[1], p[2] - o[3])
+            yaw = math.atan2(p[0] - o[1], p[2] - o[3]) + (math.pi if args.away else 0)
         st['pos'] = p
         ws.send({'t': 'st', 'p': p, 'y': yaw, 'pi': 0, 'f': 4, 'sl': 0, 'sc': st['sc']})
         if args.shoot and random.random() < 0.02 and st['others']:
@@ -135,6 +137,8 @@ async def main():
     ap.add_argument('--shoot', action='store_true')
     ap.add_argument('--follow', action='store_true', help='stand in front of the nearest player (for screenshots)')
     ap.add_argument('--version', default='2.0.0')
+    ap.add_argument('--away', action='store_true', help='with --follow, stand with your back to them')
+    ap.add_argument('--ld', type=int, default=-1, help='loadout for every bot (default: one of each)')
     args = ap.parse_args()
     await asyncio.gather(*(bot(i, args) for i in range(args.count)))
 
