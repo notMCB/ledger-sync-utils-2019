@@ -33,7 +33,7 @@ class P:
 
     async def start(self, mode):
         self.ws = await WS.connect(URL)
-        self.ws.send({'t': 'hello', 'name': self.name, 'v': '1.1.0'})
+        self.ws.send({'t': 'hello', 'name': self.name, 'v': '2.0.0'})
         self.ws.send({'t': 'join', 'mode': mode, 'ld': 0})
         asyncio.ensure_future(self.read())
 

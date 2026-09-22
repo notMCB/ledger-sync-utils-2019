@@ -32,7 +32,7 @@ import urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mapgen  # noqa: E402
 
-VERSION = '1.1.0'
+VERSION = '2.0.0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
 TICK = 1 / 20
 MAX_PLAYERS = 8
@@ -85,6 +85,26 @@ def now():
 def clean_name(n):
     n = ''.join(ch for ch in str(n or '') if ch.isprintable()).strip()
     return (n[:16] or 'Player')
+
+
+def clean_cos(c):
+    """Cosmetics a client says it is wearing: an outfit id and a finish per weapon."""
+    ok = lambda v: isinstance(v, str) and 0 < len(v) <= 24 and v.replace('_', '').isalnum()
+    out = {'o': 'standard', 'g': {}}
+    if not isinstance(c, dict):
+        return out
+    if ok(c.get('o')):
+        out['o'] = c['o']
+    g = c.get('g')
+    if isinstance(g, dict):
+        for w in ('smg', 'lmg', 'shotgun', 'sniper', 'pistol'):
+            if ok(g.get(w)):
+                out['g'][w] = g[w]
+    return out
+
+
+# dinars paid out for playing
+EARN = {'kill': 10, 'headshot': 5, 'plant': 20, 'defuse': 25, 'round': 15, 'match': 25, 'win': 50, 'hill': 5}
 
 
 def dist3(a, b):
@@ -143,6 +163,8 @@ class Player:
         self.ping = 0
         self.joined = now()
         self.in_round = False    # bomb mode: took part in the current round
+        self.cos = {'o': 'standard', 'g': {}}
+        self.hill_t = 0.0
 
     def send(self, obj):
         self.conn.send(obj)
@@ -255,6 +277,13 @@ class Room:
             c = self.team_counts()
         self.roster_dirty = True
 
+    # -- dinars --
+
+    def earn(self, p, why, n=None):
+        if self.phase in ('waiting', 'countdown'):
+            return
+        p.send({'t': 'earn', 'n': n if n is not None else EARN[why], 'why': why})
+
     # -- messaging --
 
     def broadcast(self, obj, skip=None):
@@ -358,6 +387,9 @@ class Room:
         if self.phase == 'post':
             return
         self.scores[winner] += 1
+        for p in self.players.values():
+            if p.team == winner:
+                self.earn(p, 'round')
         self.set_phase('post', BOMB_POST)
         self.event({'e': 'roundend', 'w': winner, 'why': why, 'sc': self.scores})
         self.roster_dirty = True
@@ -365,6 +397,9 @@ class Room:
             self.winner = winner
 
     def end_match(self, winner):
+        for p in self.players.values():
+            won = (p.id == winner) if self.mode == 'ffa' else (p.team == winner)
+            self.earn(p, 'win' if won else 'match', EARN['match'] + (EARN['win'] if won else 0))
         self.winner = winner
         self.set_phase('ended', POSTMATCH)
         self.bomb = None
@@ -440,6 +475,7 @@ class Room:
                 b['planter'] = None
                 b['explode'] = t + BOMB_FUSE
                 p.score += 50
+                self.earn(p, 'plant')
                 self.roster_dirty = True
                 self.event({'e': 'planted', 'id': p.id, 'site': b['site'], 'p': b['pos']})
         elif b['state'] == 'dropped':
@@ -460,6 +496,7 @@ class Room:
                     b['state'] = 'defused'
                     b['defuser'] = None
                     p.score += 50
+                    self.earn(p, 'defuse')
                     self.event({'e': 'defused', 'id': p.id})
                     self.end_round(1 - self.attackers, 'defused')
                     return
@@ -558,6 +595,8 @@ class Room:
         if attacker and attacker is not q:
             attacker.kills += 1
             attacker.score += 100
+            if counting:
+                self.earn(attacker, 'kill', EARN['kill'] + (EARN['headshot'] if head else 0))
             if counting and self.mode == 'tdm':
                 self.scores[attacker.team] += 1
         elif counting and self.mode == 'ffa':
@@ -706,6 +745,9 @@ class Room:
                 for p in self.players.values():
                     if p.alive and p.team == owner and math.hypot(p.pos[0] - hx, p.pos[2] - hz) < HILL_R:
                         p.score += 2
+                        p.hill_t += 1
+                        if p.hill_t % 10 == 0:
+                            self.earn(p, 'hill')
                 self.roster_dirty = True
 
     def update_bomb_mode(self, t):
@@ -793,7 +835,7 @@ class Room:
 
     def roster(self):
         return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths,
-                                       's': p.score, 'ping': p.ping, 'ld': p.loadout}
+                                       's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': p.cos}
                                       for p in self.players.values()]}
 
     def summary(self):
@@ -951,6 +993,8 @@ class Conn:
                 self.player = Player(self, name)
             else:
                 p.name = name
+            if 'cos' in m:
+                self.player.cos = clean_cos(m.get('cos'))
             self.send({'t': 'welcome', 'id': self.player.id, 'v': VERSION})
             if m.get('v') and m.get('v') != VERSION:
                 self.send({'t': 'reload', 'v': VERSION})
@@ -984,6 +1028,8 @@ class Conn:
                     return
                 r = quick_room(mode)
             p.loadout = int(num(m.get('ld'), 0, 3))
+            if 'cos' in m:
+                p.cos = clean_cos(m.get('cos'))
             lobby.discard(self)
             r.add(p)
         elif t == 'leave':
@@ -1023,6 +1069,9 @@ class Conn:
             # swap straight away when it is safe to
             if p.alive and (r.phase in ('waiting', 'countdown', 'freeze') or now() - (p.protect_until - PROTECT) < 8):
                 p.send({'t': 'ldnow', 'ld': p.loadout})
+        elif t == 'cos':
+            p.cos = clean_cos(m.get('cos'))
+            p.room.roster_dirty = True
         elif t == 'plant':
             p.room.handle_plant(p, bool(m.get('on')))
         elif t == 'reload':

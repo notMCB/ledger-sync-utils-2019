@@ -10,6 +10,8 @@ import { input } from './input.js';
 import { settings, keyName } from './settings.js';
 import { WEAPONS, LOADOUTS, NADES_PER_LIFE, NADE_FUSE, makeWeaponState } from './weapons.js';
 import * as sfx from './audio.js';
+import { locker } from './locker.js';
+import { tickSkins, OUTFIT } from './skins.js';
 
 const GRAVITY = 18;
 const JUMP_V = 6.1;
@@ -168,6 +170,10 @@ export class Game {
       case 'dead': return this.onDead(m);
       case 'team': this.me.team = m.team; return this.updateTeamLook();
       case 'ldnow': return this.applyLoadout(m.ld);
+      case 'earn':
+        locker.earn(m.n);
+        this.hud.earn(m.n, m.why);
+        return;
       case 'rl': {
         const a = this.avatars.get(m.id);
         if (a) sfx.reloadSound(a.gunId || 'smg', 2, false, a.pos);
@@ -231,7 +237,9 @@ export class Game {
   updateTeamLook() {
     const t = this.me.team;
     const col = playerColor(this.myId, t);
-    this.vm.setTeamColor(new THREE.Color(col).multiplyScalar(0.75).getStyle());
+    const outfit = OUTFIT[locker.equippedOutfit()];
+    const sleeve = outfit && outfit.shirt ? outfit.shirt : outfit && outfit.colors ? outfit.colors[1] : new THREE.Color(col).multiplyScalar(0.75).getStyle();
+    this.vm.setTeamColor(sleeve);
     if (this.isTeamMode() && (t === 0 || t === 1)) {
       let label = `${TEAM_NAMES[t]} team`;
       if (this.room.mode === 'bomb' && this.g && this.g.att !== undefined) label += this.g.att === t ? ' · attacking' : ' · defending';
@@ -241,12 +249,20 @@ export class Game {
     }
   }
 
+  // after equipping something in the locker
+  refreshCosmetics() {
+    this.vm.setSkins(locker.cosmetics().g);
+    this.updateTeamLook();
+    if (this.inRoom && this.net) this.net.send({ t: 'cos', cos: locker.cosmetics() });
+  }
+
   applyLoadout(ld) {
     const me = this.me;
     me.loadout = ld;
     const primary = LOADOUTS[ld].weapon;
     me.weapons = { primary: makeWeaponState(primary), pistol: makeWeaponState('pistol') };
     me.slot = 'primary';
+    this.vm.setSkins(locker.cosmetics().g);
     this.vm.setWeapon(primary);
     this.hud.lastAmmo = '';
   }
@@ -1134,6 +1150,7 @@ export class Game {
     const nowS = performance.now() / 1000;
     const dt = Math.min(0.05, Math.max(0.0001, nowS - this.clock));
     this.clock = nowS;
+    tickSkins(this.clock);
     if (this.hasMap) {
       this.update(dt);
       this.updateCamera(dt);

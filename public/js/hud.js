@@ -371,6 +371,16 @@ export class Hud {
     el.innerHTML = `<div class="sb-head"><h3>${esc(roomName || MODE_INFO[mode].name)}</h3><span>${all.length}/8 players</span></div>${body}`;
   }
 
+  // dinars earned, floating up by the ammo counter
+  earn(n, why) {
+    const labels = { kill: 'Kill', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
+    const el = document.createElement('div');
+    el.className = 'earn-pop';
+    el.innerHTML = `<b>+${n}</b> dinars <span>${esc(labels[why] || '')}</span>`;
+    $('earns').appendChild(el);
+    setTimeout(() => el.remove(), 2600);
+  }
+
   update(dt) {
     if (this.hmT > 0) {
       this.hmT -= dt;

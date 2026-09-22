@@ -2,9 +2,23 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '1.1.0';
+export const VERSION = '2.0.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.0.0',
+    date: 'Coming soon',
+    title: 'The Locker',
+    notes: [
+      'New: the Locker. Open Armory Crates for gun finishes and Wardrobe Crates for outfits, each for 100 dinars.',
+      '17 gun finishes for every gun — 85 skins to collect — from Common Sandblast up to Legendary Gilded and the shifting Mirage.',
+      '13 outfits with their own headgear: wraps, helmets, berets and hoods, up to the Legendary Golden Sultan.',
+      'Earn dinars by playing: 10 a kill (+5 for a headshot), 20 for a bomb plant, 25 for a defuse, 15 a round win, 25 for finishing a match and 50 more for winning it. Holding the hill pays too.',
+      'Everyone starts with 300 dinars. A duplicate gives some dinars back.',
+      'Other players see your outfit and gun finish. Your vest keeps your team colour so sides stay easy to tell apart.',
+      'Your locker is saved in this browser.',
+    ],
+  },
   {
     version: '1.1.0',
     date: '22 September 2026',

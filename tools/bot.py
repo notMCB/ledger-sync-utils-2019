@@ -60,7 +60,10 @@ class WS:
 async def bot(n, args):
     ws = await WS.connect(args.url)
     ws.send({'t': 'hello', 'name': 'Bot %d' % (n + 1), 'v': args.version})
-    ws.send({'t': 'join', 'mode': args.mode, 'ld': random.randrange(4)})
+    outfits = ['sultan', 'crimson', 'midnight', 'zelligeguard', 'tigercamo', 'nomad', 'mirage']
+    finishes = ['gilded', 'zellige', 'neon', 'tiger', 'damascus', 'mirage']
+    ws.send({'t': 'join', 'mode': args.mode, 'ld': 0,
+             'cos': {'o': outfits[n % len(outfits)], 'g': {'smg': finishes[n % len(finishes)]}}})
     st = {'pos': [0, 0, 0], 'sc': 0, 'alive': False, 'id': 0, 'team': -1, 'yaw': 0.0, 'others': {}, 'teams': {}, 'phase': ''}
 
     async def reader():
@@ -131,7 +134,7 @@ async def main():
     ap.add_argument('--count', type=int, default=1)
     ap.add_argument('--shoot', action='store_true')
     ap.add_argument('--follow', action='store_true', help='stand in front of the nearest player (for screenshots)')
-    ap.add_argument('--version', default='1.1.0')
+    ap.add_argument('--version', default='2.0.0')
     args = ap.parse_args()
     await asyncio.gather(*(bot(i, args) for i in range(args.count)))
 

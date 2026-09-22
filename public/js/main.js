@@ -8,6 +8,8 @@ import { VERSION, PATCH_NOTES } from './version.js';
 import { LOADOUTS, WEAPONS } from './weapons.js';
 import { MODE_INFO, esc } from './hud.js';
 import { unlockAudio, uiBlip } from './audio.js';
+import { locker } from './locker.js';
+import { openLocker } from './lockerui.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -114,7 +116,7 @@ function onStatus(s) {
 }
 
 function sayHello() {
-  net.setHello({ t: 'hello', name: currentName(), v: VERSION });
+  net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics() });
 }
 
 function currentName() {
@@ -170,7 +172,7 @@ function join(target) {
   settings.name = name;
   saveSettings();
   sayHello();
-  net.send({ t: 'join', ld: settings.lastLoadout || 0, ...target });
+  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(), ...target });
   input.lock();
 }
 
@@ -226,7 +228,7 @@ $('loadout-close').addEventListener('click', () => {
 
 input.onUnlock = () => {
   if (!game.inRoom) return;
-  if (!$('loadout').hidden || !$('settings').hidden || !$('notes').hidden) return;
+  if (!$('loadout').hidden || !$('settings').hidden || !$('notes').hidden || !$('locker').hidden) return;
   if (!$('death').hidden) return; // the death screen stays usable with the mouse
   $('pause').hidden = false;
   $('pause-title').textContent = game.room ? game.room.name : 'Paused';
@@ -404,6 +406,31 @@ $('btn-notes-close').addEventListener('click', () => {
 
 $('btn-loadout').addEventListener('click', openLoadout);
 
+// -- locker -------------------------------------------------------------------------
+
+function showLocker() {
+  $('pause').hidden = true;
+  input.unlock();
+  openLocker(() => {
+    game.refreshCosmetics();
+    if (game.inRoom) resume();
+  });
+}
+$('btn-locker').addEventListener('click', showLocker);
+$('btn-pause-locker').addEventListener('click', showLocker);
+const dinarsEl = $('menu-dinars');
+const showDinars = () => { dinarsEl.textContent = locker.dinars; };
+locker.onChange(showDinars);
+showDinars();
+// testing on this Mac only: ?dinars=500 tops up the locker
+if (location.hostname === 'localhost' && params.get('dinars')) locker.earn(Number(params.get('dinars')) || 0);
+// ?locker opens the locker straight away (for checking a build); ?crate=gun|outfit also spins one
+if (params.has('locker') || params.has('crate')) {
+  $('notes').hidden = true;
+  showLocker();
+  if (params.get('crate')) setTimeout(() => document.getElementById(params.get('crate') === 'outfit' ? 'crate-outfit' : 'crate-gun').click(), 600);
+}
+
 // -- toast --------------------------------------------------------------------
 
 let toastT = null;
@@ -431,8 +458,8 @@ $('name').addEventListener('keydown', (e) => {
 renderModes();
 renderRooms();
 game.applySettings();
-// the patch notes open on every visit
-openNotes();
+// the patch notes open on every visit (not when a test link opens the locker)
+if (!params.has('locker') && !params.has('crate')) openNotes();
 
 // -- autotest ---------------------------------------------------------------------
 // A scripted run through the controls, reporting to the server log. Only with ?autotest=<mode>.
@@ -511,4 +538,8 @@ if (AUTOTEST) {
     log(`phase ${g && g.ph} n ${g && g.n} pos ${game.me.pos.x.toFixed(1)},${game.me.pos.y.toFixed(2)},${game.me.pos.z.toFixed(1)} hp ${game.me.hp} alive ${game.me.alive} others ${game.avatars.map.size} vm ${game.vm.curId} root ${game.vm.root.visible} vis ${game.vm.visible} scoped ${game.vm.scoped} gpos ${game.vm.cur && game.vm.cur.group.position.toArray().map((v) => v.toFixed(2))} pend ${game.vm.pending} sw ${game.vm.switchT.toFixed(2)} nade ${game.vm.nadeAnim.toFixed(2)}`);
   }, 4000);
   window.__souk = game;
+  if (params.get('equip')) {
+    const [w, f] = params.get('equip').split(':');
+    locker.equipGun(w, f);
+  }
 }

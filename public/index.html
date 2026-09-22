@@ -52,6 +52,7 @@
     <div class="reload-hint" id="reload-hint" hidden>Press <b id="reload-key">R</b> to reload</div>
   </div>
   <div id="bombcarry" hidden>You have the bomb</div>
+  <div id="earns"></div>
   <div id="fps" hidden></div>
   <div id="scoreboard" hidden></div>
   <div id="spectate" hidden></div>
@@ -91,6 +92,7 @@
     </label>
     <div class="modes" id="modes"></div>
     <div class="menu-foot">
+      <button class="btn" id="btn-locker">Locker <span class="dinar-pill"><i class="dinar"></i><span id="menu-dinars">0</span></span></button>
       <button class="btn ghost" id="btn-loadout">Loadout</button>
       <button class="btn ghost" id="btn-settings">Settings</button>
       <button class="btn ghost" id="btn-notes">Patch notes</button>
@@ -114,6 +116,7 @@
     <div class="pause-buttons">
       <button class="btn" id="btn-resume">Resume</button>
       <button class="btn ghost" id="btn-pause-loadout">Loadout</button>
+      <button class="btn ghost" id="btn-pause-locker">Locker</button>
       <button class="btn ghost" id="btn-pause-settings">Settings</button>
       <button class="btn ghost" id="btn-pause-notes">Patch notes</button>
       <button class="btn danger" id="btn-leave">Leave match</button>
@@ -158,6 +161,66 @@
       <label class="slider"><span>Volume</span><input type="range" id="s-vol" min="0" max="1" step="0.02"><output id="o-vol"></output></label>
     </div>
     <div class="row-end"><button class="btn" id="btn-settings-close">Done</button></div>
+  </div>
+</div>
+
+<!-- ============ locker ============ -->
+<div id="locker" class="overlay dim" hidden>
+  <div class="panel locker-panel">
+    <div class="panel-head">
+      <h2>Locker</h2>
+      <div class="lk-head-right">
+        <div class="dinar-balance"><i class="dinar"></i><span id="locker-dinars">0</span><small>dinars</small></div>
+        <button class="btn ghost" id="locker-close">Done</button>
+      </div>
+    </div>
+    <div class="crates">
+      <div class="crate-card armory">
+        <div class="crate-art" aria-hidden="true"></div>
+        <div class="crate-text">
+          <div class="crate-name">Armory Crate</div>
+          <div class="crate-desc">One random gun finish for one of your five guns.</div>
+        </div>
+        <button class="btn crate-open" id="crate-gun">Open · <span class="crate-price">100</span></button>
+      </div>
+      <div class="crate-card wardrobe">
+        <div class="crate-art" aria-hidden="true"></div>
+        <div class="crate-text">
+          <div class="crate-name">Wardrobe Crate</div>
+          <div class="crate-desc">One random outfit for your soldier.</div>
+        </div>
+        <button class="btn crate-open" id="crate-outfit">Open · <span class="crate-price">100</span></button>
+      </div>
+    </div>
+    <p class="panel-sub lk-earn">Earn dinars by playing: 10 a kill (+5 for a headshot), 20 for a plant, 25 for a defuse, 15 a round win, 25 for finishing a match and 50 more for winning it. Duplicates give some dinars back.</p>
+    <div class="lk-body">
+      <div class="lk-preview"><canvas id="locker-preview"></canvas></div>
+      <div class="lk-collection">
+        <div class="tabs">
+          <button class="tab lk-tab on" data-tab="guns">Gun skins</button>
+          <button class="tab lk-tab" data-tab="outfits">Outfits</button>
+        </div>
+        <div class="lk-weapons" id="lk-weapons"></div>
+        <div class="lk-grid" id="lk-grid"></div>
+        <div class="lk-count" id="lk-count"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="crate" class="overlay dim" hidden>
+  <div class="panel crate-panel">
+    <h2 id="crate-title">Armory Crate</h2>
+    <div class="reel" id="crate-reel"><div class="reel-strip" id="crate-strip"></div><i class="reel-mark"></i></div>
+    <div class="crate-result" id="crate-result" hidden>
+      <div id="crate-prize"></div>
+      <p id="crate-note"></p>
+      <div class="row-end">
+        <button class="btn ghost" id="crate-back">Back to locker</button>
+        <button class="btn ghost" id="crate-again">Open another</button>
+        <button class="btn" id="crate-equip">Equip</button>
+      </div>
+    </div>
   </div>
 </div>
 

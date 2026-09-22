@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { nameTag } from './textures.js';
+import { outfitMaterials, gunMaterials } from './skins.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
 export const TEAM_NAMES = ['Sand', 'Sky'];
@@ -37,7 +38,7 @@ const GUN_SIZES = {
   smg: [0.06, 0.1, 0.5], lmg: [0.09, 0.13, 0.85], shotgun: [0.06, 0.08, 0.85], sniper: [0.06, 0.09, 1.05], pistol: [0.04, 0.08, 0.2],
 };
 
-class Avatar {
+export class Avatar {
   constructor(id, scene) {
     this.id = id;
     this.scene = scene;
@@ -62,16 +63,21 @@ class Avatar {
 
     const g = new THREE.Group();
     this.group = g;
-    this.body = lam('#888');
-    this.wrap = lam('#888');
+    this.body = lam('#888');   // vest: always the team / player colour
+    this.wrap = lam('#888');   // team-tinted default for headgear
+    this.parts = { pants: [], boots: [], shirt: [], wrap: [] };
+    const part = (role, m) => {
+      this.parts[role].push(m);
+      return m;
+    };
     // legs pivot at the hips
     this.legs = [];
     for (const sx of [-0.11, 0.11]) {
       const leg = new THREE.Group();
-      bx(leg, 0.17, 0.5, 0.19, SHARED.pants, 0, -0.25, 0);
+      part('pants', bx(leg, 0.17, 0.5, 0.19, SHARED.pants, 0, -0.25, 0));
       const shin = new THREE.Group();
-      bx(shin, 0.16, 0.42, 0.18, SHARED.pants, 0, -0.21, 0);
-      bx(shin, 0.18, 0.1, 0.27, SHARED.boots, 0, -0.42, -0.04);
+      part('pants', bx(shin, 0.16, 0.42, 0.18, SHARED.pants, 0, -0.21, 0));
+      part('boots', bx(shin, 0.18, 0.1, 0.27, SHARED.boots, 0, -0.42, -0.04));
       shin.position.y = -0.5;
       leg.add(shin);
       leg.userData.shin = shin;
@@ -84,26 +90,50 @@ class Avatar {
     upper.position.y = 0.97;
     g.add(upper);
     this.upper = upper;
-    bx(upper, 0.44, 0.3, 0.25, SHARED.pants, 0, 0.08, 0);
+    part('pants', bx(upper, 0.44, 0.3, 0.25, SHARED.pants, 0, 0.08, 0));
     bx(upper, 0.48, 0.42, 0.28, this.body, 0, 0.4, 0);       // vest in team colour
     bx(upper, 0.1, 0.44, 0.3, SHARED.strap, 0.12, 0.4, 0.001);
+    part('shirt', bx(upper, 0.5, 0.1, 0.26, this.body, 0, 0.64, 0)); // collar and shoulders
     const head = new THREE.Group();
     head.position.y = 0.76;
     upper.add(head);
     this.head = head;
     bx(head, 0.23, 0.25, 0.25, SHARED.skin, 0, 0, 0);
-    bx(head, 0.26, 0.12, 0.28, this.wrap, 0, 0.1, 0.01);     // headwrap
-    bx(head, 0.26, 0.1, 0.12, this.wrap, 0, -0.08, 0.08);    // scarf
     bx(head, 0.2, 0.04, 0.02, SHARED.boots, 0, 0.03, -0.13); // eyes shadow
+    // headgear: one of these shows, depending on the outfit
+    this.heads = {};
+    const hg = (name) => {
+      const h = new THREE.Group();
+      head.add(h);
+      this.heads[name] = h;
+      return h;
+    };
+    const wrapG = hg('wrap');
+    part('wrap', bx(wrapG, 0.26, 0.12, 0.28, this.wrap, 0, 0.1, 0.01));
+    part('wrap', bx(wrapG, 0.26, 0.1, 0.12, this.wrap, 0, -0.08, 0.08));
+    const helm = hg('helmet');
+    part('wrap', bx(helm, 0.3, 0.14, 0.31, this.wrap, 0, 0.13, 0.01));
+    part('wrap', bx(helm, 0.32, 0.03, 0.34, this.wrap, 0, 0.07, 0.01));
+    const beret = hg('beret');
+    const b = part('wrap', bx(beret, 0.27, 0.06, 0.27, this.wrap, 0.02, 0.15, 0.01));
+    b.rotation.z = -0.18;
+    const hood = hg('hood');
+    part('wrap', bx(hood, 0.29, 0.3, 0.2, this.wrap, 0, 0.02, 0.06));
+    part('wrap', bx(hood, 0.29, 0.07, 0.3, this.wrap, 0, 0.15, 0.0));
+    part('wrap', bx(hood, 0.3, 0.1, 0.12, this.wrap, 0, -0.1, 0.07));
+    this.visor = bx(head, 0.21, 0.035, 0.015, new THREE.MeshBasicMaterial({ color: '#27e6ff' }), 0, 0.03, -0.132);
+    this.visor.visible = false;
     // arms and gun
     const arms = new THREE.Group();
     arms.position.set(0, 0.52, 0);
     upper.add(arms);
     this.arms = arms;
-    bx(arms, 0.12, 0.12, 0.4, this.body, 0.2, -0.02, -0.14);
-    bx(arms, 0.12, 0.12, 0.4, this.body, -0.16, -0.04, -0.22);
+    part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, 0.2, -0.02, -0.14));
+    part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, -0.16, -0.04, -0.22));
     bx(arms, 0.1, 0.1, 0.1, SHARED.boots, 0.14, -0.04, -0.34);
     bx(arms, 0.1, 0.1, 0.1, SHARED.boots, -0.04, -0.03, -0.5);
+    this.gunSkins = {};
+    this.outfit = 'standard';
     this.gun = new THREE.Group();
     this.gun.position.set(0.08, 0.02, -0.3);
     arms.add(this.gun);
@@ -119,6 +149,29 @@ class Avatar {
     g.visible = false;
     scene.add(g);
     this.tagKey = '';
+    this.setOutfit('standard');
+  }
+
+  // clothing from an outfit; anything the outfit leaves open uses team colours
+  setOutfit(id) {
+    this.outfit = id || 'standard';
+    const m = outfitMaterials(this.outfit);
+    for (const x of this.parts.pants) x.material = m.pants;
+    for (const x of this.parts.boots) x.material = m.boots;
+    for (const x of this.parts.shirt) x.material = m.shirt || this.body;
+    for (const x of this.parts.wrap) x.material = m.wrap || this.wrap;
+    for (const k in this.heads) this.heads[k].visible = k === (m.head || 'wrap');
+    this.visor.visible = !!m.glow;
+    if (m.glow) this.visor.material = m.glow;
+  }
+
+  setCosmetics(cs) {
+    if (!cs) return;
+    if (cs.o !== this.outfit) this.setOutfit(cs.o);
+    this.gunSkins = cs.g || {};
+    const w = this.gunId;
+    this.gunId = null;
+    if (w) this.setGun(w);
   }
 
   setIdentity(name, team) {
@@ -142,7 +195,8 @@ class Avatar {
     const s = GUN_SIZES[w] || GUN_SIZES.smg;
     this.gunMesh.scale.set(s[0] / 0.06, s[1] / 0.1, s[2] / 0.6);
     this.gunMesh.position.z = -s[2] / 2 + 0.1;
-    this.gunMesh.material = w === 'sniper' || w === 'lmg' ? SHARED.gunTan : SHARED.gun;
+    const skin = this.gunSkins[w] && gunMaterials(this.gunSkins[w]);
+    this.gunMesh.material = skin ? skin.body : w === 'sniper' || w === 'lmg' ? SHARED.gunTan : SHARED.gun;
     this.muzzleLocal.set(0, 0.02, -s[2] + 0.1);
   }
 
@@ -315,6 +369,7 @@ export class Avatars {
         this.map.delete(id);
       } else {
         a.setIdentity(r.n, r.tm);
+        a.setCosmetics(r.cs);
       }
     }
   }
@@ -328,7 +383,10 @@ export class Avatars {
         a = new Avatar(id, this.scene);
         this.map.set(id, a);
         const r = this.roster.get(id);
-        if (r) a.setIdentity(r.n, r.tm);
+        if (r) {
+          a.setIdentity(r.n, r.tm);
+          a.setCosmetics(r.cs);
+        }
       }
       a.loadout = ld;
       a.slot = slot;

@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { flashTex } from './textures.js';
+import { gunMaterials } from './skins.js';
 
 const std = (color, rough = 0.6, metal = 0.3) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 const MAT = {
@@ -24,6 +25,21 @@ const MAT = {
   sleeve: std('#6b5a3e', 0.9, 0),
   nade: std('#4a5236', 0.7, 0.2),
 };
+
+// which parts of a gun a finish recolours
+const ROLE = new Map([[MAT.steel, 'body'], [MAT.polymer, 'furn'], [MAT.tan, 'furn'], [MAT.wood, 'furn'], [MAT.dark, 'dark']]);
+
+// put a finish on a gun (null = factory finish)
+export function skinGun(group, finishId) {
+  const mats = finishId ? gunMaterials(finishId) : null;
+  group.traverse((m) => {
+    if (!m.isMesh) return;
+    if (!m.userData.base) m.userData.base = m.material;
+    const role = ROLE.get(m.userData.base);
+    if (!role) return;
+    m.material = mats ? mats[role] : m.userData.base;
+  });
+}
 
 function box(parent, w, h, d, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -264,6 +280,17 @@ function buildNadeHand(sleeve) {
   return g;
 }
 
+export const GUN_BUILDERS = { smg: buildSMG, lmg: buildLMG, shotgun: buildShotgun, sniper: buildSniper, pistol: buildPistol };
+
+// a gun on its own, for the locker preview
+export function buildPreviewGun(id, finishId) {
+  const g = GUN_BUILDERS[id](MAT.sleeve);
+  g.hands.right.visible = false;
+  g.hands.left.visible = false;
+  skinGun(g.group, finishId);
+  return g;
+}
+
 // -- easing helpers -------------------------------------------------------------
 
 const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
@@ -330,6 +357,11 @@ export class ViewModel {
 
   setTeamColor(hex) {
     this.sleeve.color.set(hex);
+  }
+
+  // finishes per weapon: { smg: 'zellige', ... }
+  setSkins(map) {
+    for (const k in this.guns) skinGun(this.guns[k].group, (map && map[k]) || null);
   }
 
   setWeapon(id) {
