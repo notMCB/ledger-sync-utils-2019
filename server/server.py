@@ -26,6 +26,7 @@ import os
 import random
 import struct
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -62,10 +63,12 @@ LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 PERKS = ['ammo', 'med', 'ladder', 'beacon']
 PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1}
 MED_HEAL = 50
-LADDER_LIFE = 120.0
-BEACON_LIFE = 20.0
-BEACON_RANGE = 30.0
-BEACON_EVERY = 3.0
+LADDER_LIFE = 60.0
+BEACON_LIFE = 30.0
+BEACON_RANGE = 35.0
+BEACON_EVERY = 2.5
+CRATE_LIFE = 45.0
+CRATE_REACH = 2.4
 NADES = [3, 2, 2, 2]   # grenades per life, by loadout (Assault carries three)
 NADE_MAX = 3
 NADE_RADIUS = 7.0
@@ -116,7 +119,7 @@ def clean_cos(c):
 
 
 # dinars paid out for playing
-EARN = {'kill': 50, 'headshot': 10, 'plant': 20, 'defuse': 25, 'round': 15, 'match': 25, 'win': 50, 'hill': 5}
+EARN = {'assist': 10, 'kill': 50, 'headshot': 10, 'plant': 20, 'defuse': 25, 'round': 15, 'match': 25, 'win': 50, 'hill': 5}
 
 
 def owned_cos(p, cos):
@@ -235,17 +238,36 @@ class Room:
         self.feed_seq = 0
         self.ladders = {}
         self.beacons = {}
+        self.crates = {}
+        self.crate_seq = 0
 
     # -- map --
 
+    def prepare_map(self):
+        """Build the next town on a worker thread, so matches elsewhere don't stall."""
+        self.next_town = None
+        seed = random.randrange(1, 2 ** 31)
+
+        def work():
+            self.next_town = (seed, mapgen.generate(seed))
+        threading.Thread(target=work, daemon=True).start()
+
     def new_map(self):
-        self.seed = random.randrange(1, 2 ** 31)
-        town = mapgen.generate(self.seed)
+        ready = getattr(self, 'next_town', None)
+        self.next_town = None
+        if ready:
+            self.seed, town = ready
+        else:
+            self.seed = random.randrange(1, 2 ** 31)
+            town = mapgen.generate(self.seed)
         self.map = town.to_json()
         self.solid = mapgen.Solid(self.map['boxes'])
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
         self.ladders = {}
         self.beacons = {}
+        self.crates = {}
+        self.crates = {}
+        self.crate_seq = 0
 
     # -- membership --
 
@@ -276,7 +298,9 @@ class Room:
         for oid, L in self.ladders.items():
             p.send({'t': 'ladder', 'id': oid, 'p': L['p'], 'y': L['y'], 'h': L['h']})
         for oid, B in self.beacons.items():
-            p.send({'t': 'beacon', 'id': oid, 'p': B['p'], 'tm': B['team']})
+            p.send({'t': 'beacon', 'id': oid, 'p': B['p'], 'tm': B['team'], 'age': round(now() - B['born'], 2)})
+        for cid, C in self.crates.items():
+            p.send({'t': 'supply', 'id': cid, 'k': C['k'], 'p': C['p'], 'tm': C['team'], 'owner': C['owner']})
         self.roster_dirty = True
         self.event({'e': 'join', 'id': p.id, 'n': p.name})
         if self.phase in ('waiting', 'countdown'):
@@ -463,6 +487,7 @@ class Room:
             self.winner = winner
 
     def end_match(self, winner):
+        self.prepare_map()
         for p in self.players.values():
             won = (p.id == winner) if self.mode == 'ffa' else (p.team == winner)
             self.earn(p, 'win' if won else 'match', EARN['match'] + (EARN['win'] if won else 0))
@@ -725,13 +750,16 @@ class Room:
         if not p.alive or k != PERKS[p.loadout] or p.perk_left <= 0 or self.phase == 'ended':
             return
         t = now()
-        if k == 'med':
-            if p.hp >= 100:
+        if k in ('med', 'ammo'):
+            # drop a crate your whole team can use, once each
+            pos = vec3(m.get('p'))
+            if dist3(pos, p.pos) > 4.0:
                 return
-            p.hp = min(100, p.hp + MED_HEAL)
-            p.send({'t': 'heal', 'hp': p.hp})
-        elif k == 'ammo':
-            p.send({'t': 'perkok', 'k': 'ammo'})
+            self.crate_seq += 1
+            cid = '%d-%d' % (p.id, self.crate_seq)
+            C = {'k': k, 'p': [round(v, 3) for v in pos], 'team': p.team, 'owner': p.id, 'until': t + CRATE_LIFE, 'used': set()}
+            self.crates[cid] = C
+            self.broadcast({'t': 'supply', 'id': cid, 'k': k, 'p': C['p'], 'tm': p.team, 'owner': p.id})
         elif k == 'ladder':
             pos = vec3(m.get('p'))
             if dist2(pos, p.pos) > 4.0 or abs(pos[1] - p.pos[1]) > 1.5:
@@ -744,13 +772,43 @@ class Room:
             pos = vec3(m.get('p'))
             if dist3(pos, p.pos) > 4.0:
                 return
-            B = {'p': [round(v, 3) for v in pos], 'team': p.team, 'until': t + BEACON_LIFE, 'next': t + 0.5}
+            B = {'p': [round(v, 3) for v in pos], 'team': p.team, 'until': t + BEACON_LIFE, 'next': t + 0.3, 'born': t}
             self.beacons[p.id] = B
-            self.broadcast({'t': 'beacon', 'id': p.id, 'p': B['p'], 'tm': p.team})
+            self.broadcast({'t': 'beacon', 'id': p.id, 'p': B['p'], 'tm': p.team, 'age': 0})
         p.perk_left -= 1
         p.send({'t': 'perkleft', 'k': k, 'n': p.perk_left})
 
+    def friendly(self, a, b):
+        """On the same side (in free-for-all only you are on your side)."""
+        if a is b:
+            return True
+        return self.mode in TEAM_MODES and self.phase not in ('waiting', 'countdown') and a.team == b.team
+
+    def update_crates(self, t):
+        for cid, C in list(self.crates.items()):
+            owner = self.players.get(C['owner'])
+            if t >= C['until'] or not owner:
+                del self.crates[cid]
+                self.broadcast({'t': 'supply', 'id': cid, 'off': 1})
+                continue
+            for q in self.players.values():
+                if not q.alive or q.id in C['used'] or not self.friendly(owner, q):
+                    continue
+                if dist3(q.pos, C['p']) > CRATE_REACH:
+                    continue
+                if C['k'] == 'med':
+                    if q.hp >= 100:
+                        continue   # save it for when they're hurt
+                    q.hp = 100
+                    q.send({'t': 'heal', 'hp': 100, 'by': owner.name if owner is not q else ''})
+                else:
+                    q.send({'t': 'perkok', 'k': 'ammo', 'by': owner.name if owner is not q else ''})
+                C['used'].add(q.id)
+                if owner is not q:
+                    self.earn(owner, 'assist')
+
     def update_devices(self, t):
+        self.update_crates(t)
         for oid, L in list(self.ladders.items()):
             if t >= L['until']:
                 del self.ladders[oid]
@@ -823,6 +881,8 @@ class Room:
                     self.broadcast({'t': 'ladder', 'id': oid, 'off': 1})
                 for oid in list(self.beacons):
                     self.broadcast({'t': 'beacon', 'id': oid, 'off': 1})
+                for cid in list(self.crates):
+                    self.broadcast({'t': 'supply', 'id': cid, 'off': 1})
                 self.new_map()
                 self.broadcast({'t': 'map', 'map': self.map})
                 for p in self.players.values():

@@ -239,20 +239,27 @@ async def test_perks():
     await b.wait(lambda: b.hp < 100, 'hurt')
     hp = b.hp
     earn = await a.reply('earn', 'no earn', timeout=0.5)
-    b.send({'t': 'perk', 'k': 'med'})
+    b.send({'t': 'perk', 'k': 'med', 'p': [b.pos[0], 0, b.pos[2]]})
     m = await b.reply('heal', 'heal')
-    check(m and m['hp'] == min(100, hp + 50), 'medkit heals 50 (%s -> %s)' % (hp, m and m['hp']))
-    b.send({'t': 'perk', 'k': 'ammo'})
+    check(m and m['hp'] == 100, 'standing at your medic crate heals you to full (%s -> %s)' % (hp, m and m['hp']))
+    b.send({'t': 'perk', 'k': 'ammo', 'p': [b.pos[0], 0, b.pos[2]]})
     await asyncio.sleep(0.3)
     check(not b.last('perkok'), 'you can only use your own loadout’s perk')
-    a.send({'t': 'perk', 'k': 'ammo'})
+    a.send({'t': 'perk', 'k': 'ammo', 'p': [a.pos[0], 0, a.pos[2]]})
     m = await a.reply('perkok', 'ammo')
-    check(m and m['k'] == 'ammo', 'ammo kit is accepted')
-    a.send({'t': 'perk', 'k': 'ammo'})
+    check(m and m['k'] == 'ammo', 'standing at your ammo crate restocks you')
+    await asyncio.sleep(0.5)
+    check(len([x for x in a.msgs if x['t'] == 'perkok']) == 1, 'each crate restocks you only once')
+    far = [a.pos[0] + 30, 0, a.pos[2]]
+    a.send({'t': 'perk', 'k': 'ammo', 'p': far})
+    await asyncio.sleep(0.3)
+    m = await a.reply('supply', 'crate 2', timeout=0.4, pred=lambda x: not x.get('off'))
+    check(m is None, 'a crate must be dropped near you')
+    a.send({'t': 'perk', 'k': 'ammo', 'p': [a.pos[0] + 1, 0, a.pos[2]]})
     await a.reply('perkleft', 'ammo 2')
-    a.send({'t': 'perk', 'k': 'ammo'})
-    m = await a.reply('perkok', 'ammo 3', timeout=0.6)
-    check(m is None, 'ammo kit has two uses per life')
+    a.send({'t': 'perk', 'k': 'ammo', 'p': [a.pos[0] + 1, 0, a.pos[2]]})
+    m = await a.reply('supply', 'ammo 3', timeout=0.6, pred=lambda x: not x.get('off'))
+    check(m is None, 'two crates per life')
     # kill pays 50 dinars
     for _ in range(6):
         a.send({'t': 'shot', 'w': 'smg', 'o': [a.pos[0], 1.5, a.pos[2]], 'e': [b.pos], 'h': [[b.id, 'h']]})
@@ -289,6 +296,37 @@ async def test_perks():
     a.close(); b.close()
 
 
+async def test_team_crates():
+    print('team crates')
+    a, b = await join_pair('tdm', 1, 0)
+    await a.wait(lambda: a.g.get('ph') == 'live', 'live', 15)
+    await a.wait(lambda: a.alive and b.alive, 'respawn')
+    # c joins so a has a teammate
+    c = await C('C').connect()
+    c.send({'t': 'join', 'mode': 'tdm', 'ld': 0})
+    await c.wait(lambda: c.alive, 'c spawn', 8)
+    await asyncio.sleep(0.5)
+    mate = c if c.team == a.team else b
+    foe = b if mate is c else c
+    await asyncio.sleep(1.7)
+    # hurt the teammate (the foe shoots them), then the medic drops a crate beside them
+    foe.move([mate.pos[0] + 3, 0, mate.pos[2]])
+    await asyncio.sleep(0.2)
+    foe.send({'t': 'shot', 'w': 'smg', 'o': [foe.pos[0], 1.5, foe.pos[2]], 'e': [mate.pos], 'h': [[mate.id, 'b']]})
+    await mate.wait(lambda: mate.hp < 100, 'hurt')
+    a.move([mate.pos[0] + 1, 0, mate.pos[2]])
+    await asyncio.sleep(0.2)
+    a.send({'t': 'perk', 'k': 'med', 'p': [mate.pos[0] + 0.5, 0, mate.pos[2]]})
+    m = await mate.reply('heal', 'mate heal')
+    check(m and m['hp'] == 100 and m.get('by') == 'A', 'a medic crate heals teammates (%s)' % (m,))
+    e = await a.wait(lambda: a.last('earn', lambda x: x['why'] == 'assist'), 'assist')
+    check(e and e['n'] == 10, 'the medic earns 10 dinars for it')
+    foe.move([a.pos[0] + 0.3, 0, a.pos[2]])
+    await asyncio.sleep(0.8)
+    check(not foe.last('heal'), 'enemies can’t use your crate')
+    a.close(); b.close(); c.close()
+
+
 async def main():
     shutil.rmtree(DATA, ignore_errors=True)
     env = dict(os.environ, DATA_DIR=DATA)
@@ -306,6 +344,7 @@ async def main():
         await test_accounts()
         await test_chat()
         await test_perks()
+        await test_team_crates()
     finally:
         proc.terminate()
         out = proc.communicate(timeout=5)[0].decode()

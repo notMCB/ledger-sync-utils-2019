@@ -79,6 +79,7 @@ export class Game {
     };
     this.ladders = new Map();   // player id -> ladder
     this.beacons = new Map();   // player id -> beacon
+    this.crates = new Map();    // crate id -> ammo / medic crate
     this.flashT = 0;
     this.flashMax = 1;
     this.chat = null;
@@ -191,11 +192,11 @@ export class Game {
   // perks work locally on the range
   localPerk(m) {
     const me = this.me;
-    if (m.k === 'med') {
-      me.hp = Math.min(100, me.hp + 50);
-      this.onMessage({ t: 'heal', hp: me.hp });
-    } else if (m.k === 'ammo') this.refillAmmo();
-    else if (m.k === 'ladder') this.onLadder({ id: -1, p: m.p, y: m.y, h: m.h });
+    if (m.k === 'med' || m.k === 'ammo') {
+      this.onCrate({ id: 'local' + me.perkLeft, k: m.k, p: m.p, tm: -1, owner: -1 });
+      if (m.k === 'med') this.onMessage({ t: 'heal', hp: (me.hp = 100) });
+      else this.refillAmmo();
+    } else if (m.k === 'ladder') this.onLadder({ id: -1, p: m.p, y: m.y, h: m.h });
     else if (m.k === 'beacon') this.onBeacon({ id: -1, p: m.p });
     me.perkLeft = Math.max(0, me.perkLeft - 1);
   }
@@ -220,11 +221,12 @@ export class Game {
         this.me.hp = m.hp;
         this.hud.setHP(m.hp);
         sfx.heal();
-        this.hud.center('Patched up', `${m.hp} health`, '', 1.4, 1);
+        this.hud.center('Healed', m.by ? `From ${m.by}’s medic crate` : `${m.hp} health`, '', 1.6, 1);
         return;
       case 'perkok':
-        if (m.k === 'ammo') this.refillAmmo();
+        if (m.k === 'ammo') this.refillAmmo(m.by);
         return;
+      case 'supply': return this.onCrate(m);
       case 'perkleft':
         this.me.perkLeft = m.n;
         return;
@@ -600,23 +602,41 @@ export class Game {
       this.hud.center(`No ${PERKS[perk].name} left`, 'You get more when you respawn', '', 1.6, 1);
       return;
     }
-    if (perk === 'med') {
-      if (me.hp >= 100) return this.hud.center('Already at full health', '', '', 1.2, 1);
-      this.perkSend({ t: 'perk', k: 'med' });
-    } else if (perk === 'ammo') {
-      const full = Object.values(me.weapons).every((w) => w.reserve >= w.def.reserve);
-      if (full) return this.hud.center('Ammo is already full', '', '', 1.2, 1);
-      this.perkSend({ t: 'perk', k: 'ammo' });
+    if (perk === 'med' || perk === 'ammo') {
+      // set the crate down just in front of you
+      const p = this.dropSpot(0.9);
+      this.perkSend({ t: 'perk', k: perk, p: [p.x, p.y, p.z].map((v) => +v.toFixed(3)) });
     } else if (perk === 'ladder') {
       const spot = this.ladderSpot();
       if (!spot) return this.hud.center('Face a wall to stand the ladder against', 'Get close to it first', '', 1.8, 1);
       this.perkSend({ t: 'perk', k: 'ladder', p: [spot.x, spot.y, spot.z].map((v) => +v.toFixed(3)), y: +spot.yaw.toFixed(4), h: +spot.h.toFixed(2) });
     } else if (perk === 'beacon') {
-      const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
-      let p = new THREE.Vector3(me.pos.x + fx * 0.6, me.pos.y + 0.05, me.pos.z + fz * 0.6);
-      if (this.world.physics.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 0.3, me.pos.z), new THREE.Vector3(fx, 0, fz), 0.8)) p = new THREE.Vector3(me.pos.x, me.pos.y + 0.05, me.pos.z);
+      const p = this.dropSpot(0.6);
       this.perkSend({ t: 'perk', k: 'beacon', p: [p.x, p.y, p.z].map((v) => +v.toFixed(3)) });
     }
+  }
+
+  // a spot on the floor just in front of you (or at your feet if a wall is in the way)
+  dropSpot(d) {
+    const me = this.me;
+    const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
+    if (this.world.physics.raycast(new THREE.Vector3(me.pos.x, me.pos.y + 0.3, me.pos.z), new THREE.Vector3(fx, 0, fz), d + 0.4)) {
+      return new THREE.Vector3(me.pos.x, me.pos.y + 0.02, me.pos.z);
+    }
+    return new THREE.Vector3(me.pos.x + fx * d, me.pos.y + 0.02, me.pos.z + fz * d);
+  }
+
+  onCrate(m) {
+    const old = this.crates.get(m.id);
+    if (old) this.scene.remove(old.mesh);
+    this.crates.delete(m.id);
+    if (m.off) return;
+    const mesh = makeSupplyCrate(m.k);
+    mesh.position.set(...m.p);
+    mesh.rotation.y = Math.random() * Math.PI;
+    this.scene.add(mesh);
+    this.crates.set(m.id, { mesh, k: m.k, tm: m.tm, owner: m.owner, p: m.p });
+    sfx.footstep(new THREE.Vector3(...m.p), 1.3);
   }
 
   perkSend(m) {
@@ -624,12 +644,13 @@ export class Game {
     else this.send(m);
   }
 
-  refillAmmo() {
+  refillAmmo(by) {
     const me = this.me;
+    if (!me.weapons) return;
     for (const w of Object.values(me.weapons)) w.reserve = w.def.reserve;
     this.hud.lastAmmo = '';
     sfx.reloadSound('smg', 0.8, false, null);
-    this.hud.center('Ammo refilled', '', '', 1.2, 1);
+    this.hud.center('Restocked', by ? `From ${by}’s ammo crate` : 'Spare ammo full', '', 1.6, 1);
   }
 
   // where a ladder would stand: against the wall you're facing, on the floor below you
@@ -678,12 +699,10 @@ export class Game {
     const mesh = makeBeaconMesh();
     mesh.position.set(...m.p);
     this.scene.add(mesh);
-    this.beacons.set(m.id, { mesh, t: 0, pulse: 0 });
+    this.beacons.set(m.id, { mesh, t: m.age || 0, pulse: 0, tm: m.tm, owner: m.id, x: m.p[0], z: m.p[2] });
   }
 
   onPing(m) {
-    const b = this.beacons.get(m.id);
-    if (b) b.pulse = 1;
     sfx.beep(1100, 0.12, 0.25, new THREE.Vector3(...m.p));
     for (const [id, x, y, z] of m.pts) {
       const a = this.avatars.get(id);
@@ -695,16 +714,17 @@ export class Game {
   }
 
   updateDevices(dt) {
+    // beacons pulse every 2.5 s — anyone nearby can see the ring sweep out
     for (const B of this.beacons.values()) {
       B.t += dt;
       B.mesh.userData.lamp.visible = B.t % 0.8 < 0.4;
-      if (B.pulse > 0) {
-        B.pulse = Math.max(0, B.pulse - dt * 0.8);
-        const s = 1 + (1 - B.pulse) * 29;
-        B.mesh.userData.ring.scale.set(s, s, 1);
-        B.mesh.userData.ring.material.opacity = B.pulse * 0.7;
-      }
+      const k = (B.t % 2.5) / 2.5;
+      const s = 1 + k * 34;
+      B.mesh.userData.ring.scale.set(s, s, 1);
+      B.mesh.userData.ring.material.opacity = (1 - k) * 0.65;
+      B.sweep = k;
     }
+    for (const C of this.crates.values()) C.mesh.userData.icon.rotation.y += dt * 1.2;
     // flashbang whiteout
     const el = document.getElementById('flash');
     if (this.flashT > 0) {
@@ -720,8 +740,10 @@ export class Game {
   clearDevices() {
     for (const L of this.ladders.values()) this.scene.remove(L.mesh);
     for (const B of this.beacons.values()) this.scene.remove(B.mesh);
+    for (const C of this.crates.values()) this.scene.remove(C.mesh);
     this.ladders.clear();
     this.beacons.clear();
+    this.crates.clear();
   }
 
   onHurt(m) {
@@ -1501,11 +1523,17 @@ export class Game {
         mmObj.push({ x, z, r: HILL_R, color: col, fill: 'rgba(255,255,255,0.15)' });
       }
     }
-    // enemies a recon beacon has found
-    for (const a of this.avatars.map.values()) {
-      if (!a.alive || !(a.pingT > 0)) continue;
-      const [sx, sy] = project(a.pos.x, a.pos.y + 2.3, a.pos.z);
-      markers.push({ key: 'ping' + a.id, x: sx, y: sy, cls: 'ping', label: '◆', dist: dist(a.pos.x, a.pos.z) });
+    // your team's recon beacons: the area they cover, sweeping on the map
+    const teamMode = this.isTeamMode() && !this.warmup();
+    for (const B of this.beacons.values()) {
+      const ours = B.owner === this.myId || (teamMode && B.tm === this.me.team);
+      if (!ours) continue;
+      mmObj.push({ x: B.x, z: B.z, r: 35, color: 'rgba(255, 110, 90, 0.9)', fill: 'rgba(255, 90, 70, 0.1)', sweep: B.sweep });
+    }
+    // crates your side can use
+    for (const C of this.crates.values()) {
+      const ours = C.owner === this.myId || (teamMode && C.tm === this.me.team) || C.owner === -1;
+      if (ours) mmObj.push({ x: C.p[0], z: C.p[2], dot: true, color: C.k === 'med' ? '#ffffff' : '#c9d86a' });
     }
     this.hud.markers(markers);
     return mmObj;
@@ -1683,5 +1711,38 @@ function makeBeaconMesh() {
   g.add(ring);
   g.userData.lamp = lamp;
   g.userData.ring = ring;
+  return g;
+}
+
+// an ammo crate (olive, with rounds on it) or a medic crate (white, red cross)
+function makeSupplyCrate(kind) {
+  const g = new THREE.Group();
+  const med = kind === 'med';
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.42, 0.5), new THREE.MeshLambertMaterial({ color: med ? '#e9e4d8' : '#56603a' }));
+  body.position.y = 0.21;
+  g.add(body);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.06, 0.53), new THREE.MeshLambertMaterial({ color: med ? '#c9c2b2' : '#3f4628' }));
+  lid.position.y = 0.44;
+  g.add(lid);
+  const mark = new THREE.MeshBasicMaterial({ color: med ? '#c9261c' : '#d9a441' });
+  const icon = new THREE.Group();
+  if (med) {
+    icon.add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.08), mark));
+    icon.add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.28, 0.08), mark));
+  } else {
+    for (let i = -1; i <= 1; i++) {
+      const round = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8), mark);
+      round.position.x = i * 0.08;
+      icon.add(round);
+    }
+  }
+  icon.position.y = 0.78;
+  g.add(icon);
+  // a soft glow so teammates can find it
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(0.9, 24), new THREE.MeshBasicMaterial({ color: med ? '#ff5a4a' : '#d9c24a', transparent: true, opacity: 0.25, depthWrite: false }));
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = 0.03;
+  g.add(glow);
+  g.userData.icon = icon;
   return g;
 }

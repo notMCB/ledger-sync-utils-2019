@@ -366,6 +366,14 @@ export class Hud {
         g.strokeStyle = o.color;
         g.lineWidth = 2;
         g.stroke();
+        if (o.sweep !== undefined) {
+          // a beacon's pulse sweeping out across its circle
+          g.beginPath();
+          g.arc(x, y, Math.max(2, o.r * sc * o.sweep), 0, Math.PI * 2);
+          g.strokeStyle = `rgba(255, 120, 100, ${(1 - o.sweep) * 0.9})`;
+          g.lineWidth = 3;
+          g.stroke();
+        }
       }
       if (o.label) {
         g.fillStyle = o.color;

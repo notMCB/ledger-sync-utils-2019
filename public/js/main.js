@@ -23,6 +23,9 @@ const AUTOTEST = params.get('autotest');
 const MODE_ORDER = ['tdm', 'ffa', 'koth', 'bomb'];
 const PHASE_TEXT = { waiting: 'Waiting for players', countdown: 'Starting', live: 'In progress', freeze: 'In progress', post: 'In progress', ended: 'Between matches' };
 let rooms = [];
+let modeButtons = null;   // built once, see renderModes
+let roomsKey = '';        // what the server list last showed
+let shownUser = null;     // who the menu last showed as signed in
 let status = 'connecting';
 let deathTimer = null;
 
@@ -75,7 +78,7 @@ function onMessage(m) {
   if (auth.onMessage(m)) return;
   if (m.t === 'welcome') {
     game.myId = m.id;
-    auth.resume();
+    if (!auth.user) auth.resume();
     if (!game.inRoom) net.send({ t: 'preview' });
     if (AUTOTEST && !game.inRoom) {
       $('notes').hidden = true;
@@ -134,51 +137,68 @@ function currentName() {
 
 // -- menu -----------------------------------------------------------------
 
+// the mode buttons are built once; after that only their numbers change,
+// so the button under your cursor is never swapped out from under it
 function renderModes() {
   const host = $('modes');
-  host.innerHTML = '';
-  for (const id of MODE_ORDER) {
-    const info = MODE_INFO[id];
-    const n = rooms.filter((r) => r.mode === id).reduce((a, r) => a + r.n, 0);
-    const b = document.createElement('button');
-    b.className = 'mode';
-    b.disabled = status !== 'online';
-    b.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
-      `<span class="m-meta"><span><span class="m-count">${n}</span> playing</span><span class="m-play">Play →</span></span>`;
-    b.addEventListener('click', () => join({ mode: id }));
-    host.appendChild(b);
+  if (!modeButtons) {
+    modeButtons = {};
+    host.innerHTML = '';
+    for (const id of MODE_ORDER) {
+      const info = MODE_INFO[id];
+      const b = document.createElement('button');
+      b.className = 'mode';
+      b.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
+        `<span class="m-meta"><span><span class="m-count">0</span> playing</span><span class="m-play">Play →</span></span>`;
+      b.addEventListener('click', () => join({ mode: id }));
+      host.appendChild(b);
+      modeButtons[id] = b;
+    }
+    // solo aim training: no server needed
+    const info = MODE_INFO.range;
+    const r = document.createElement('button');
+    r.className = 'mode range';
+    r.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
+      `<span class="m-meta"><span>Solo</span><span class="m-play">Train →</span></span>`;
+    r.addEventListener('click', () => {
+      unlockAudio();
+      uiBlip();
+      $('menu').hidden = true;
+      hideAll();
+      game.startRange();
+      input.lock();
+    });
+    host.appendChild(r);
   }
-  // solo aim training: no server needed
-  const info = MODE_INFO.range;
-  const r = document.createElement('button');
-  r.className = 'mode range';
-  r.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
-    `<span class="m-meta"><span>Solo</span><span class="m-play">Train →</span></span>`;
-  r.addEventListener('click', () => {
-    unlockAudio();
-    uiBlip();
-    $('menu').hidden = true;
-    hideAll();
-    game.startRange();
-    input.lock();
-  });
-  host.appendChild(r);
+  for (const id of MODE_ORDER) {
+    const b = modeButtons[id];
+    const n = rooms.filter((r) => r.mode === id).reduce((a, r) => a + r.n, 0);
+    const c = b.querySelector('.m-count');
+    if (c.textContent !== String(n)) c.textContent = n;
+    const off = status !== 'online';
+    if (b.disabled !== off) b.disabled = off;
+  }
 }
 
+// the server list only rebuilds when something in it actually changed
 function renderRooms() {
   const host = $('rooms');
-  host.innerHTML = '';
   const sorted = [...rooms].sort((a, b) => b.n - a.n || MODE_ORDER.indexOf(a.mode) - MODE_ORDER.indexOf(b.mode));
-  for (const r of sorted) {
-    const b = document.createElement('button');
-    const full = r.n >= r.max;
-    b.className = 'room' + (full ? ' full' : '');
-    b.innerHTML = `<span class="r-name">${esc(r.name)}</span><span class="r-count">${r.n}/${r.max}</span>` +
-      `<span class="r-phase${r.ph === 'live' ? ' r-live' : ''}">${PHASE_TEXT[r.ph] || r.ph}</span>`;
-    if (!full) b.addEventListener('click', () => join({ room: r.id }));
-    host.appendChild(b);
+  const key = JSON.stringify(sorted.map((r) => [r.id, r.name, r.n, r.max, r.ph]));
+  if (key !== roomsKey) {
+    roomsKey = key;
+    host.innerHTML = '';
+    for (const r of sorted) {
+      const b = document.createElement('button');
+      const full = r.n >= r.max;
+      b.className = 'room' + (full ? ' full' : '');
+      b.innerHTML = `<span class="r-name">${esc(r.name)}</span><span class="r-count">${r.n}/${r.max}</span>` +
+        `<span class="r-phase${r.ph === 'live' ? ' r-live' : ''}">${PHASE_TEXT[r.ph] || r.ph}</span>`;
+      if (!full) b.addEventListener('click', () => join({ room: r.id }));
+      host.appendChild(b);
+    }
+    if (!sorted.length) host.innerHTML = '<p class="browser-note">No servers yet.</p>';
   }
-  if (!sorted.length) host.innerHTML = '<p class="browser-note">No servers yet.</p>';
   onStatusCount();
   renderModes();
 }
@@ -450,6 +470,9 @@ function showLocker() {
 // -- accounts ----------------------------------------------------------------------
 
 function showAccount(user) {
+  const name = user ? user.username : null;
+  if (name === shownUser) return;
+  shownUser = name;
   $('name-field').hidden = !!user;
   $('signed-in').hidden = !user;
   $('btn-signin').hidden = !!user;
@@ -502,6 +525,33 @@ if (location.hostname === 'localhost' && params.get('demo') === 'signup') {
         }, 800);
       }, 2500);
     }, 800);
+  }, 1500);
+}
+// testing on this Mac only: ?demo=stability signs in, opens the locker, scrolls, and counts redraws
+if (location.hostname === 'localhost' && params.get('demo') === 'stability') {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[stable] ' + s));
+  setTimeout(() => {
+    $('notes').hidden = true;
+    const u = 'stab' + Math.floor(Math.random() * 1e6);
+    net.send({ t: 'signup', username: u, email: u + '@example.com', password: 'a long enough password', guest: locker.guestData() });
+    setTimeout(() => {
+      const firstMode = document.querySelector('#modes .mode');
+      let hellos = 0;
+      const origSend = net.send.bind(net);
+      net.send = (msg) => { if (msg.t === 'hello' || msg.t === 'resume') hellos++; origSend(msg); };
+      showLocker();
+      setTimeout(() => {
+        const panel = document.querySelector('.locker-panel');
+        panel.scrollTop = 400;
+        const before = panel.scrollTop;
+        let rebuilds = 0;
+        new MutationObserver(() => rebuilds++).observe($('lk-content'), { childList: true });
+        setTimeout(() => {
+          log(`signed in: ${auth.user ? auth.user.username : 'no'}; hello/resume messages in 6 s: ${hellos}; locker redraws: ${rebuilds}; scroll ${before} -> ${panel.scrollTop}; same mode button: ${document.querySelector('#modes .mode') === firstMode}`);
+          log('CAPTURE stable');
+        }, 6000);
+      }, 800);
+    }, 2500);
   }, 1500);
 }
 // testing on this Mac only: ?dinars=500 tops up the locker
@@ -560,6 +610,21 @@ if (AUTOTEST) {
       game.me.pitch = -0.02;
     }
   };
+  const crateSteps = [
+    [1.5, () => { game.me.pitch = -0.35; game.me.weapons.primary.reserve = 10; input.tap('KeyX'); }],
+    [2.6, () => log(`ammo crate: crates ${game.crates.size}, spare ammo ${game.me.weapons.primary.reserve}/${game.me.weapons.primary.def.reserve}`)],
+    [2.7, () => log('CAPTURE crate')],
+  ];
+  const beaconSteps = [
+    [1.0, () => pickLoadout(3)],
+    [2.2, () => { game.me.pitch = -0.3; input.tap('KeyX'); }],
+    [5.0, () => log(`beacon: placed ${game.beacons.size}, enemies revealed ${[...game.avatars.map.values()].filter((a) => a.revealT > 0).length}`)],
+    [5.1, () => log('CAPTURE beacon')],
+    [5.6, () => { pickLoadout(0); }],
+    [7.0, () => { input.tap('KeyX'); }],
+    [7.9, () => log(`ammo crate: crates ${game.crates.size}`)],
+    [8.0, () => log('CAPTURE crate')],
+  ];
   const gearSteps = [
     [2.0, () => { me.pitch = -0.12; }],
     [3.0, () => log('CAPTURE gear')],
@@ -591,7 +656,9 @@ if (AUTOTEST) {
   aimSteps.sort((a, b) => a[0] - b[0]);
   if (params.get('script') === 'sprintaim') aimSteps.splice(0, aimSteps.length, ...sprintAimSteps);
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
-  const steps = params.get('script') === 'v2' ? [] : ['aim', 'sprintaim', 'gear'].includes(params.get('script')) ? aimSteps : ([
+  if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
+  if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
+  const steps = params.get('script') === 'v2' ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],

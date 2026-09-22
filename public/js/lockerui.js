@@ -141,7 +141,7 @@ function finishRow(weapon, current, onPick) {
       uiBlip();
       render();
     });
-    b.addEventListener('mouseenter', () => showModel({ kind: 'gun', weapon, finish }));
+    b.addEventListener('mouseenter', () => hoverPreview({ kind: 'gun', weapon, finish }));
     return b;
   };
   wrap.appendChild(mk(null));
@@ -219,7 +219,7 @@ function renderLoadouts(host) {
   pk.appendChild(pd);
   detail.appendChild(pk);
 
-  const nd = section('Grenades', 'Two per life');
+  const nd = section('Grenades', `${L.nades === 3 ? 'Three' : 'Two'} per life`);
   const row = document.createElement('div');
   row.className = 'lk-nades';
   const kinds = L.id === 2 ? ['frag', 'flash'] : ['frag'];
@@ -266,7 +266,7 @@ function renderOutfits(host) {
       uiBlip();
       render();
     });
-    b.addEventListener('mouseenter', () => showModel({ kind: 'outfit', outfit: o }));
+    b.addEventListener('mouseenter', () => hoverPreview({ kind: 'outfit', outfit: o }));
     grid.appendChild(b);
   }
   host.appendChild(grid);
@@ -276,7 +276,36 @@ function renderOutfits(host) {
   host.appendChild(c);
 }
 
+// keep every scroll position when the locker redraws
+function scrollState() {
+  const panel = document.querySelector('.locker-panel');
+  const detail = document.querySelector('.lk-detail');
+  const grid = document.querySelector('#lk-content .lk-grid');
+  const rows = [...document.querySelectorAll('.lk-row')].map((r) => r.scrollLeft);
+  return { panel: panel && panel.scrollTop, detail: detail && detail.scrollTop, grid: grid && grid.scrollTop, rows };
+}
+
+function restoreScroll(s) {
+  const panel = document.querySelector('.locker-panel');
+  const detail = document.querySelector('.lk-detail');
+  const grid = document.querySelector('#lk-content .lk-grid');
+  if (panel && s.panel != null) panel.scrollTop = s.panel;
+  if (detail && s.detail != null) detail.scrollTop = s.detail;
+  if (grid && s.grid != null) grid.scrollTop = s.grid;
+  document.querySelectorAll('.lk-row').forEach((r, i) => { if (s.rows[i] != null) r.scrollLeft = s.rows[i]; });
+}
+
+// hovering a tile previews it — but not while a trackpad scroll is sliding tiles under the cursor
+let lastScroll = 0;
+let hoverTimer = null;
+function hoverPreview(sel) {
+  clearTimeout(hoverTimer);
+  if (performance.now() - lastScroll < 250) return;
+  hoverTimer = setTimeout(() => showModel(sel), 90);
+}
+
 function render() {
+  const keep = scrollState();
   $('locker-dinars').textContent = locker.dinars;
   for (const k of Object.keys(CRATES)) {
     const b = $('crate-' + k);
@@ -291,6 +320,7 @@ function render() {
   const all = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol'].reduce((a, w) => a + locker.gunSkins(w).length, 0);
   $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${OUTFITS.length} outfits`;
   $('lk-account').textContent = locker.signedIn ? 'Saved to your account' : 'Saved in this browser — sign in to keep it everywhere';
+  restoreScroll(keep);
 }
 
 // -- opening a crate ----------------------------------------------------------------
@@ -406,7 +436,8 @@ function wire() {
   }
   $('crate-back').addEventListener('click', () => { if (!spinning) $('crate').hidden = true; });
   $('locker-close').addEventListener('click', closeLocker);
-  $('lk-content').addEventListener('mouseleave', () => showModel(selected));
+  $('lk-content').addEventListener('mouseleave', () => { clearTimeout(hoverTimer); showModel(selected); });
+  $('locker').addEventListener('wheel', () => { lastScroll = performance.now(); clearTimeout(hoverTimer); }, { passive: true, capture: true });
   locker.onChange(() => { if (!$('locker').hidden && !spinning) render(); });
 }
 

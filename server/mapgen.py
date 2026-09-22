@@ -142,21 +142,55 @@ class Town:
             sz0 = sz1 - 1.3
             stairs = (sx0, sx1, sz0, sz1)
 
-        # an internal partition wall with a doorway
+        # interior walls, each with a doorway: (axis, at, lo, hi, door, y0, y1)
+        #   axis 'x': a wall at x = at running along z from lo to hi
+        #   axis 'z': a wall at z = at running along x from lo to hi
+        X0, X1, Z0, Z1 = -hw + WT, hw - WT, -hd + WT, hd - WT
+        walls = []
+        top0 = STORY - 0.25 if floors == 2 else H - 0.25
         part = None
-        lo = (stairs[1] + 1.8) if stairs else (-hw + 3.4)
-        hi = hw - 3.4
-        if w - 2 * WT > 9 and hi > lo and rng.random() < 0.85:
+        lo = (stairs[1] + 1.6) if stairs else (-hw + 3.0)
+        hi = hw - 3.0
+        if w - 2 * WT > 7.4 and hi > lo and rng.random() < 0.92:
             px = rng.uniform(lo, hi)
-            dz = rng.uniform(-hd + WT + 1.1, hd - WT - 1.1)
+            dz = rng.uniform(Z0 + 1.1, Z1 - 1.1)
             part = (px, dz)
+            walls.append(('x', px, Z0, Z1, dz, 0.0, top0))
+        # a second wall across one side, making three rooms
+        if d - 2 * WT > 6.8 and rng.random() < 0.8:
+            zlo, zhi = Z0 + 2.4, Z1 - 2.4
+            if stairs:
+                zhi = min(zhi, stairs[2] - 1.3)
+            for _ in range(10):
+                if zhi <= zlo:
+                    break
+                pz = rng.uniform(zlo, zhi)
+                if part and abs(pz - part[1]) < 1.3:
+                    continue
+                # west of the first wall, or the whole width if there isn't one
+                xa, xb = X0, (part[0] - 0.1 if part else X1)
+                if xb - xa < 2.6:
+                    break
+                walls.append(('z', pz, xa, xb, rng.uniform(xa + 0.9, xb - 0.9), 0.0, top0))
+                break
+        # upstairs gets a room of its own too
+        if floors == 2 and rng.random() < 0.8:
+            ulo, uhi = stairs[1] + 1.4, hw - 2.6
+            if uhi > ulo:
+                walls.append(('x', rng.uniform(ulo, uhi), Z0, Z1, rng.uniform(Z0 + 1.1, Z1 - 1.1), STORY, H - 0.25))
 
         # openings for each side and storey: (u, width, bottom, top)
         side_len = {'S': w, 'N': w, 'W': d - 2 * WT, 'E': d - 2 * WT}
         excl = {s: [] for s in 'SNWE'}
-        if part:
-            excl['S'].append((part[0] - 0.4, part[0] + 0.4))
-            excl['N'].append((part[0] - 0.4, part[0] + 0.4))
+        for (axis, at, a0, a1, door, y0, y1) in walls:
+            if axis == 'x':
+                excl['S'].append((at - 0.4, at + 0.4))
+                excl['N'].append((at - 0.4, at + 0.4))
+            else:
+                if a0 <= X0 + 0.01:
+                    excl['W'].append((at - 0.4, at + 0.4))
+                if a1 >= X1 - 0.01:
+                    excl['E'].append((at - 0.4, at + 0.4))
         ground_excl_n = list(excl['N'])
         if stairs:
             ground_excl_n.append((stairs[0] - 0.4, stairs[1] + 0.4))
@@ -280,15 +314,17 @@ class Town:
         # roof
         lb(-hw, hw, H - 0.25, H, -hd, hd, 'roof')
         # interior floor tiles
-        X0, X1, Z0, Z1 = -hw + WT, hw - WT, -hd + WT, hd - WT
         lb(X0, X1, 0.0, 0.03, Z0, Z1, 'tile')
 
-        if part:
-            px, dz = part
-            ptop = STORY - 0.25 if floors == 2 else H - 0.25
-            lb(px - 0.1, px + 0.1, 0, ptop, Z0, dz - 0.7)
-            lb(px - 0.1, px + 0.1, 0, ptop, dz + 0.7, Z1)
-            lb(px - 0.1, px + 0.1, 2.3, ptop, dz - 0.7, dz + 0.7)
+        for (axis, at, a0, a1, door, y0, y1) in walls:
+            if axis == 'x':
+                lb(at - 0.1, at + 0.1, y0, y1, a0, door - 0.7)
+                lb(at - 0.1, at + 0.1, y0, y1, door + 0.7, a1)
+                lb(at - 0.1, at + 0.1, y0 + 2.3, y1, door - 0.7, door + 0.7)
+            else:
+                lb(a0, door - 0.7, y0, y1, at - 0.1, at + 0.1)
+                lb(door + 0.7, a1, y0, y1, at - 0.1, at + 0.1)
+                lb(door - 0.7, door + 0.7, y0 + 2.3, y1, at - 0.1, at + 0.1)
 
         if stairs:
             sx0, sx1, sz0, sz1 = stairs
@@ -309,8 +345,11 @@ class Town:
         def free_inside(x, z, r):
             if stairs and stairs[0] - r - 0.9 < x < stairs[1] + r + 0.9 and z > stairs[2] - r - 0.9:
                 return False
-            if part and abs(x - part[0]) < r + 0.9:
-                return False
+            for (axis, at, a0, a1, door, y0, y1) in walls:
+                if y0 > 0.1:
+                    continue
+                if (abs(x - at) if axis == 'x' else abs(z - at)) < r + 0.9:
+                    return False
             for (s, f), ops in openings.items():
                 if f != 0:
                     continue
@@ -344,7 +383,7 @@ class Town:
                 z = rng.uniform(Z0 + 0.6, Z1 - 0.6)
                 if stairs and stairs[0] - 1.5 < x < stairs[1] + 1.6 and z > stairs[2] - 1.5:
                     continue
-                if part and abs(x - part[0]) < 1.2:
+                if any(y0 > 0.1 and abs(x - at) < 1.3 for (axis, at, a0, a1, door, y0, y1) in walls):
                     continue
                 lb(x - sz / 2, x + sz / 2, STORY, STORY + sz, z - sz / 2, z + sz / 2, 'crate')
                 break
@@ -402,11 +441,11 @@ class Town:
 
         # buildings
         tints = 6
-        for _ in range(9000):
-            if len(self.rects) >= 42:
+        for _ in range(14000):
+            if len(self.rects) >= 60:
                 break
-            w = rng.uniform(6.8, 14.5)
-            d = rng.uniform(6.8, 13.0)
+            w = rng.uniform(6.8, 13.5)
+            d = rng.uniform(6.8, 12.5)
             yaw = rng.choice([0.0, math.pi / 2]) + rng.uniform(-0.45, 0.45)
             x = rng.uniform(-BX + 6, BX - 6)
             z = rng.uniform(-BZ + 6, BZ - 6)
@@ -421,7 +460,7 @@ class Town:
                 continue
             if any(circle_rect_dist(rx, rz, r) < rr for (rx, rz, rr) in reserved):
                 continue
-            gap = rng.uniform(2.8, 5.0)
+            gap = rng.uniform(2.2, 3.6)
             if any(rects_overlap(r, o, gap) for o in self.rects):
                 continue
             if self.rect_on_road(r):

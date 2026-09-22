@@ -47,15 +47,15 @@ export const WEAPONS = {
 
 // Each loadout's perk. Uses are per life.
 export const PERKS = {
-  ammo: { id: 'ammo', name: 'Ammo Kit', uses: 2, blurb: 'Refills the spare ammo for both your guns. (Grenades don’t come back.)' },
-  med: { id: 'med', name: 'Medical Kit', uses: 2, blurb: 'Patches you up for 50 health.' },
+  ammo: { id: 'ammo', name: 'Ammo Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to restock spare ammo, once each. (Grenades don’t come back.)' },
+  med: { id: 'med', name: 'Medic Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to heal to full, once each.' },
   ladder: { id: 'ladder', name: 'Breaching Ladder', uses: 1, blurb: 'Stand it against a wall to climb in through high windows. Anyone can use it.' },
-  beacon: { id: 'beacon', name: 'Recon Beacon', uses: 1, blurb: 'Drop it to reveal enemies within 30 m to your team every few seconds, for 20 seconds.' },
+  beacon: { id: 'beacon', name: 'Recon Beacon', uses: 1, blurb: 'Drop it and it pulses for 30 seconds, scanning 35 m around it. Your whole team sees the area on the map, with every enemy inside marked as a red dot.' },
 };
 
 export const LOADOUTS = [
   { id: 0, weapon: 'smg', perk: 'ammo', nades: 3, title: 'Assault', blurb: 'Fast-firing SMG with a red dot and three grenades. Quick to aim, strong up close.' },
-  { id: 1, weapon: 'lmg', perk: 'med', nades: 2, title: 'Support', blurb: '100-round LMG with a 2× holographic sight. Heavy, slow to reload.' },
+  { id: 1, weapon: 'lmg', perk: 'med', nades: 2, title: 'Medic', blurb: '100-round LMG with a 2× holographic sight. Heavy, slow to reload.' },
   { id: 2, weapon: 'shotgun', perk: 'ladder', nades: 2, suppressedPistol: true, title: 'Breacher', blurb: 'Pump shotgun and a suppressed pistol. Devastating in rooms and doorways. Frag or flash grenades.' },
   { id: 3, weapon: 'sniper', perk: 'beacon', nades: 2, suppressedPistol: true, title: 'Marksman', blurb: 'Suppressed bolt-action rifle with a 6× scope, and a suppressed pistol. One headshot kills.' },
 ];
