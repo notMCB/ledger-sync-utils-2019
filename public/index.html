@@ -19,17 +19,6 @@
   })();
 </script>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
-<script>
-  // the old home of the game: send people to the new one
-  if (/onrender\.com$/.test(location.hostname)) {
-    document.addEventListener('DOMContentLoaded', function () {
-      var d = document.createElement('div');
-      d.id = 'moved';
-      d.innerHTML = '<div><h1>REDONE GAME AT SOUKSIEGE.COM</h1><p><a href="https://souksiege.com">souksiege.com</a></p></div>';
-      document.body.appendChild(d);
-    });
-  }
-</script>
 </head>
 <body>
 <canvas id="view"></canvas>
