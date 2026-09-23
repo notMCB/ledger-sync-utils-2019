@@ -199,8 +199,22 @@ function ghostRing(g, S, zFront, zRear, mat = MAT.steel) {
 }
 
 // parts that can be swapped in the Locker: one of each kind is shown at a time
+// laser modules for any gun: a small box under or beside the barrel with a
+// coloured lens, one per colour, shown when fitted
+const LENS = { red: new THREE.MeshBasicMaterial({ color: '#ff3030' }), green: new THREE.MeshBasicMaterial({ color: '#40ff50' }) };
+function laserModules(add, x, y, z) {
+  add('laser', 'none', {}, () => {});
+  for (const id of ['red', 'green']) {
+    add('laser', id, {}, (m) => {
+      box(m, 0.024, 0.02, 0.05, MAT.dark, x, y, z);
+      box(m, 0.012, 0.012, 0.004, LENS[id], x, y, z - 0.027);
+      box(m, 0.008, 0.006, 0.01, MAT.steel, x, y + 0.013, z + 0.01);   // the switch
+    });
+  }
+}
+
 function partSet(g) {
-  const sets = { optic: {}, muzzle: {}, mag: {}, ammo: {}, trigger: {} };
+  const sets = { optic: {}, muzzle: {}, mag: {}, ammo: {}, trigger: {}, laser: {} };
   const add = (kind, id, data, build, parent) => {
     const o = new THREE.Group();
     build(o);
@@ -231,6 +245,7 @@ function attachable(gun, sets, defaults) {
     pick('mag');
     pick('ammo');
     pick('trigger');
+    pick('laser');
     if (o && o.userData.S !== undefined) {
       gun.sight = o.userData.S;
       gun.ads.set(0, -o.userData.S, o.userData.adsZ);
@@ -340,6 +355,12 @@ function buildSMG(sleeve) {
   });
   mag.position.set(0, -0.035, -0.09);
   g.add(mag);
+  const lasers = {};
+  {
+    const { sets, add } = partSet(g);
+    laserModules(add, 0, -0.072, -0.2);
+    Object.assign(lasers, sets.laser);
+  }
 
   const h = hands(g, new THREE.Vector3(0.002, -0.085, 0.045), new THREE.Vector3(0, -0.06, -0.17), sleeve);
   const gun = {
@@ -352,9 +373,11 @@ function buildSMG(sleeve) {
     const o = optics[(fitted && fitted.optic) || 'irons'] || optics.irons;
     const m = muzzles[(fitted && fitted.muzzle) || 'none'] || muzzles.none;
     const k = mags[(fitted && fitted.mag) || 'normal'] || mags.normal;
+    const l = lasers[(fitted && fitted.laser) || 'none'] || lasers.none;
     for (const id in optics) optics[id].visible = optics[id] === o;
     for (const id in muzzles) muzzles[id].visible = muzzles[id] === m;
     for (const id in mags) mags[id].visible = mags[id] === k;
+    for (const id in lasers) lasers[id].visible = lasers[id] === l;
     gun.sight = o.userData.S;
     gun.ads.set(0, -o.userData.S, o.userData.adsZ);
     gun.muzzle.set(0, 0.012, m.userData.tip);
@@ -433,6 +456,7 @@ function buildLMG(sleeve) {
     scopeTube(o, 0.118, 0.3, -0.02, MAT.dark, MAT.steel);
   });
   muzzleDevices(add, 0.005, -0.73, 0.014);
+  laserModules(add, 0.048, -0.005, -0.38);
   add('mag', 'normal', {}, (m) => {
     box(m, 0.1, 0.12, 0.13, MAT.tan, 0, -0.06, 0);
     box(m, 0.1, 0.02, 0.02, MAT.dark, 0, -0.11, 0.05);
@@ -476,6 +500,7 @@ function buildShotgun(sleeve) {
   add('optic', 'reddot', { S: 0.075, adsZ: -0.3 }, (o) => reflex(o, 0.075, -0.02, 0.035));
   add('optic', 'holo', { S: 0.092, adsZ: -0.24 }, (o) => holo(o, 0.092, -0.02, 0.035));
   muzzleDevices(add, 0.02, -0.67, 0.015, ['none', 'suppressor']);
+  laserModules(add, 0.036, -0.004, -0.45);
   // buckshot or a single slug in the chamber window
   add('ammo', 'buck', {}, () => {});
   add('ammo', 'slug', {}, (a) => {
@@ -523,6 +548,7 @@ function buildSniper(sleeve) {
   add('optic', 'acog', { S: 0.082, adsZ: -0.16 }, (o) => acogBody(o, 0.082, -0.05, MAT.tan));
   add('optic', 'reddot', { S: 0.072, adsZ: -0.26 }, (o) => reflex(o, 0.072, -0.05, 0.05));
   muzzleDevices(add, 0.012, -0.78, 0.015);
+  laserModules(add, 0.036, 0.0, -0.5);
   add('mag', 'normal', {}, (m) => box(m, 0.03, 0.08, 0.07, MAT.dark, 0, -0.04, 0), mag);
   add('mag', 'fast', {}, (m) => {
     box(m, 0.03, 0.08, 0.07, MAT.dark, 0, -0.04, 0);
@@ -562,6 +588,7 @@ function buildPistol(sleeve) {
     reflex(o, 0.078, -0.03, 0.056);
   });
   muzzleDevices(add, 0.03, -0.165, 0.012, ['none', 'brake', 'suppressor', 'longbrake']);
+  laserModules(add, 0, -0.004, -0.13);
   add('mag', 'normal', {}, (m) => box(m, 0.022, 0.1, 0.034, MAT.dark, 0, -0.05, 0), mag);
   add('mag', 'fast', {}, (m) => {
     box(m, 0.022, 0.1, 0.034, MAT.dark, 0, -0.05, 0);

@@ -65,8 +65,12 @@ async def main():
     print('login ok: progress came back on another connection')
 
     c = await fresh('Guest3')
-    c.ws.send({'t': 'signup', 'username': 'MCB', 'email': 'mcb%d@example.com' % tag, 'password': pw})
-    await wait(lambda: last(c, 'auth') and last(c, 'auth').get('user'), 5, 'the owner signing up')
+    c.ws.send({'t': 'signup', 'username': 'MCB', 'email': 'mcb%d@example.com' % tag, 'password': 'ownerpass1'})
+    await wait(lambda: last(c, 'auth') or last(c, 'autherr'), 5, 'the owner signing up')
+    if not (last(c, 'auth') and last(c, 'auth').get('user')):
+        # already made on an earlier run: sign in instead
+        c.ws.send({'t': 'login', 'id': 'MCB', 'password': 'ownerpass1'})
+        await wait(lambda: last(c, 'auth') and last(c, 'auth').get('user'), 5, 'the owner signing in')
     lk3 = last(c, 'auth')['locker']
     assert lk3['dinars'] >= 10000, lk3['dinars']
     for w in ('smg', 'lmg', 'shotgun', 'sniper', 'pistol'):

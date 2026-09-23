@@ -35,13 +35,16 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.6.1'
+VERSION = '2.7.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
 TICK = 1 / 20
 MAX_PLAYERS = 20
 TEAM_MAX = 10
+# the maps, played in turn; SOUK_MAP=dock pins every room to one of them (for testing)
+MAP_KINDS = list(mapgen.MAP_KINDS)
+FORCE_MAP = os.environ.get('SOUK_MAP') if os.environ.get('SOUK_MAP') in mapgen.MAP_KINDS else None
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 MODES = {
@@ -285,23 +288,34 @@ class Room:
 
     # -- map --
 
+    def next_kind(self):
+        """The map after the current one, round the rotation."""
+        if FORCE_MAP:
+            return FORCE_MAP
+        cur = getattr(self, 'map_kind', None)
+        if cur not in MAP_KINDS:
+            return MAP_KINDS[0]
+        return MAP_KINDS[(MAP_KINDS.index(cur) + 1) % len(MAP_KINDS)]
+
     def prepare_map(self):
-        """Build the next town on a worker thread, so matches elsewhere don't stall."""
+        """Build the next map on a worker thread, so matches elsewhere don't stall."""
         self.next_town = None
         seed = random.randrange(1, 2 ** 31)
+        kind = self.next_kind()
 
         def work():
-            self.next_town = (seed, mapgen.generate(seed))
+            self.next_town = (seed, kind, mapgen.generate(seed, kind))
         threading.Thread(target=work, daemon=True).start()
 
-    def new_map(self):
+    def new_map(self, kind=None):
         ready = getattr(self, 'next_town', None)
         self.next_town = None
-        if ready:
-            self.seed, town = ready
+        if ready and (kind is None or ready[1] == kind):
+            self.seed, self.map_kind, town = ready
         else:
             self.seed = random.randrange(1, 2 ** 31)
-            town = mapgen.generate(self.seed)
+            self.map_kind = kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0])
+            town = mapgen.generate(self.seed, self.map_kind)
         self.map = town.to_json()
         self.solid = mapgen.Solid(self.map['boxes'])
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
@@ -1274,7 +1288,7 @@ class Room:
 
     def summary(self):
         return {'id': self.id, 'mode': self.mode, 'name': self.name, 'n': self.count(),
-                'max': MAX_PLAYERS, 'ph': self.phase}
+                'max': MAX_PLAYERS, 'ph': self.phase, 'map': self.map.get('name', '')}
 
 
 def t_protected(q):
@@ -1507,6 +1521,10 @@ class Conn:
             p.pick(m)
             if 'cos' in m:
                 p.cos = owned_cos(p, clean_cos(m.get('cos')))
+            # an empty room takes the map its first player asks for
+            if m.get('map') in MAP_KINDS and r.count() == 0 and r.map_kind != m['map']:
+                r.new_map(m['map'])
+                r.prepare_map()
             lobby.discard(self)
             r.add(p)
         elif t == 'leave':
@@ -1558,7 +1576,7 @@ class Conn:
             p.pos[1] = max(-8.0, min(30.0, p.pos[1]))   # the tunnels run below the town
             p.yaw = num(m.get('y'))
             p.pitch = num(m.get('pi'), -1.6, 1.6)
-            p.flags = int(num(m.get('f'), 0, 4095))
+            p.flags = int(num(m.get('f'), 0, 65535))
             p.slot = int(num(m.get('sl'), 0, 3))
             p.byaw = num(m.get('by'), default=p.yaw) if 'by' in m else p.yaw
         elif t == 'shot':

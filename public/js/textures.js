@@ -113,6 +113,95 @@ export function ground() {
   return tex(c);
 }
 
+// poured concrete: grey, a little stained, with expansion joints
+export function concrete() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(41);
+  g.fillStyle = '#9c9b96';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 40; i++) {
+    const x = r() * S, y = r() * S, rad = 20 + r() * 60;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, r() < 0.5 ? 'rgba(70,70,68,0.14)' : 'rgba(200,200,195,0.14)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  speckle(g, S, r, 5000, ['rgba(60,60,58,0.25)', 'rgba(220,220,215,0.22)'], 1, 2);
+  g.strokeStyle = 'rgba(50,50,48,0.5)';
+  g.lineWidth = 2;
+  g.strokeRect(1, 1, S - 2, S - 2);
+  // a couple of hairline cracks
+  for (let i = 0; i < 3; i++) {
+    g.beginPath();
+    let x = r() * S, y = r() * S;
+    g.moveTo(x, y);
+    for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 40; y += (r() - 0.5) * 40; g.lineTo(x, y); }
+    g.strokeStyle = 'rgba(40,40,38,0.35)';
+    g.lineWidth = 1;
+    g.stroke();
+  }
+  return tex(c);
+}
+
+// packed snow: white with a faint blue shadow in the hollows
+export function snow() {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(43);
+  g.fillStyle = '#e9edf1';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 90; i++) {
+    const x = r() * S, y = r() * S, rad = 30 + r() * 90;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, r() < 0.6 ? 'rgba(180,196,214,0.16)' : 'rgba(255,255,255,0.2)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  speckle(g, S, r, 6000, ['rgba(255,255,255,0.5)', 'rgba(170,185,200,0.18)'], 1, 2);
+  return tex(c);
+}
+
+// corrugated steel: vertical ribs, tinted per piece through vertex colours
+export function corrugated() {
+  const S = 128;
+  const [c, g] = canvas(S);
+  const r = rng(47);
+  g.fillStyle = '#b4b8bc';
+  g.fillRect(0, 0, S, S);
+  for (let x = 0; x < S; x += 8) {
+    const grd = g.createLinearGradient(x, 0, x + 8, 0);
+    grd.addColorStop(0, 'rgba(255,255,255,0.22)');
+    grd.addColorStop(0.5, 'rgba(0,0,0,0.02)');
+    grd.addColorStop(1, 'rgba(0,0,0,0.3)');
+    g.fillStyle = grd;
+    g.fillRect(x, 0, 8, S);
+  }
+  speckle(g, S, r, 500, ['rgba(120,70,40,0.3)', 'rgba(60,60,60,0.25)'], 1, 3);
+  return tex(c);
+}
+
+// grey mountain rock
+export function rock() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(53);
+  g.fillStyle = '#767470';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 70; i++) {
+    const x = r() * S, y = r() * S, rad = 12 + r() * 50;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, r() < 0.5 ? 'rgba(40,40,38,0.3)' : 'rgba(170,165,155,0.25)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  speckle(g, S, r, 4000, ['rgba(30,30,28,0.35)', 'rgba(200,195,185,0.2)'], 1, 3);
+  return tex(c);
+}
+
 // zellige-ish floor tiles for interiors
 export function tiles() {
   const S = 256;
@@ -345,6 +434,43 @@ export function road() {
   speckle(g, S, r, 3000, ['rgba(70,52,30,0.3)', 'rgba(230,205,160,0.25)'], 1, 2.5);
   const tx = tex(c);
   return tx;
+}
+
+// asphalt with a dashed centre line, and packed snow with two tyre tracks
+export function roadStyle(style) {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(style === 'snow' ? 61 : 59);
+  if (style === 'snow') {
+    g.fillStyle = '#d6dce3';
+    g.fillRect(0, 0, S, S);
+    for (const x of [0.3, 0.7]) {
+      const grd = g.createLinearGradient((x - 0.12) * S, 0, (x + 0.12) * S, 0);
+      grd.addColorStop(0, 'rgba(120,130,140,0)');
+      grd.addColorStop(0.5, 'rgba(120,130,140,0.5)');
+      grd.addColorStop(1, 'rgba(120,130,140,0)');
+      g.fillStyle = grd;
+      g.fillRect((x - 0.12) * S, 0, 0.24 * S, S);
+    }
+    speckle(g, S, r, 2500, ['rgba(255,255,255,0.4)', 'rgba(110,120,130,0.2)'], 1, 2.5);
+    const e = g.createLinearGradient(0, 0, S, 0);
+    e.addColorStop(0, 'rgba(233,237,241,0.95)');
+    e.addColorStop(0.15, 'rgba(233,237,241,0)');
+    e.addColorStop(0.85, 'rgba(233,237,241,0)');
+    e.addColorStop(1, 'rgba(233,237,241,0.95)');
+    g.fillStyle = e;
+    g.fillRect(0, 0, S, S);
+  } else {
+    g.fillStyle = '#4b4c50';
+    g.fillRect(0, 0, S, S);
+    speckle(g, S, r, 5000, ['rgba(20,20,22,0.3)', 'rgba(140,140,138,0.2)'], 1, 2);
+    g.fillStyle = 'rgba(240,236,220,0.85)';
+    for (let y = 0; y < S; y += 64) g.fillRect(S / 2 - 3, y + 8, 6, 34);
+    g.fillStyle = 'rgba(240,236,220,0.6)';
+    g.fillRect(6, 0, 4, S);
+    g.fillRect(S - 10, 0, 4, S);
+  }
+  return tex(c);
 }
 
 export function clockFace() {

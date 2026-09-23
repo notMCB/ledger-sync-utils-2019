@@ -9,6 +9,15 @@ const WALL_TINTS = ['#f3e9d6', '#ecd3a6', '#dcb68a', '#e9cdbd', '#d4c7ad', '#e0a
 const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b', '#3b3430'];
 const CLOTH = ['#b3352b', '#2f7f7a', '#d49a2a', '#6b3f7a', '#2d5f9a', '#c46a2e'];
 const BARREL = ['#35577a', '#8a4a26', '#5a6b3a'];
+const CONCRETE_TINTS = ['#a6a59f', '#8f8e89', '#b8b6ae'];
+const STEEL_TINTS = ['#d1b83c', '#8f949a', '#5b636c', '#4d6b3f'];          // crane yellow, grey, dark, generator green
+const CONTAINER_TINTS = ['#b8412f', '#2e6fa3', '#3f7a4a', '#d9a13a', '#7a7f85', '#8a3f7a'];
+// sky, fog and light for each kind of map
+const THEMES = {
+  sand: { top: '#5d93c9', mid: '#bcd3e2', bot: '#e9d6b4', fog: '#d9cdb4', near: 70, far: 260, hemi: ['#cfe0ee', '#a9855a', 1.1], sun: ['#fff0d6', 2.7, [55, 62, 35]] },
+  concrete: { top: '#4f7fb5', mid: '#aabfcf', bot: '#c9c6bf', fog: '#c4c3bd', near: 60, far: 240, hemi: ['#c8d6e2', '#6f6f6c', 1.1], sun: ['#fff3e0', 2.5, [40, 58, -30]] },
+  snow: { top: '#6f8fb0', mid: '#d5dde6', bot: '#e6ebf0', fog: '#dfe5ec', near: 45, far: 210, hemi: ['#dbe6f2', '#b9c0c8', 1.2], sun: ['#fff8f0', 2.2, [-45, 40, 30]] },
+};
 
 let texCache = null;
 function textures() {
@@ -17,6 +26,7 @@ function textures() {
     plaster: T.plaster(), stone: T.stone(), ground: T.ground(), tiles: T.tiles(), wood: T.wood(),
     crate: T.crate(), metal: T.metal(), leaf: T.palmLeaf(),
     cloth: CLOTH.map((c) => T.cloth(c)),
+    concrete: T.concrete(), snow: T.snow(), corrugated: T.corrugated(), rock: T.rock(),
   };
   return texCache;
 }
@@ -194,6 +204,26 @@ export class World {
     scene.add(this.sun.target);
   }
 
+  // the look of the sky, the haze and the light for this kind of map
+  applyTheme(name) {
+    const t = THEMES[name] || THEMES.sand;
+    const u = this.sky.material.uniforms;
+    u.top.value.set(t.top);
+    u.mid.value.set(t.mid);
+    u.bot.value.set(t.bot);
+    this.scene.fog.color.set(t.fog);
+    this.scene.fog.near = t.near;
+    this.scene.fog.far = t.far;
+    this.hemi.color.set(t.hemi[0]);
+    this.hemi.groundColor.set(t.hemi[1]);
+    this.hemi.intensity = t.hemi[2];
+    this.sun.color.set(t.sun[0]);
+    this.sun.intensity = t.sun[1];
+    this.sun.position.set(...t.sun[2]);
+    u.sunDir.value.copy(this.sun.position).normalize();
+    this.outdoor = null;   // setIndoor takes a fresh copy of these
+  }
+
   // underground: the sun is shut out, lamps light the hall
   setIndoor(on, root, map) {
     if (!this.outdoor) this.outdoor = { sun: this.sun.intensity, hemi: this.hemi.intensity, fog: this.scene.fog.color.clone(), near: this.scene.fog.near, far: this.scene.fog.far };
@@ -246,6 +276,7 @@ export class World {
     const tx = textures();
     const root = new THREE.Group();
     this.root = root;
+    this.applyTheme(map.theme);
 
     const mats = {
       wall: new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }),
@@ -254,6 +285,11 @@ export class World {
       wood: new THREE.MeshLambertMaterial({ map: tx.wood, vertexColors: true }),
       crate: new THREE.MeshLambertMaterial({ map: tx.crate, vertexColors: true }),
       car: new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }),
+      concrete: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
+      steel: new THREE.MeshLambertMaterial({ map: tx.corrugated, vertexColors: true }),
+      container: new THREE.MeshLambertMaterial({ map: tx.corrugated, vertexColors: true }),
+      flatroof: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
+      rock: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
     };
     const builders = {};
     const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
@@ -278,6 +314,17 @@ export class World {
         continue;   // drawn from the 'car' deco instead, with wheels and windows
       } else if (mat === 'hay') {
         B('wood').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#e8c96a', 1.25), 1.2);
+      } else if (mat === 'concrete') {
+        B('concrete').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(CONCRETE_TINTS[tint % 3]), { ao: true }), 2.5);
+      } else if (mat === 'steel') {
+        B('steel').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(STEEL_TINTS[tint % 4]), 1.0);
+      } else if (mat === 'container') {
+        B('container').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(CONTAINER_TINTS[tint % 6]), { ao: true }), 1.0);
+      } else if (mat === 'flatroof') {
+        B('flatroof').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#7d7b76'), 3.0);
+      } else if (mat === 'rock') {
+        const snowy = map.theme === 'snow';
+        B('rock').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(snowy ? '#d9dce0' : '#ffffff'), { ao: true }), 3.0);
       }
     }
     for (const k in builders) {
@@ -321,7 +368,8 @@ export class World {
       const guv = gg.attributes.uv;
       for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * W / 9, guv.getY(i) * D / 9);
     }
-    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: tx.ground }));
+    const gtex = map.theme === 'concrete' ? tx.concrete : map.theme === 'snow' ? tx.snow : tx.ground;
+    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: gtex }));
     ground.receiveShadow = true;
     root.add(ground);
 
@@ -334,6 +382,11 @@ export class World {
   buildDeco(map, root, tx) {
     const barrels = [], trunks = [], leaves = [], domes = [], cloth = CLOTH.map(() => []), poles = [], goods = [], wheels = [];
     const cars = new GeoBuilder();
+    const steel = new GeoBuilder();      // crane fittings, lattice towers, generators, masts
+    const paint = new GeoBuilder();      // white and coloured plain-painted bits
+    const tanks = [], cones = [];
+    const unitCyl = new THREE.CylinderGeometry(1, 1, 1, 22);
+    const coneGeo = new THREE.ConeGeometry(1, 1, 9);
     const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
     const hubGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.26, 12);
     const cyl = new THREE.CylinderGeometry(0.32, 0.32, 1.0, 14);
@@ -358,6 +411,60 @@ export class World {
         this.addCar(cars, wheels, wheelGeo, hubGeo, d);
       } else if (d.k === 'wreck') {
         this.addWreck(cars, wheels, wheelGeo, d);
+      } else if (d.k === 'truck') {
+        this.addTruck(cars, wheels, wheelGeo, d);
+      } else if (d.k === 'forklift') {
+        this.addForklift(steel, paint, wheels, wheelGeo, d);
+      } else if (d.k === 'tank') {
+        tanks.push({ geo: unitCyl, matrix: mtx(d.x, d.h / 2, d.z, 0, 0, 0, d.r, d.h, d.r), color: colorOf('#c9c4b8') });
+        tanks.push({ geo: unitCyl, matrix: mtx(d.x, d.h * 0.72, d.z, 0, 0, 0, d.r * 1.015, 0.35, d.r * 1.015), color: colorOf('#b8352a') });
+        tanks.push({ geo: unitCyl, matrix: mtx(d.x, d.h + 0.08, d.z, 0, 0, 0, d.r * 1.03, 0.16, d.r * 1.03), color: colorOf('#8d8a84') });
+        // a ladder up the side
+        for (let y = 0.3; y < d.h - 0.2; y += 0.35) steel.box(d.x + d.r + 0.18, y, d.z, 0.18, 0.02, 0.02, 0, colorOf('#5b636c'), 1);
+        steel.box(d.x + d.r + 0.18, d.h / 2, d.z + 0.2, 0.03, d.h / 2, 0.03, 0, colorOf('#5b636c'), 1);
+        steel.box(d.x + d.r + 0.18, d.h / 2, d.z - 0.2, 0.03, d.h / 2, 0.03, 0, colorOf('#5b636c'), 1);
+      } else if (d.k === 'mast') {
+        steel.box(d.x, d.h - 0.35, d.z, 0.7, 0.16, 0.28, 0, colorOf('#3a3f45'), 1);
+        for (const dx of [-0.35, 0.35]) paint.box(d.x + dx, d.h - 0.35, d.z + 0.3, 0.22, 0.12, 0.01, 0, colorOf('#fff6d8', 1.4), 1);
+      } else if (d.k === 'crane') {
+        this.addCrane(steel, paint, d);
+      } else if (d.k === 'lines') {
+        paint.box(d.x, 0.02, d.z, 0.07, 0.008, d.l / 2, d.yaw || 0, colorOf('#f3f1e6'), 1);
+      } else if (d.k === 'helipad') {
+        const g = new THREE.CircleGeometry(d.r, 40);
+        g.rotateX(-Math.PI / 2);
+        const pad = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: '#5a5d61', polygonOffset: true, polygonOffsetFactor: -1 }));
+        pad.position.set(d.x, 0.02, d.z);
+        pad.receiveShadow = true;
+        root.add(pad);
+        const lg = new THREE.PlaneGeometry(d.r * 1.4, d.r * 1.4);
+        lg.rotateX(-Math.PI / 2);
+        const lm = new THREE.MeshBasicMaterial({ map: T.siteDecal('H', '#f3f1e6'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, fog: true });
+        lm.userData.own = true;
+        const label = new THREE.Mesh(lg, lm);
+        label.position.set(d.x, 0.035, d.z);
+        label.renderOrder = 1;
+        root.add(label);
+      } else if (d.k === 'radome') {
+        const drum = new THREE.CylinderGeometry(d.r * 0.72, d.r * 0.8, 1.0, 28, 1, true);
+        domes.push({ geo: drum, matrix: mtx(d.x, d.y + 0.5, d.z), color: colorOf('#bfc2c4') });
+        const sph = new THREE.SphereGeometry(d.r, 30, 20);
+        domes.push({ geo: sph, matrix: mtx(d.x, d.y + 0.9 + d.r * 0.82, d.z), color: colorOf('#f4f4f0') });
+      } else if (d.k === 'tower') {
+        this.addTower(steel, paint, d);
+      } else if (d.k === 'generator') {
+        const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+        const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+        const [ex, ez] = W(-1.1, 0.4);
+        steel.box(ex, 2.05, ez, 0.08, 0.5, 0.08, d.yaw, colorOf('#3a3f45'), 1);          // exhaust stack
+        for (let i = 0; i < 5; i++) {                                                     // vent louvres
+          const [vx, vz] = W(-0.9 + i * 0.35, 0.82);
+          steel.box(vx, 1.05, vz, 0.12, 0.28, 0.02, d.yaw, colorOf('#2e3236'), 1);
+        }
+        const [px, pz] = W(1.2, 0);
+        paint.box(px, 1.62, pz, 0.12, 0.03, 0.12, d.yaw, colorOf('#d1b83c'), 1);          // fuel cap
+      } else if (d.k === 'pine') {
+        this.addPine(trunks, cones, trunkSeg, coneGeo, d);
       } else if (d.k === 'palm') {
         const segs = 5;
         let x = d.x, z = d.z, y = 0;
@@ -607,6 +714,16 @@ export class World {
     };
     add(barrels, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }));
     add(wheels, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    add(tanks, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }));
+    add(cones, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, new THREE.MeshLambertMaterial({ vertexColors: true })]]) {
+      if (gb.empty) continue;
+      const mesh = new THREE.Mesh(gb.geometry(), mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      root.add(mesh);
+    }
+    unitCyl.dispose(); coneGeo.dispose();
     if (!cars.empty) {
       const mesh = new THREE.Mesh(cars.geometry(), new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }));
       mesh.castShadow = true;
@@ -714,6 +831,121 @@ export class World {
     }
   }
 
+  // a military truck: chassis, cab and a canvas-covered bed on six wheels
+  addTruck(cars, wheels, wheelGeo, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const olive = colorOf('#4c5a3c');
+    const canvas = colorOf('#5f6a48');
+    const dark = colorOf('#26292c');
+    const box = (lx, ly, lz, hx, hy, hz, color) => {
+      const [x, z] = W(lx, lz);
+      cars.box(x, ly, z, hx, hy, hz, yaw, color, 2);
+    };
+    box(0, 0.85, 0, 3.3, 0.22, 1.05, dark);                 // chassis
+    box(2.5, 1.55, 0, 1.0, 0.55, 1.15, olive);              // cab
+    box(1.52, 1.75, 0, 0.03, 0.3, 0.9, colorOf('#0f1114')); // windscreen
+    box(2.5, 1.75, 1.16, 0.7, 0.28, 0.02, colorOf('#0f1114'));
+    box(2.5, 1.75, -1.16, 0.7, 0.28, 0.02, colorOf('#0f1114'));
+    box(3.35, 1.25, 0, 0.5, 0.35, 1.1, olive);              // bonnet
+    box(3.9, 0.95, 0, 0.08, 0.15, 1.15, dark);              // bumper
+    box(-0.9, 1.15, 0, 2.3, 0.15, 1.2, olive);              // bed floor
+    box(-0.9, 1.95, 0, 2.2, 0.72, 1.2, canvas);             // canvas tilt
+    box(-0.9, 2.66, 0, 2.2, 0.03, 1.22, canvas);
+    box(-3.15, 1.6, 0, 0.05, 0.4, 1.15, olive);             // tailgate
+    for (const lx of [2.6, -0.8, -2.2]) {
+      for (const lz of [1.15, -1.15]) {
+        const [x, z] = W(lx, lz);
+        wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.5, z, Math.PI / 2, yaw, 0, 1.5, 1.2, 1.5), color: colorOf('#1d1d1f') });
+      }
+    }
+  }
+
+  // a forklift: yellow body, black mast and forks, an overhead guard
+  addForklift(steel, paint, wheels, wheelGeo, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const yellow = colorOf('#e0b422');
+    const dark = colorOf('#2b2e32');
+    const P = (lx, ly, lz, hx, hy, hz, color, gb = paint) => {
+      const [x, z] = W(lx, lz);
+      gb.box(x, ly, z, hx, hy, hz, yaw, color, 1);
+    };
+    P(-0.1, 0.62, 0, 0.75, 0.32, 0.55, yellow);              // body
+    P(-0.75, 0.75, 0, 0.25, 0.45, 0.5, dark);                // counterweight
+    P(0.1, 1.05, 0, 0.3, 0.12, 0.3, dark);                   // seat
+    for (const lz of [-0.32, 0.32]) P(0.92, 1.1, lz, 0.05, 1.1, 0.05, dark, steel);   // mast
+    P(0.92, 2.15, 0, 0.05, 0.05, 0.4, dark, steel);
+    for (const lz of [-0.25, 0.25]) P(1.5, 0.12, lz, 0.55, 0.025, 0.06, dark, steel); // forks
+    for (const [lx, lz] of [[0.55, -0.5], [0.55, 0.5], [-0.65, -0.5], [-0.65, 0.5]]) P(lx, 1.5, lz, 0.04, 0.55, 0.04, dark, steel);
+    P(-0.05, 2.06, 0, 0.7, 0.03, 0.55, dark, steel);         // overhead guard
+    for (const [lx, lz] of [[0.6, 0.62], [0.6, -0.62], [-0.55, 0.62], [-0.55, -0.62]]) {
+      const [x, z] = W(lx, lz);
+      wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.3, z, Math.PI / 2, yaw, 0, 0.9, 0.9, 0.9), color: colorOf('#1d1d1f') });
+    }
+  }
+
+  // a gantry crane's fittings: bracing on the legs, a trolley and hook under the beam, a cab
+  addCrane(steel, paint, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const yellow = colorOf('#d1b83c');
+    const dark = colorOf('#3a3f45');
+    for (const side of [-1, 1]) {
+      const lz = side * d.span / 2;
+      for (const f of [0.25, 0.5, 0.75]) {
+        const [x, z] = W(0, lz);
+        steel.box(x, d.h * f, z, 1.6, 0.08, 0.08, yaw, yellow, 1);
+      }
+      const [fx, fz] = W(0, lz);
+      steel.box(fx, d.h - 0.4, fz, 2.2, 0.35, 0.6, yaw, yellow, 1);        // leg head
+    }
+    const [tx, tz] = W(0, d.span * 0.15);
+    steel.box(tx, d.h - 0.35, tz, 1.2, 0.35, 1.2, yaw, dark, 1);            // trolley
+    steel.box(tx, d.h * 0.62, tz, 0.03, d.h * 0.28, 0.03, yaw, dark, 1);   // cable
+    steel.box(tx, d.h * 0.34, tz, 0.45, 0.3, 0.25, yaw, dark, 1);          // hook block
+    const [cx, cz] = W(0, -d.span / 2 + 2.2);
+    steel.box(cx, d.h - 1.2, cz, 0.9, 0.7, 0.9, yaw, yellow, 1);            // cab
+    paint.box(cx, d.h - 1.1, cz + 0.91, 0.6, 0.35, 0.01, yaw, colorOf('#0f1114'), 1);
+  }
+
+  // a lattice comms tower: four posts, rungs every few metres, dishes and a beacon
+  addTower(steel, paint, d) {
+    const grey = colorOf('#8f949a');
+    const red = colorOf('#c8352a');
+    const yaw = Math.PI / 4;
+    for (const [lx, lz] of [[0.45, 0.45], [0.45, -0.45], [-0.45, 0.45], [-0.45, -0.45]]) {
+      const x = d.x + Math.cos(yaw) * lx + Math.sin(yaw) * lz, z = d.z - Math.sin(yaw) * lx + Math.cos(yaw) * lz;
+      steel.box(x, d.h / 2, z, 0.06, d.h / 2, 0.06, yaw, grey, 1);
+    }
+    for (let y = 1.5; y < d.h; y += 2.5) {
+      steel.box(d.x, y, d.z, 0.47, 0.035, 0.035, yaw, grey, 1);
+      steel.box(d.x, y, d.z, 0.035, 0.035, 0.47, yaw, grey, 1);
+      steel.box(d.x, y, d.z, 0.47, 0.035, 0.47, yaw, Object.assign(colorOf('#8f949a'), {}), 1);
+    }
+    paint.box(d.x + 0.7, d.h - 2, d.z, 0.06, 0.45, 0.55, 0.5, colorOf('#f4f4f0'), 1);   // dishes
+    paint.box(d.x - 0.7, d.h - 3.5, d.z, 0.06, 0.45, 0.55, -0.6, colorOf('#f4f4f0'), 1);
+    paint.box(d.x, d.h + 0.4, d.z, 0.1, 0.4, 0.1, 0, red, 1);                          // beacon
+  }
+
+  // a pine: a trunk and three tiers of dark green, each dusted with snow
+  addPine(trunks, cones, trunkSeg, coneGeo, d) {
+    const h = d.h || 7;
+    const greens = ['#2f5a34', '#264a2c', '#37633a'];
+    trunks.push({ geo: trunkSeg, matrix: mtx(d.x, h * 0.2, d.z, 0, 0, 0, 0.9, h * 0.4, 0.9), color: colorOf('#4a3524') });
+    const rot = (d.s || 0) * 0.7;
+    for (let i = 0; i < 3; i++) {
+      const base = h * (0.24 + i * 0.22);
+      const th = h * 0.4;
+      const r = h * 0.2 * (1 - i * 0.26);
+      cones.push({ geo: coneGeo, matrix: mtx(d.x, base + th / 2, d.z, 0, rot, 0, r, th, r), color: colorOf(greens[(d.s + i) % 3]) });
+      cones.push({ geo: coneGeo, matrix: mtx(d.x, base + th / 2 + 0.16, d.z, 0, rot, 0, r * 0.82, th, r * 0.82), color: colorOf('#eef2f5') });
+    }
+  }
+
   // a dirt road: one strip following the points, a little above the sand
   addRoad(root, d) {
     const pos = [], uv = [], idx = [];
@@ -739,8 +971,8 @@ export class World {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
     g.computeVertexNormals();
-    if (!this._roadTex) this._roadTex = T.road();
-    const mat = new THREE.MeshLambertMaterial({ map: this._roadTex, polygonOffset: true, polygonOffsetFactor: -1, side: THREE.DoubleSide });
+    if (!this._roadTex) this._roadTex = { dirt: T.road(), asphalt: T.roadStyle('asphalt'), snow: T.roadStyle('snow') };
+    const mat = new THREE.MeshLambertMaterial({ map: this._roadTex[d.c] || this._roadTex.dirt, polygonOffset: true, polygonOffsetFactor: -1, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(g, mat);
     mesh.receiveShadow = true;
     root.add(mesh);
@@ -779,7 +1011,7 @@ export class World {
     const out = [];
     if (!this.map) return out;
     for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
-      if (mat === 'roof') out.push({ x: cx, z: cz, hx, hz, yaw, h: cy });
+      if (mat === 'roof' || mat === 'flatroof') out.push({ x: cx, z: cz, hx, hz, yaw, h: cy });
     }
     return out;
   }
@@ -788,11 +1020,21 @@ export class World {
     const out = [];
     if (!this.map) return out;
     for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
-      if (mat === 'crate' || mat === 'car' || mat === 'stone' || mat === 'inv') {
+      if (mat === 'crate' || mat === 'car' || mat === 'stone' || mat === 'inv' || mat === 'container' || mat === 'steel' || mat === 'concrete') {
         if (cy - hy > 0.2) continue;
-        if (mat === 'stone' && hx > 30) continue;
+        if ((mat === 'stone' || mat === 'concrete') && (hx > 30 || hz > 30)) continue;
         out.push({ x: cx, z: cz, hx, hz, yaw, mat });
       }
+    }
+    return out;
+  }
+
+  // rock terrain (the ridge and its terraces), for the minimap
+  terrain() {
+    const out = [];
+    if (!this.map) return out;
+    for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
+      if (mat === 'rock' && cy - hy <= 0.2) out.push({ x: cx, z: cz, hx, hz, yaw, h: cy + hy });
     }
     return out;
   }

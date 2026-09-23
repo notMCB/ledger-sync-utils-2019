@@ -87,7 +87,7 @@ function onMessage(m) {
     if (!game.inRoom) net.send({ t: 'preview' });
     if (AUTOTEST && !game.inRoom) {
       $('notes').hidden = true;
-      net.send({ t: 'join', mode: AUTOTEST, ld: Number(params.get('ld') || 0) });
+      net.send({ t: 'join', mode: AUTOTEST, ld: Number(params.get('ld') || 0), map: params.get('map') || undefined });
       input.simulate(true);
     }
     return;
@@ -221,7 +221,8 @@ function join(target) {
   settings.name = name;
   saveSettings();
   sayHello();
-  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(settings.lastLoadout || 0), ...locker.picks(settings.lastLoadout || 0), ...target });
+  const mapPick = params.get('map') ? { map: params.get('map') } : {};
+  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(settings.lastLoadout || 0), ...locker.picks(settings.lastLoadout || 0), ...mapPick, ...target });
   input.lock();
 }
 

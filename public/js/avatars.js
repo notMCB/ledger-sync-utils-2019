@@ -256,6 +256,17 @@ export class Avatar {
     this.glint.visible = false;
     g.add(this.glint);
     this.glintK = 0;
+    // a laser on their gun: a beam out to whatever it lands on
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    this.laser = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.8, depthWrite: false }));
+    this.laser.frustumCulled = false;
+    this.laser.visible = false;
+    scene.add(this.laser);
+    this.laserDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDot(), color: 0xff2020, transparent: true, depthWrite: false }));
+    this.laserDot.scale.set(0.09, 0.09, 1);
+    this.laserDot.visible = false;
+    scene.add(this.laserDot);
     this.proneK = 0;       // lying flat
     this.backK = 0;        // rolled onto the back
     this.byaw = 0;         // which way the body lies (from the server)
@@ -482,6 +493,29 @@ export class Avatar {
 
   // A scoped player's lens catches the light. It is brightest when they are
   // looking straight at you, and fades off within a few degrees.
+  // the beam of a laser sight, from their muzzle along where they look
+  updateLaser(physics) {
+    const kind = this.flags & 4096 ? 'red' : this.flags & 8192 ? 'green' : null;
+    const on = !!kind && this.alive && !this.piloting && physics;
+    this.laser.visible = on;
+    this.laserDot.visible = on;
+    if (!on) return;
+    const col = kind === 'green' ? 0x30ff40 : 0xff2020;
+    this.laser.material.color.setHex(col);
+    this.laserDot.material.color.setHex(col);
+    this.group.updateMatrixWorld();
+    const origin = this.gun.localToWorld(this.muzzleLocal.clone());
+    const cp = Math.cos(this.pitch);
+    const dir = new THREE.Vector3(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+    const hit = physics.raycast(origin, dir, 100);
+    const end = hit ? hit.point : origin.clone().addScaledVector(dir, 100);
+    const p = this.laser.geometry.attributes.position;
+    p.setXYZ(0, origin.x, origin.y, origin.z);
+    p.setXYZ(1, end.x, end.y, end.z);
+    p.needsUpdate = true;
+    this.laserDot.position.copy(end).addScaledVector(dir, -0.03);
+  }
+
   updateGlint(dt, camera, friendly) {
     this.shield.visible = this.alive && !!(this.flags & 128);
     if (this.shield.visible) this.shield.scale.y = 1 - this.crouchK * 0.3;
@@ -526,6 +560,8 @@ export class Avatar {
   }
 
   dispose() {
+    this.scene.remove(this.laser);
+    this.scene.remove(this.laserDot);
     if (this.glint.material.map) this.glint.material.dispose();
     this.scene.remove(this.group);
     this.group.traverse((o) => {
@@ -631,10 +667,11 @@ export class Avatars {
     }
   }
 
-  update(dt, t, camera, myTeam, teamMode) {
+  update(dt, t, camera, myTeam, teamMode, physics = null) {
     const rt = t - DELAY;
     for (const a of this.map.values()) {
       a.update(dt, rt);
+      a.updateLaser(physics);
       const friendly = teamMode && a.team === myTeam;
       a.tag.visible = a.alive && (friendly || a.showName > 0);
       a.tagMat.depthTest = !friendly;

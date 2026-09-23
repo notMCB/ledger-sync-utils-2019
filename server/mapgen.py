@@ -106,9 +106,14 @@ LANDMARKS = {
 
 
 class Town:
+    kind = 'town'
+    name = 'Old Town'
+    theme = 'sand'       # ground, sky and light: 'sand', 'concrete' or 'snow'
+
     def __init__(self, seed):
         self.seed = seed
         self.rng = random.Random(seed)
+        self.bx, self.bz = BX, BZ
         self.boxes = []
         self.deco = []
         self.rects = []      # building footprints, for placement tests
@@ -133,13 +138,14 @@ class Town:
 
     # -- buildings --------------------------------------------------------
 
-    def building(self, bx, bz, w, d, yaw, floors, tint):
+    def building(self, bx, bz, w, d, yaw, floors, tint, wall_mat='wall'):
         rng = self.rng
         hw, hd = w / 2, d / 2
         H = floors * STORY
         loc = []
 
-        def lb(x0, x1, y0, y1, z0, z1, mat='wall'):
+        def lb(x0, x1, y0, y1, z0, z1, mat=None):
+            mat = wall_mat if mat is None else mat
             if x1 - x0 > 0.01 and y1 - y0 > 0.01 and z1 - z0 > 0.01:
                 loc.append(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2,
                             (x1 - x0) / 2, (y1 - y0) / 2, (z1 - z0) / 2, mat))
@@ -458,14 +464,14 @@ class Town:
             w = rng.uniform(6.8, 13.5)
             d = rng.uniform(6.8, 12.5)
             yaw = rng.choice([0.0, math.pi / 2]) + rng.uniform(-0.45, 0.45)
-            x = rng.uniform(-BX + 6, BX - 6)
-            z = rng.uniform(-BZ + 6, BZ - 6)
+            x = rng.uniform(-self.bx + 6, self.bx - 6)
+            z = rng.uniform(-self.bz + 6, self.bz - 6)
             r = (x, z, w / 2, d / 2, yaw)
             # inside the walls, with room for a street along them
             ok = True
             for (sx, sz) in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
                 cxz = rot(sx * w / 2, sz * d / 2, yaw)
-                if abs(x + cxz[0]) > BX - 3.2 or abs(z + cxz[1]) > BZ - 3.2:
+                if abs(x + cxz[0]) > self.bx - 3.2 or abs(z + cxz[1]) > self.bz - 3.2:
                     ok = False
             if not ok:
                 continue
@@ -510,10 +516,10 @@ class Town:
 
         # the town wall
         wh = 6.0
-        self.box(0, wh / 2, -BZ - 0.5, BX + 1, wh / 2, 0.5, 0, 'stone')
-        self.box(0, wh / 2, BZ + 0.5, BX + 1, wh / 2, 0.5, 0, 'stone')
-        self.box(-BX - 0.5, wh / 2, 0, 0.5, wh / 2, BZ, 0, 'stone')
-        self.box(BX + 0.5, wh / 2, 0, 0.5, wh / 2, BZ, 0, 'stone')
+        self.box(0, wh / 2, -self.bz - 0.5, self.bx + 1, wh / 2, 0.5, 0, 'stone')
+        self.box(0, wh / 2, self.bz + 0.5, self.bx + 1, wh / 2, 0.5, 0, 'stone')
+        self.box(-self.bx - 0.5, wh / 2, 0, 0.5, wh / 2, self.bz, 0, 'stone')
+        self.box(self.bx + 0.5, wh / 2, 0, 0.5, wh / 2, self.bz, 0, 'stone')
 
         for (kind, x, z, r) in self.landmarks:
             getattr(self, 'lm_' + kind)(x, z)
@@ -780,15 +786,15 @@ class Town:
                 for k in range(8):
                     out.append(catmull(a, b, c, d, k / 8))
             out.append(ctrl[-1])
-            return [(max(-BX, min(BX, x)), max(-BZ, min(BZ, z))) for (x, z) in out]
+            return [(max(-self.bx, min(self.bx, x)), max(-self.bz, min(self.bz, z))) for (x, z) in out]
 
         # one runs the length of town between the two ends, one crosses it, sometimes a third
-        self.roads.append({'w': rng.uniform(4.5, 6.0), 'pts': path((-BX, self.spawn_w[1]), (BX, self.spawn_e[1]), 14)})
+        self.roads.append({'w': rng.uniform(4.5, 6.0), 'pts': path((-self.bx, self.spawn_w[1]), (self.bx, self.spawn_e[1]), 14)})
         x0 = rng.uniform(-40, 0)
-        self.roads.append({'w': rng.uniform(4.0, 5.5), 'pts': path((x0, -BZ), (x0 + rng.uniform(-18, 18), BZ), 10)})
+        self.roads.append({'w': rng.uniform(4.0, 5.5), 'pts': path((x0, -self.bz), (x0 + rng.uniform(-18, 18), self.bz), 10)})
         if rng.random() < 0.65:
             x0 = rng.uniform(8, 50)
-            self.roads.append({'w': rng.uniform(3.6, 4.6), 'pts': path((x0, -BZ), (x0 + rng.uniform(-25, 25), BZ), 12)})
+            self.roads.append({'w': rng.uniform(3.6, 4.6), 'pts': path((x0, -self.bz), (x0 + rng.uniform(-25, 25), self.bz), 12)})
 
     def road_dist(self, x, z):
         best = 1e9
@@ -823,8 +829,8 @@ class Town:
                 break
             r = LANDMARKS[kind][1]
             for _ in range(300):
-                x = rng.uniform(-BX + r + 4, BX - r - 4)
-                z = rng.uniform(-BZ + r + 4, BZ - r - 4)
+                x = rng.uniform(-self.bx + r + 4, self.bx - r - 4)
+                z = rng.uniform(-self.bz + r + 4, self.bz - r - 4)
                 if any(math.hypot(x - a, z - b) < r + c + 3 for (a, b, c) in reserved):
                     continue
                 if any(math.hypot(x - a, z - b) < r + c + 12 for (_, a, b, c) in self.landmarks):
@@ -987,7 +993,7 @@ class Town:
         self.deco.append({'k': 'paving', 'x': round(x, 2), 'z': round(z, 2), 'r': R, 'dirt': 1})
 
     def free(self, x, z, r, bmargin=1.6, pmargin=0.6, road=True):
-        if abs(x) > BX - r - 0.8 or abs(z) > BZ - r - 0.8:
+        if abs(x) > self.bx - r - 0.8 or abs(z) > self.bz - r - 0.8:
             return False
         if road and self.road_dist(x, z) < r:
             return False
@@ -1080,8 +1086,8 @@ class Town:
         for kind, n in counts:
             for _ in range(n):
                 for _t in range(30):
-                    x = rng.uniform(-BX + 2, BX - 2)
-                    z = rng.uniform(-BZ + 2, BZ - 2)
+                    x = rng.uniform(-self.bx + 2, self.bx - 2)
+                    z = rng.uniform(-self.bz + 2, self.bz - 2)
                     if any(math.hypot(x - a, z - b) < 7 for (a, b) in (self.spawn_w, self.spawn_e)):
                         continue
                     need = {'crate': 1.0, 'barrel': 0.5, 'car': 2.4, 'stall': 1.5, 'wall': 2.0, 'palm': 0.5}[kind]
@@ -1122,8 +1128,8 @@ class Town:
         rng = self.rng
         pts = []
         for _ in range(900):
-            x = rng.uniform(-BX + 3, BX - 3)
-            z = rng.uniform(-BZ + 3, BZ - 3)
+            x = rng.uniform(-self.bx + 3, self.bx - 3)
+            z = rng.uniform(-self.bz + 3, self.bz - 3)
             if self.free(x, z, 0.5, 0.9, 0.5):
                 pts.append((x, z))
         chosen = []
@@ -1164,7 +1170,10 @@ class Town:
     def to_json(self):
         return {
             'seed': self.seed,
-            'bounds': [BX, BZ],
+            'kind': self.kind,
+            'name': self.name,
+            'theme': self.theme,
+            'bounds': [self.bx, self.bz],
             'boxes': self.boxes,
             'deco': self.deco,
             'sites': {'A': [round(self.site_a[0], 2), round(self.site_a[1], 2)],
@@ -1178,8 +1187,19 @@ class Town:
         }
 
 
-def generate(seed):
-    t = Town(seed)
+MAP_KINDS = ('town', 'dock', 'alpine')
+
+
+def generate(seed, kind='town'):
+    """A finished map of the given kind: 'town', 'dock' or 'alpine'."""
+    if kind == 'dock':
+        import map_dock
+        t = map_dock.Dockyard(seed)
+    elif kind == 'alpine':
+        import map_alpine
+        t = map_alpine.Alpine(seed)
+    else:
+        t = Town(seed)
     t.generate()
     return t
 

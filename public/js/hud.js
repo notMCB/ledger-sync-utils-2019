@@ -296,8 +296,18 @@ export class Hud {
     const scale = (S - 8) / (Math.max(bx, bz) * 2);
     this.mmScale = scale;
     this.mmS = S;
-    g.fillStyle = 'rgba(201, 168, 119, 0.35)';
+    const theme = map.theme || 'sand';
+    g.fillStyle = theme === 'snow' ? 'rgba(226, 232, 240, 0.55)' : theme === 'concrete' ? 'rgba(125, 126, 130, 0.5)' : 'rgba(201, 168, 119, 0.35)';
     g.fillRect(S / 2 - bx * scale, S / 2 - bz * scale, bx * 2 * scale, bz * 2 * scale);
+    // rock terrain: the ridge and its terraces
+    g.fillStyle = 'rgba(150, 148, 144, 0.9)';
+    for (const f of world.terrain()) {
+      g.save();
+      g.translate(S / 2 + f.x * scale, S / 2 + f.z * scale);
+      g.rotate(-f.yaw);
+      g.fillRect(-f.hx * scale, -f.hz * scale, f.hx * 2 * scale, f.hz * 2 * scale);
+      g.restore();
+    }
     const draw = (list, fill) => {
       g.fillStyle = fill;
       for (const f of list) {
@@ -313,7 +323,7 @@ export class Hud {
     g.lineJoin = 'round';
     for (const d of map.deco) {
       if (d.k !== 'road') continue;
-      g.strokeStyle = 'rgba(140, 105, 62, 0.85)';
+      g.strokeStyle = d.c === 'asphalt' ? 'rgba(70, 71, 75, 0.9)' : d.c === 'snow' ? 'rgba(190, 198, 206, 0.95)' : 'rgba(140, 105, 62, 0.85)';
       g.lineWidth = Math.max(3, d.w * scale);
       g.beginPath();
       d.pts.forEach(([x, z], i) => (i ? g.lineTo(S / 2 + x * scale, S / 2 + z * scale) : g.moveTo(S / 2 + x * scale, S / 2 + z * scale)));

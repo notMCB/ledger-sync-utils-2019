@@ -13,6 +13,7 @@ export const SLOT_NAMES = {
   mag: 'Magazine',
   ammo: 'Ammo',
   trigger: 'Trigger',
+  laser: 'Laser',
 };
 
 // mods: mag (x capacity), reload (x time), spread (x), recoil (x),
@@ -28,6 +29,11 @@ const longbrake = (unlock) => ({ id: 'longbrake', name: 'Long Muzzle Brake', unl
 const suppressor = (unlock) => ({ id: 'suppressor', name: 'Suppressor', unlock, blurb: 'Quiet, barely any flash, and you stay off enemy minimaps.', mods: { quiet: true, flash: 0.25 } });
 const noMuzzle = { id: 'none', name: 'No Muzzle', unlock: 0, blurb: 'Bare barrel.', mods: {} };
 const fastMag = (unlock, rounds) => ({ id: 'fast', name: 'Fast Mag', unlock, blurb: `Same ${rounds} rounds, 10% quicker to reload.`, mods: { reload: 0.9 } });
+// lasers tighten your hip fire (hip: a multiplier on the spread you have when not aiming) — and everyone can see the beam
+const noLaser = { id: 'none', name: 'No Laser', unlock: 0, blurb: 'Nothing under the barrel.', mods: {} };
+const redLaser = (unlock) => ({ id: 'red', name: 'Red Laser', unlock, blurb: 'A little tighter from the hip. Enemies can see the beam.', mods: { hip: 0.85, laser: 'red' } });
+const greenLaser = (unlock) => ({ id: 'green', name: 'Green Laser', unlock, blurb: 'Much tighter from the hip. Enemies can see the beam.', mods: { hip: 0.65, laser: 'green' } });
+const lasers = (red, green) => [noLaser, redLaser(red), greenLaser(green)];
 
 export const ATTACHMENTS = {
   smg: {
@@ -44,6 +50,7 @@ export const ATTACHMENTS = {
       fastMag(25, 30),
       { id: 'large', name: 'Large Mag', unlock: 100, blurb: '50% more rounds: 45 a magazine.', mods: { mag: 1.5 } },
     ],
+    laser: lasers(15, 50),
   },
   lmg: {
     optic: [
@@ -59,6 +66,7 @@ export const ATTACHMENTS = {
       { ...fastMag(25, 100), name: 'Fast Box' },
       { id: 'large', name: 'Large Box', unlock: 100, blurb: '50% more rounds: 150 a box.', mods: { mag: 1.5 } },
     ],
+    laser: lasers(15, 50),
   },
   shotgun: {
     optic: [
@@ -75,6 +83,7 @@ export const ATTACHMENTS = {
       { id: 'small', name: 'Short Tube', unlock: 25, blurb: 'Four shells, but quicker to fill and lighter to run with.', mods: { mag: 0.667, reload: 0.85, move: 1.08 } },
     ],
     muzzle: [noMuzzle, suppressor(50)],
+    laser: lasers(25, 50),
   },
   sniper: {
     optic: [
@@ -88,6 +97,7 @@ export const ATTACHMENTS = {
       fastMag(25, 5),
       { id: 'ext', name: 'Extended Mag', unlock: 50, blurb: 'Eight rounds a magazine.', mods: { mag: 1.6 } },
     ],
+    laser: lasers(25, 75),
   },
   pistol: {
     optic: [
@@ -104,6 +114,7 @@ export const ATTACHMENTS = {
       { id: 'semi', name: 'Semi-Auto', unlock: 0, blurb: 'One shot a trigger pull.', mods: {} },
       { id: 'auto', name: 'Full Auto', unlock: 100, blurb: 'Hold the trigger down. Much less accurate.', mods: { auto: true, spread: 1.6 } },
     ],
+    laser: lasers(25, 75),
   },
 };
 
@@ -173,6 +184,8 @@ export function apply(def, fitted) {
     if (m.flash) out.flash = m.flash;
     if (m.quiet) out.quiet = true;
     if (m.auto) out.auto = true;
+    if (m.hip) out.hip = m.hip;
+    if (m.laser) out.laser = m.laser;
     // a slug turns the shotgun into a single hard-hitting rifle round
     if (m.slug) {
       out.slug = true;

@@ -14,6 +14,7 @@ import * as sfx from './audio.js';
 import { locker } from './locker.js';
 import { tickSkins, OUTFIT } from './skins.js';
 import { buildRangeMap, Range } from './range.js';
+import { softDot as T_softDot } from './textures.js';
 
 const GRAVITY = 18;
 const JUMP_V = 6.6;
@@ -278,6 +279,7 @@ export class Game {
     this.clearDevices();
     this.addHatchLadders(map);
     this.hasMap = true;
+    if (this.inRoom && map.name) this.hud.center(map.name, 'Next map', '', 3, 2);
   }
 
   // a fixed ladder in every hatch, so you can climb back out of the tunnels
@@ -1092,6 +1094,7 @@ export class Game {
     const moveF = Math.min(1, Math.hypot(me.vel.x, me.vel.z) / WALK);
     let s = d.base + ws.bloom + moveF * d.move + (me.grounded ? 0 : d.air);
     s *= 1 + (d.adsMul - 1) * me.adsK;
+    if (d.hip) s *= 1 + (d.hip - 1) * (1 - me.adsK);
     if (me.prone && me.grounded) s *= 0.55;      // flat on the ground: steadiest of all
     else if (me.crouch && me.grounded) s *= 0.8;
     return s;
@@ -1154,6 +1157,9 @@ export class Game {
       if (me.crouch) f |= 2;
       if (me.prone) f |= 512;
       if (me.onBack) f |= 1024;
+      // a laser on the gun in hand: everyone sees the beam
+      if (ws && ws.def.laser === 'red') f |= 4096;
+      else if (ws && ws.def.laser === 'green') f |= 8192;
       if (Math.hypot(me.vel.x, me.vel.z) > 0.5) f |= 4;
       if (me.adsK > 0.5) f |= 8;
       if (ws && ws.reloading) f |= 16;
@@ -1334,6 +1340,47 @@ export class Game {
       if (this.climbT <= 0) { this.climbT = 0.32; sfx.footstep(null, 0.6); }
     }
     if (me.landed) sfx.footstep(null, 1.2);
+  }
+
+  // -- my own laser: a beam from the muzzle to whatever it lands on --
+
+  updateLaser() {
+    const me = this.me;
+    const ws = this.weapon();
+    const on = this.inRoom && me.alive && !this.drone && ws && ws.def.laser && !this.vm.scoped;
+    if (!this.laser) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+      this.laser = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.85, depthWrite: false }));
+      this.laser.frustumCulled = false;
+      this.laserDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: T_softDot(), color: 0xff2020, transparent: true, depthWrite: false, depthTest: false }));
+      this.laserDot.scale.set(0.09, 0.09, 1);
+      this.scene.add(this.laser);
+      this.scene.add(this.laserDot);
+    }
+    this.laser.visible = !!on;
+    this.laserDot.visible = !!on;
+    if (!on) return;
+    const cam = this.camera;
+    const col = ws.def.laser === 'green' ? 0x30ff40 : 0xff2020;
+    this.laser.material.color.setHex(col);
+    this.laserDot.material.color.setHex(col);
+    const origin = this.vm.muzzleWorld(cam, V());
+    const dir = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
+    // aim the beam where the shot would go: from the muzzle towards the crosshair's point
+    const far = this.world.physics.raycast(cam.position, dir, 120);
+    const target = far ? far.point : cam.position.clone().addScaledVector(dir, 120);
+    const bdir = target.clone().sub(origin).normalize();
+    const hit = this.world.physics.raycast(origin, bdir, 120);
+    const end = hit ? hit.point : origin.clone().addScaledVector(bdir, 120);
+    const p = this.laser.geometry.attributes.position;
+    p.setXYZ(0, origin.x, origin.y, origin.z);
+    p.setXYZ(1, end.x, end.y, end.z);
+    p.needsUpdate = true;
+    this.laserDot.position.copy(end).addScaledVector(bdir, -0.03);
+    const dist = end.distanceTo(cam.position);
+    const sd = 0.04 + dist * 0.004;
+    this.laserDot.scale.set(sd, sd, 1);
   }
 
   // -- prone --
@@ -2076,7 +2123,8 @@ export class Game {
     hud.fullmap(this.mapOpen, view, others, objs, keyName(settings.binds.map));
     hud.area(view.x, view.z);
     hud.scoreboard(this.showScoresHeld || this.showScores, this.roster, g, this.myId,
-      (id) => (id === this.myId ? me.alive : !!(this.avatars.get(id) && this.avatars.get(id).alive)), this.room && this.room.name);
+      (id) => (id === this.myId ? me.alive : !!(this.avatars.get(id) && this.avatars.get(id).alive)),
+      this.room && (this.map && this.map.name && this.room.mode !== 'range' ? `${this.room.name} · ${this.map.name}` : this.room.name));
   }
 
   aimTarget() {
@@ -2104,7 +2152,7 @@ export class Game {
     if (this.hasMap) {
       this.update(dt);
       this.updateCamera(dt);
-      this.avatars.update(dt, this.clock, this.camera, this.me.team, this.isTeamMode() && !this.warmup());
+      this.avatars.update(dt, this.clock, this.camera, this.me.team, this.isTeamMode() && !this.warmup(), this.world.physics);
       // footsteps of other players
       for (const a of this.avatars.map.values()) {
         if (!a.alive || a.speed < 2.2 || (a.flags & 2)) continue;
@@ -2116,6 +2164,7 @@ export class Game {
       }
       this.fx.update(dt, this.world.physics, this.camera, NADE_FUSE);
       this.updateDevices(dt);
+      this.updateLaser();
       if (this.range) this.range.update(dt);
       const me = this.me;
       if (this.inRoom && me.alive) {

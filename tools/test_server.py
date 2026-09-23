@@ -35,7 +35,8 @@ class P:
     async def start(self, mode, ld=0, **picks):
         self.ws = await WS.connect(URL)
         self.ws.send({'t': 'hello', 'name': self.name, 'v': '2.0.0'})
-        self.ws.send({'t': 'join', 'mode': mode, 'ld': ld, **picks})
+        # tests play the town unless they ask for another map
+        self.ws.send({'t': 'join', 'mode': mode, 'ld': ld, 'map': 'town', **picks})
         asyncio.ensure_future(self.read())
 
     async def read(self):
