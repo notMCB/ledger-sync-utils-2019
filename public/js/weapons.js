@@ -62,7 +62,7 @@ export const PERKS = {
   ladder: { id: 'ladder', name: 'Breaching Ladder', uses: 1, blurb: 'Stand it against a wall to climb in through high windows. Anyone can use it.' },
   beacon: { id: 'beacon', name: 'Recon Beacon', uses: 1, blurb: 'Drop it and it pulses for 30 seconds, scanning 35 m around it. Your whole team sees the area on the map, with every enemy inside marked as a red dot.' },
   wall: { id: 'wall', name: 'Cover Wall', uses: 2, blurb: 'Put up a steel barricade in front of you: two players wide and chest high. Crouch behind it and you are hidden; stand up and your head shows. It takes 900 damage before it falls.' },
-  drone: { id: 'drone', name: 'Bomb Drone', uses: 1, blurb: 'Launch a drone and fly it over the town to see where everyone is, then click to bring it down and blow it like a frag grenade. While you fly, your body vanishes. The battery lasts one trip across the town and back. Anyone can shoot it down.' },
+  drone: { id: 'drone', name: 'Bomb Drone', uses: 1, unlock: { weapon: 'sniper', kills: 75 }, blurb: 'Launch a drone and fly it over the town to see where everyone is, then click to bring it down and blow it like a frag grenade. Your body stands where you left it, so keep it somewhere safe. The battery lasts one trip across the town and back. Anyone can shoot it down.' },
 };
 
 export const LOADOUTS = [

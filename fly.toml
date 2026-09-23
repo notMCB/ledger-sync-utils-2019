@@ -10,9 +10,13 @@ app = 'souk-siege'
 primary_region = 'syd'
 
 [env]
-  # no persistent disk here, so accounts stay off (as on Render); attach a
-  # volume, point DATA_DIR at it and set this to "1" to switch them on
-  ACCOUNTS = '0'
+  # accounts live in SQLite on the 'data' volume mounted below
+  ACCOUNTS = '1'
+  DATA_DIR = '/data'
+
+[mounts]
+  source = 'data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080

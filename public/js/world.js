@@ -356,6 +356,8 @@ export class World {
         barrels.push({ geo: cyl, matrix: mtx(d.x, (d.y || 0) + 0.5, d.z), color: colorOf(BARREL[d.c % 3]) });
       } else if (d.k === 'car') {
         this.addCar(cars, wheels, wheelGeo, hubGeo, d);
+      } else if (d.k === 'wreck') {
+        this.addWreck(cars, wheels, wheelGeo, d);
       } else if (d.k === 'palm') {
         const segs = 5;
         let x = d.x, z = d.z, y = 0;
@@ -667,6 +669,47 @@ export class World {
         const [x, z] = W(lx, lz);
         wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.34, z, Math.PI / 2, yaw, 0), color: colorOf('#1d1d1f') });
         wheels.push({ geo: hubGeo, matrix: mtx(x, 0.34, z, Math.PI / 2, yaw, 0), color: colorOf('#a9a9a3') });
+      }
+    }
+  }
+
+  // the burnt-out truck at the wreck landmark: a charred hull on its wheels,
+  // a cab knocked askew and an exhaust stack, over the same three collision boxes
+  addWreck(cars, wheels, wheelGeo, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz, extra = 0) => {
+      const cc = Math.cos(yaw + extra), ss = Math.sin(yaw + extra);
+      return [d.x + cc * lx + ss * lz, d.z - ss * lx + cc * lz];
+    };
+    const char = colorOf('#2a2523');
+    const rust = colorOf('#5a3a28');
+    const box = (lx, ly, lz, hx, hy, hz, color, extra = 0) => {
+      const [x, z] = W(lx, lz, extra);
+      cars.box(x, ly, z, hx, hy, hz, yaw + extra, color, 2);
+    };
+    // hull (the long way runs along local z here, as the collision box does)
+    box(0, 0.75, 0, 1.7, 0.72, 3.1, char);
+    box(0, 1.5, 0.4, 1.55, 0.06, 2.5, rust);                  // scorched flatbed edge
+    for (let i = 0; i < 4; i++) box(0, 1.6, -1.6 + i * 1.1, 1.62, 0.12, 0.08, rust);   // ribs across the bed
+    // cab, knocked a quarter turn askew, with dark window holes
+    const [cx, cz] = W(0, -0.3);
+    const cab = (lx, ly, lz, hx, hy, hz, color) => {
+      const cc = Math.cos(yaw + 0.25), ss = Math.sin(yaw + 0.25);
+      cars.box(cx + cc * lx + ss * lz, ly, cz - ss * lx + cc * lz, hx, hy, hz, yaw + 0.25, color, 2);
+    };
+    cab(0, 1.9, 0, 1.1, 0.4, 1.3, char);
+    cab(0, 1.95, -1.31, 0.9, 0.25, 0.03, colorOf('#0d0d0f'));
+    cab(1.11, 1.95, 0, 0.03, 0.25, 0.9, colorOf('#0d0d0f'));
+    cab(-1.11, 1.95, 0, 0.03, 0.25, 0.9, colorOf('#0d0d0f'));
+    // exhaust stack
+    const [px, pz] = W(0.2, -3.3, 0.25);
+    cars.box(px, 1.95, pz, 0.12, 0.12, 1.8, yaw + 0.25, rust, 2);
+    // wheels, blackened, axles across the hull
+    for (const lz of [2.0, -2.0]) {
+      for (const lx of [1.7, -1.7]) {
+        const [x, z] = W(lx, lz);
+        wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.34, z, Math.PI / 2, yaw + Math.PI / 2, 0, 1.3, 1, 1.3), color: colorOf('#161617') });
       }
     }
   }

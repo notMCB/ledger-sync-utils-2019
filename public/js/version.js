@@ -2,9 +2,21 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.5.1';
+export const VERSION = '2.6.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.6.0',
+    date: '23 September 2026',
+    title: 'Accounts are back, drone pilots stay in the open',
+    notes: [
+      'Accounts are back at souksiege.com: sign up with a username, email and password and your dinars, finishes and kills follow you between devices.',
+      'Flying the bomb drone no longer hides you. Your body stands where you launched from, head down over the controller, and it can be found and killed, which brings the drone down too. Pick your spot.',
+      'The Bomb Drone has to be earned: 75 kills with the sniper rifle unlock it in the Locker.',
+      'A scoped sniper’s glint is bigger, brighter and visible from a wider angle and from closer, so you get a fairer warning.',
+      'The burnt-out truck at the wreck was invisible after the car makeover: you could walk into nothing. It is drawn again.',
+    ],
+  },
   {
     version: '2.5.1',
     date: '23 September 2026',

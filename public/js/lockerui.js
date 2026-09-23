@@ -231,9 +231,13 @@ function renderLoadouts(host) {
     prow.className = 'lk-nades';
     for (const id of L.perks) {
       const b = document.createElement('button');
-      b.className = 'lk-nade' + (id === perkId ? ' on' : '');
-      b.innerHTML = `<b>${esc(PERKS[id].name)}</b><small>${PERKS[id].uses} per life</small>`;
-      b.addEventListener('click', () => {
+      const u = PERKS[id].unlock;
+      const locked = !locker.perkUnlocked(id);
+      b.className = 'lk-nade' + (id === perkId ? ' on' : '') + (locked ? ' locked' : '');
+      const small = locked ? `${u.kills} ${WEAPONS[u.weapon].short.toLowerCase()} kills to unlock · you have ${locker.killsWith(u.weapon)}` : `${PERKS[id].uses} per life`;
+      b.innerHTML = `<b>${esc(PERKS[id].name)}</b><small>${esc(small)}</small>`;
+      if (locked) b.disabled = true;
+      else b.addEventListener('click', () => {
         locker.setPerk(L.id, id);
         uiBlip();
         render();

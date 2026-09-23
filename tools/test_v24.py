@@ -117,8 +117,8 @@ async def test_shootdown():
     b.ws.w.close()
 
 
-async def test_pilot_away():
-    """While the drone flies, the pilot's body can't be hurt; leaving the drone ends it."""
+async def test_pilot_exposed():
+    """While the drone flies, the pilot's body stays and can be killed, which drops the drone."""
     a, b = P('Pilot3'), P('Sniper3')
     await a.start('tdm', ld=3, pk='drone')
     await b.start('tdm')
@@ -129,17 +129,13 @@ async def test_pilot_away():
     a.ws.send({'t': 'perk', 'k': 'drone', 'p': a.pos})
     await wait(lambda: got(b, 'drone', id=a.id), 3, 'a drone in the air')
     await asyncio.sleep(0.3)
-    assert any(r[0] == a.id and (r[6] & 2048) for r in b.snap_players), 'the pilot should be flagged away'
-    await pistol(b, a, 3)
-    await asyncio.sleep(0.5)
-    assert not got(a, 'hurt'), 'a pilot away with the drone must not take damage'
-    a.ws.send({'t': 'drstop'})
-    await wait(lambda: got(a, 'drone', id=a.id, off=1, why='left'), 3, 'the abandoned drone ending')
-    await asyncio.sleep(0.3)
-    assert not any(r[0] == a.id and (r[6] & 2048) for r in b.snap_players), 'the pilot should be back'
+    assert any(r[0] == a.id and (r[6] & 1) for r in b.snap_players), 'the pilot should still be there, alive'
     await pistol(b, a, 1)
-    await wait(lambda: got(a, 'hurt'), 3, 'the pilot hurt once back')
-    print('pilot ok: untouchable while flying, back and hittable after abandoning the drone')
+    await wait(lambda: got(a, 'hurt'), 3, 'the pilot hurt while flying')
+    await pistol(b, a, 3)
+    await wait(lambda: b.saw('kill'), 3, 'the pilot killed')
+    await wait(lambda: got(b, 'drone', id=a.id, off=1, why='pilot'), 3, 'the drone dropping with its pilot')
+    print('pilot ok: hittable while flying; killing them drops the drone')
     a.ws.w.close()
     b.ws.w.close()
 
@@ -213,7 +209,7 @@ async def main():
     await test_wall()
     await test_drone()
     await test_shootdown()
-    await test_pilot_away()
+    await test_pilot_exposed()
     await test_beacon_default()
     await test_smoke()
     await test_crate_again()

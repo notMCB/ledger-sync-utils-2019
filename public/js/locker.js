@@ -7,7 +7,7 @@
 
 import { RARITIES, FINISHES, OUTFITS, GUN_IDS, FINISH, OUTFIT } from './skins.js';
 import { clean as cleanAttach, HAS_ATTACHMENTS } from './attachments.js';
-import { LOADOUTS } from './weapons.js';
+import { LOADOUTS, PERKS } from './weapons.js';
 
 export const CRATES = {
   gun: { id: 'gun', name: 'Armory Crate', price: 100, blurb: 'One random gun finish for one of your five guns.' },
@@ -309,12 +309,18 @@ export const locker = {
     const L = LOADOUTS[ld];
     if (!L) return 'ammo';
     const want = state().equip.perk[String(ld)];
-    return L.perks.includes(want) ? want : L.perks[0];
+    return L.perks.includes(want) && this.perkUnlocked(want) ? want : L.perks[0];
+  },
+
+  // some perks are earned with kills on the loadout's gun
+  perkUnlocked(id) {
+    const u = PERKS[id] && PERKS[id].unlock;
+    return !u || this.killsWith(u.weapon) >= u.kills;
   },
 
   setPerk(ld, id) {
     const L = LOADOUTS[ld];
-    if (!L || !L.perks.includes(id)) return;
+    if (!L || !L.perks.includes(id) || !this.perkUnlocked(id)) return;
     state().equip.perk[String(ld)] = id;
     this.saved();
   },

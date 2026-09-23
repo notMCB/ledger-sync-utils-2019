@@ -437,11 +437,10 @@ export class Avatar {
       this.tag.visible = false;
       return;
     }
-    // away flying a drone: the body is not here at all
-    this.away = !!(this.flags & 2048);
-    g.visible = alive && !this.away;
-    this.tag.visible = this.tag.visible && !this.away;
-    if (!alive || this.away) return;
+    // flying a drone: the body stands where it was, head down over the controller
+    this.piloting = !!(this.flags & 2048);
+    g.visible = alive;
+    if (!alive) return;
     const pk = this.proneK, bk = this.backK;
     if (pk > 0.01) {
       // lay the body down along its own direction, head where the player is,
@@ -472,8 +471,8 @@ export class Avatar {
     this.upper.position.y = 0.97 - c * 0.42;
     this.upper.rotation.x = 0;
     // prone: arms out ahead with the gun, head up, and the head turned the way they look
-    this.arms.rotation.x = this.pitch * (1 - pk) - 1.35 * pk;
-    this.head.rotation.x = this.pitch * 0.6 * (1 - pk) - 0.8 * pk;
+    this.arms.rotation.x = this.piloting ? -0.9 : this.pitch * (1 - pk) - 1.35 * pk;
+    this.head.rotation.x = this.piloting ? 0.7 : this.pitch * 0.6 * (1 - pk) - 0.8 * pk;
     this.head.rotation.y = pk ? wrapAngle(this.yaw - this.bodyYaw) * (1 - bk) * 0.6 : 0;
     this.upper.rotation.x = c * 0.15;
     this.showName = Math.max(0, this.showName - dt);
@@ -494,16 +493,18 @@ export class Avatar {
       // which way they are facing, in the same terms
       const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
       const dot = (dx / dist) * fx + (dz / dist) * fz;
-      // within about 12 degrees, and only far enough away to be a sniper
-      want = dist > 12 ? Math.max(0, (dot - 0.978) / 0.022) : 0;
+      // within about 25 degrees, from 8 m out; brightest looking straight at you
+      want = dist > 8 ? Math.min(1, Math.max(0, (dot - 0.9) / 0.06) * 1.4) : 0;
     }
     this.glintK += (want - this.glintK) * Math.min(1, dt * 6);
     const on = this.glintK > 0.02;
     this.glint.visible = on;
     if (!on) return;
-    const flicker = 0.75 + 0.25 * Math.sin(performance.now() / 90 + this.id);
-    this.glint.material.opacity = Math.min(1, this.glintK * flicker);
-    const s = 0.35 + this.glintK * 0.5;
+    const flicker = 0.85 + 0.15 * Math.sin(performance.now() / 70 + this.id);
+    this.glint.material.opacity = Math.min(1, this.glintK * flicker * 1.2);
+    // grows with distance a little so it still reads across the town
+    const dist = camera.position.distanceTo(this.pos);
+    const s = (0.7 + this.glintK * 0.9) * (1 + Math.min(1.5, dist / 60));
     this.glint.scale.set(s, s, 1);
     const pk = this.proneK;
     this.glint.position.set(0, (1.62 - this.crouchK * 0.44) * (1 - pk) + 1.5 * pk, 0.5 * pk * (1 - 2 * this.backK));
@@ -652,7 +653,7 @@ export class Avatars {
     let best = null;
     const h = this._h;
     for (const a of this.map.values()) {
-      if (!a.alive || a.away || (skip && skip(a))) continue;
+      if (!a.alive || (skip && skip(a))) continue;
       if (a.proneK > 0.5) {
         // lying down: a head at the front and a row of spheres along the body
         const fx = -Math.sin(a.bodyYaw), fz = -Math.cos(a.bodyYaw);

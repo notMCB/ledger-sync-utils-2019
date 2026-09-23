@@ -802,7 +802,7 @@ export class Game {
     D.mesh.visible = false;
     me.adsK = 0;
     me.aimToggled = false;
-    this.hud.center('Drone launched', 'Your body is away while you fly', '', 2.5, 2);
+    this.hud.center('Drone launched', 'Your body stays here and can be shot', '', 2.5, 2);
     this.hud.droneOverlay(true, 1, this.droneControls());
   }
 

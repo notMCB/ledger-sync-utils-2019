@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.5.1'
+VERSION = '2.6.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -73,6 +73,7 @@ PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 
 WALL_HP = 900
 WALL_LIFE = 90.0
 DRONE_HP = 40
+DRONE_KILLS = 75        # sniper kills before the drone can be chosen
 DRONE_SPEED = 14.0      # keep in step with DRONE_SPEED in public/js/game.js
 DRONE_EXTRA = 4.0       # battery beyond the there-and-back trip, in seconds
 MED_HEAL = 50
@@ -229,6 +230,9 @@ class Player:
             self.loadout = int(num(m.get('ld'), 0, 3))
         opts = PERK_OPTIONS[self.loadout]
         self.perk = m.get('pk') if m.get('pk') in opts else opts[0]
+        lk = self.locker
+        if self.perk == 'drone' and lk is not None and lk['kills'].get('sniper', 0) < DRONE_KILLS:
+            self.perk = opts[0]
         kinds = NADE_OPTIONS[self.loadout]
         self.nade_kind = m.get('nk') if m.get('nk') in kinds else kinds[0]
 
@@ -766,8 +770,6 @@ class Room:
     def damage(self, q, attacker, dmg, w, head):
         if not q.alive or dmg <= 0:
             return
-        if q.id in self.drones:
-            return   # away flying the drone: the body is not there to be hit
         q.hp -= dmg
         if attacker and attacker is not q:
             q.hurt_by[attacker.id] = q.hurt_by.get(attacker.id, 0) + dmg
@@ -1256,7 +1258,7 @@ class Room:
             if t < p.protect_until:
                 f |= 128
             if p.id in self.drones:
-                f |= 2048   # flying a drone: the body is away
+                f |= 2048   # flying a drone: the body stands still, head down over the controller
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
                        round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp), round(p.byaw, 3)])
         snap = {'t': 'snap', 'g': self.game_state(t), 'p': pl}
@@ -1444,8 +1446,9 @@ class Conn:
         if str(user.get('username', '')).lower() == 'mcb':
             # the owner's account: every gun fully unlocked and a full purse
             for w in catalog.SHOOTERS:
-                lk['kills'][w] = max(lk['kills'].get(w, 0), 100)
+                lk['kills'][w] = max(lk['kills'].get(w, 0), 150)
             lk['dinars'] = max(lk.get('dinars', 0), 10000)
+            accounts.save_locker(user['id'], lk)
         p.account = {'id': user['id'], 'username': user['username']}
         p.name = user['username']
         self.send({'t': 'auth', 'user': {'username': user['username'], 'email': user['email']},

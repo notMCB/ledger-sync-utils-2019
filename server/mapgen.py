@@ -924,6 +924,7 @@ class Town:
         self.box(x + ox, 1.9, z + oz, 1.1, 0.4, 1.3, yaw + 0.25, 'car', 5)
         bx, bz = rot(0.2, -3.3, yaw + 0.25)
         self.box(x + bx, 1.95, z + bz, 0.12, 0.12, 1.8, yaw + 0.25, 'car', 5)
+        self.deco.append({'k': 'wreck', 'x': round(x, 2), 'z': round(z, 2), 'yaw': round(yaw, 4)})
         self.deco.append({'k': 'scorch', 'x': round(x, 2), 'z': round(z, 2), 'r': 6})
         for i in range(2):
             a = rng.uniform(0, math.tau)
