@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.5.0'
+VERSION = '2.5.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -65,9 +65,9 @@ WEAPONS = {
 SLUG = {'dmg': 85, 'head': 1.5, 'near': 30, 'far': 90, 'min': 0.55, 'rpm': 70, 'pellets': 1, 'range': 200}
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 # each loadout's perk and how many uses it has per life
-PERKS = ['ammo', 'med', 'ladder', 'drone']
+PERKS = ['ammo', 'med', 'ladder', 'beacon']
 # the perks a loadout may pick from (first is the default), and the grenades
-PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('drone', 'beacon')]
+PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('beacon', 'drone')]
 NADE_OPTIONS = [('frag',), ('frag', 'smoke'), ('frag', 'flash'), ('frag',)]
 PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1}
 WALL_HP = 900
@@ -766,6 +766,8 @@ class Room:
     def damage(self, q, attacker, dmg, w, head):
         if not q.alive or dmg <= 0:
             return
+        if q.id in self.drones:
+            return   # away flying the drone: the body is not there to be hit
         q.hp -= dmg
         if attacker and attacker is not q:
             q.hurt_by[attacker.id] = q.hurt_by.get(attacker.id, 0) + dmg
@@ -966,6 +968,9 @@ class Room:
             return
         self.broadcast({'t': 'drone', 'id': p.id, 'boom': 1, 'p': D['p']})
         self.explode(p, D['p'])
+
+    def handle_drone_stop(self, p, m):
+        self.drone_off(p.id, 'left')
 
     def drone_off(self, oid, why, by=None):
         D = self.drones.pop(oid, None)
@@ -1245,11 +1250,13 @@ class Room:
     def snapshot(self, t):
         pl = []
         for p in self.players.values():
-            f = p.flags & ~(1 | 128)
+            f = p.flags & ~(1 | 128 | 2048)
             if p.alive:
                 f |= 1
             if t < p.protect_until:
                 f |= 128
+            if p.id in self.drones:
+                f |= 2048   # flying a drone: the body is away
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
                        round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp), round(p.byaw, 3)])
         snap = {'t': 'snap', 'g': self.game_state(t), 'p': pl}
@@ -1575,6 +1582,8 @@ class Conn:
             p.room.handle_drone(p, m)
         elif t == 'drboom':
             p.room.handle_drone_boom(p, m)
+        elif t == 'drstop':
+            p.room.handle_drone_stop(p, m)
         elif t == 'cos':
             p.cos = owned_cos(p, clean_cos(m.get('cos')))
             p.room.roster_dirty = True

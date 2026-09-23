@@ -62,14 +62,14 @@ export const PERKS = {
   ladder: { id: 'ladder', name: 'Breaching Ladder', uses: 1, blurb: 'Stand it against a wall to climb in through high windows. Anyone can use it.' },
   beacon: { id: 'beacon', name: 'Recon Beacon', uses: 1, blurb: 'Drop it and it pulses for 30 seconds, scanning 35 m around it. Your whole team sees the area on the map, with every enemy inside marked as a red dot.' },
   wall: { id: 'wall', name: 'Cover Wall', uses: 2, blurb: 'Put up a steel barricade in front of you: two players wide and chest high. Crouch behind it and you are hidden; stand up and your head shows. It takes 900 damage before it falls.' },
-  drone: { id: 'drone', name: 'Bomb Drone', uses: 1, blurb: 'Launch a drone and fly it over the town to see where everyone is, then click to bring it down and blow it like a frag grenade. The battery lasts one trip across the town and back. Anyone can shoot it down.' },
+  drone: { id: 'drone', name: 'Bomb Drone', uses: 1, blurb: 'Launch a drone and fly it over the town to see where everyone is, then click to bring it down and blow it like a frag grenade. While you fly, your body vanishes. The battery lasts one trip across the town and back. Anyone can shoot it down.' },
 };
 
 export const LOADOUTS = [
   { id: 0, weapon: 'smg', perk: 'ammo', perks: ['ammo'], nadeKinds: ['frag'], nades: 3, title: 'Assault', blurb: 'Fast-firing SMG and three grenades. Quick to aim, strong up close. Kills with it unlock attachments.' },
   { id: 1, weapon: 'lmg', perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
   { id: 2, weapon: 'shotgun', perk: 'ladder', perks: ['ladder'], nadeKinds: ['frag', 'flash'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun, devastating in rooms and doorways. Frag or flash grenades.' },
-  { id: 3, weapon: 'sniper', perk: 'drone', perks: ['drone', 'beacon'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope. One headshot kills. Flies a bomb drone, or drops a recon beacon.' },
+  { id: 3, weapon: 'sniper', perk: 'beacon', perks: ['beacon', 'drone'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope. One headshot kills. Drops a recon beacon, or flies a bomb drone.' },
 ];
 
 export const NADES_PER_LIFE = 2;

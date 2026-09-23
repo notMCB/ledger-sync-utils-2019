@@ -85,7 +85,7 @@ export class Hud {
   }
 
   // flying the bomb drone: a battery bar and the controls
-  droneOverlay(on, frac = 1, perkKey = 'X') {
+  droneOverlay(on, frac = 1, controls = []) {
     const el = $('drone');
     if (!on) {
       if (!el.hidden) el.hidden = true;
@@ -95,10 +95,13 @@ export class Hud {
     const bar = $('drone-bat');
     bar.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
     bar.classList.toggle('low', frac < 0.25);
-    const hint = `Click to detonate · ${perkKey} to let it go`;
+    const hint = controls.join('\n');
     if (this.droneHint !== hint) {
       this.droneHint = hint;
-      $('drone-hint').textContent = hint;
+      $('drone-hint').innerHTML = controls.map((c) => {
+        const i = c.indexOf('  ');
+        return `<div><b>${esc(c.slice(0, i))}</b><span>${esc(c.slice(i + 2))}</span></div>`;
+      }).join('');
     }
   }
 

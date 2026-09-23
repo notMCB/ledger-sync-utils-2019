@@ -2,9 +2,19 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.5.0';
+export const VERSION = '2.5.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.5.1',
+    date: '23 September 2026',
+    title: 'Drone pilots vanish',
+    notes: [
+      'While you fly the bomb drone your body is away: nobody can see it or shoot it. Abandoning the drone brings you straight back.',
+      'The drone controls stay on screen for the whole flight.',
+      'The Marksman starts with the Recon Beacon again. The Bomb Drone is the choice in the Locker.',
+    ],
+  },
   {
     version: '2.5.0',
     date: '23 September 2026',

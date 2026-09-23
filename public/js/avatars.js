@@ -437,8 +437,11 @@ export class Avatar {
       this.tag.visible = false;
       return;
     }
-    g.visible = alive;
-    if (!alive) return;
+    // away flying a drone: the body is not here at all
+    this.away = !!(this.flags & 2048);
+    g.visible = alive && !this.away;
+    this.tag.visible = this.tag.visible && !this.away;
+    if (!alive || this.away) return;
     const pk = this.proneK, bk = this.backK;
     if (pk > 0.01) {
       // lay the body down along its own direction, head where the player is,
@@ -649,7 +652,7 @@ export class Avatars {
     let best = null;
     const h = this._h;
     for (const a of this.map.values()) {
-      if (!a.alive || (skip && skip(a))) continue;
+      if (!a.alive || a.away || (skip && skip(a))) continue;
       if (a.proneK > 0.5) {
         // lying down: a head at the front and a row of spheres along the body
         const fx = -Math.sin(a.bodyYaw), fz = -Math.cos(a.bodyYaw);

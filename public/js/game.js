@@ -765,7 +765,7 @@ export class Game {
         sfx.beep(520, 0.3, 0.3, p);
       }
       if (m.id === this.myId) {
-        this.endDrone(m.boom ? '' : m.why === 'shot' ? `Drone shot down${m.byn ? ' by ' + m.byn : ''}` : m.why === 'battery' ? 'Drone battery dead' : '');
+        this.endDrone(m.boom ? '' : m.why === 'shot' ? `Drone shot down${m.byn ? ' by ' + m.byn : ''}` : m.why === 'battery' ? 'Drone battery dead' : m.why === 'left' ? 'Drone abandoned' : '');
       } else if (m.off && m.by === this.myId) this.hud.center('Drone shot down', '', '', 1.4, 1);
       return;
     }
@@ -802,8 +802,8 @@ export class Game {
     D.mesh.visible = false;
     me.adsK = 0;
     me.aimToggled = false;
-    this.hud.center('Drone launched', `Fly with your move keys · ${keyName(settings.binds.jump)} up · ${keyName(settings.binds.crouch)} down · click to detonate · ${keyName(settings.binds.perk)} to let it go`, '', 4, 2);
-    this.hud.droneOverlay(true, 1, keyName(settings.binds.perk));
+    this.hud.center('Drone launched', 'Your body is away while you fly', '', 2.5, 2);
+    this.hud.droneOverlay(true, 1, this.droneControls());
   }
 
   endDrone(why) {
@@ -851,15 +851,29 @@ export class Game {
       dr.sendT = 1 / SEND_HZ;
       if (!this.offline) this.send({ t: 'dr', p: [+dr.pos.x.toFixed(3), +dr.pos.y.toFixed(3), +dr.pos.z.toFixed(3)], y: +dr.yaw.toFixed(4) });
     }
-    this.hud.droneOverlay(true, dr.life / dr.max, keyName(settings.binds.perk));
+    this.hud.droneOverlay(true, dr.life / dr.max, this.droneControls());
     if (input.pressed('fire')) {
       if (this.offline) this.onDrone({ id: this.myId, boom: 1, p: dr.pos.toArray() });
       else this.send({ t: 'drboom' });
     } else if (input.pressed('perk')) {
-      this.endDrone('Drone left hovering');
+      if (this.offline) this.onDrone({ id: this.myId, off: 1, why: 'left', p: dr.pos.toArray() });
+      else this.send({ t: 'drstop' });
     } else if (dr.life <= 0 && this.offline) {
       this.onDrone({ id: this.myId, off: 1, why: 'battery', p: dr.pos.toArray() });
     }
+  }
+
+  droneControls() {
+    const b = settings.binds;
+    const k = (id) => keyName(b[id]);
+    return [
+      `${k('forward')} ${k('left')} ${k('back')} ${k('right')}  fly`,
+      `${k('jump')}  climb`,
+      `${k('crouch')}  dive`,
+      'Mouse  look',
+      'Click  detonate',
+      `${k('perk')}  abandon the drone`,
+    ];
   }
 
   // a bullet against a drone: the closest one it passes through

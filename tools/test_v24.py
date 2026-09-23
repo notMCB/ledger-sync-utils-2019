@@ -117,6 +117,49 @@ async def test_shootdown():
     b.ws.w.close()
 
 
+async def test_pilot_away():
+    """While the drone flies, the pilot's body can't be hurt; leaving the drone ends it."""
+    a, b = P('Pilot3'), P('Sniper3')
+    await a.start('tdm', ld=3, pk='drone')
+    await b.start('tdm')
+    await phase(a, 'live', 15)
+    await settle(a, a, b)
+    b.move([a.pos[0] + 5, 0, a.pos[2]])
+    await asyncio.sleep(0.3)
+    a.ws.send({'t': 'perk', 'k': 'drone', 'p': a.pos})
+    await wait(lambda: got(b, 'drone', id=a.id), 3, 'a drone in the air')
+    await asyncio.sleep(0.3)
+    assert any(r[0] == a.id and (r[6] & 2048) for r in b.snap_players), 'the pilot should be flagged away'
+    await pistol(b, a, 3)
+    await asyncio.sleep(0.5)
+    assert not got(a, 'hurt'), 'a pilot away with the drone must not take damage'
+    a.ws.send({'t': 'drstop'})
+    await wait(lambda: got(a, 'drone', id=a.id, off=1, why='left'), 3, 'the abandoned drone ending')
+    await asyncio.sleep(0.3)
+    assert not any(r[0] == a.id and (r[6] & 2048) for r in b.snap_players), 'the pilot should be back'
+    await pistol(b, a, 1)
+    await wait(lambda: got(a, 'hurt'), 3, 'the pilot hurt once back')
+    print('pilot ok: untouchable while flying, back and hittable after abandoning the drone')
+    a.ws.w.close()
+    b.ws.w.close()
+
+
+async def test_beacon_default():
+    a, b = P('Spotter'), P('Other')
+    await a.start('tdm', ld=3)          # no pick: the base perk
+    await b.start('tdm')
+    await phase(a, 'live', 15)
+    await settle(a, a, b)
+    a.ws.send({'t': 'perk', 'k': 'drone', 'p': a.pos})
+    await asyncio.sleep(0.5)
+    assert not got(a, 'drone'), 'the drone is not the base perk'
+    a.ws.send({'t': 'perk', 'k': 'beacon', 'p': a.pos})
+    await wait(lambda: got(a, 'beacon', id=a.id), 3, 'a beacon from the base perk')
+    print('beacon ok: the Marksman starts with the beacon')
+    a.ws.w.close()
+    b.ws.w.close()
+
+
 async def test_smoke():
     a, b = P('Smoker'), P('Bystander')
     await a.start('tdm', ld=1, nk='smoke')
@@ -170,6 +213,8 @@ async def main():
     await test_wall()
     await test_drone()
     await test_shootdown()
+    await test_pilot_away()
+    await test_beacon_default()
     await test_smoke()
     await test_crate_again()
     print('all passed')
