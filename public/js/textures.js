@@ -118,7 +118,7 @@ export function concrete() {
   const S = 256;
   const [c, g] = canvas(S);
   const r = rng(41);
-  g.fillStyle = '#9c9b96';
+  g.fillStyle = '#b4b3ad';
   g.fillRect(0, 0, S, S);
   for (let i = 0; i < 40; i++) {
     const x = r() * S, y = r() * S, rad = 20 + r() * 60;

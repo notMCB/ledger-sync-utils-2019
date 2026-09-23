@@ -25,7 +25,7 @@ CELL = 2.0             # the terrain grid
 QUANT = 0.4            # each step of ground
 BASE = 2.0             # the lowest ground, above the world's floor plane
 RIDGE = 5.5            # the ridge shelf above the ground at its foot
-TERRACE = 0.45         # each rock step of a ramp
+TERRACE = 0.4          # each rock step of a ramp: under the physics step limit with margin
 
 
 def bump(r):
@@ -47,6 +47,7 @@ class Alpine(Town):
         self.nx = int(self.bx * 2 / CELL)
         self.nz = int(self.bz * 2 / CELL)
         self.h = None                        # cell heights, [ix][iz]
+        self.fixed = set()                   # cells that are pads: the land shapes itself around them
 
     # -- the ground --------------------------------------------------------
 
@@ -55,8 +56,8 @@ class Alpine(Town):
         h = BASE
         h += max(0.0, z - 6.0) * 0.05                       # rising to the south edge
         h += max(0.0, -10.0 - z) * 0.05                     # and a little toward the ridge foot
-        h += 3.2 * bump(math.hypot(x + 46, z - 22) / 20)    # the west knoll
-        h += 2.6 * bump(math.hypot(x - 52, z - 16) / 18)    # the east rise
+        h += 3.2 * bump(math.hypot(x + 46, z - 22) / 26)    # the west knoll (slopes stay under one step a cell)
+        h += 2.6 * bump(math.hypot(x - 52, z - 16) / 22)    # the east rise
         h += 1.6 * bump(math.hypot(x + 4, z - 34) / 14)     # a swell south of the helipad
         h -= 1.0 * bump(math.hypot(x - 14, z - 4) / 12)     # a hollow on the road east of the pad
         if z < self.face_z(x):
@@ -80,15 +81,48 @@ class Alpine(Town):
         self.h = [[q(self.smooth_height(-self.bx + (ix + 0.5) * CELL, -self.bz + (iz + 0.5) * CELL))
                    for iz in range(self.nz)] for ix in range(self.nx)]
 
-    def flatten(self, x, z, hx, hz, height=None):
-        """A level pad for a building or a feature. Returns its height."""
+    def flatten(self, x, z, hx, hz, height=None, protect=True):
+        """A level pad for a building or a feature. Returns its height. Pads are
+        protected: the relaxation pass shapes the land around them, not them."""
         if height is None:
             height = self.ground(x, z)
         i0, i1 = self.cell(x - hx, z - hz), self.cell(x + hx, z + hz)
         for ix in range(i0[0], i1[0] + 1):
             for iz in range(i0[1], i1[1] + 1):
                 self.h[ix][iz] = height
+                if protect:
+                    self.fixed.add((ix, iz))
         return height
+
+    def relax(self):
+        """Shape the land so no two neighbouring cells south of the cliff differ by
+        more than one step: the ground ramps up to and down from every pad
+        instead of meeting it with a wall. Pads themselves and the ridge stay put."""
+        south = [[(-self.bz + (iz + 0.5) * CELL) >= self.face_z(-self.bx + (ix + 0.5) * CELL) + 2.5
+                  for iz in range(self.nz)] for ix in range(self.nx)]
+        for _ in range(120):
+            changed = False
+            for ix in range(self.nx):
+                for iz in range(self.nz):
+                    if not south[ix][iz]:
+                        continue
+                    for (jx, jz) in ((ix + 1, iz), (ix, iz + 1)):
+                        if jx >= self.nx or jz >= self.nz or not south[jx][jz]:
+                            continue
+                        a, b = self.h[ix][iz], self.h[jx][jz]
+                        if abs(a - b) <= QUANT + 1e-6:
+                            continue
+                        fa, fb = (ix, iz) in self.fixed, (jx, jz) in self.fixed
+                        if fa and fb:
+                            continue
+                        # move the free cell to within one step of the other
+                        if fa or (not fb and b > a):
+                            self.h[jx][jz] = round((a + (QUANT if b > a else -QUANT)) / QUANT) * QUANT
+                        else:
+                            self.h[ix][iz] = round((b + (QUANT if a > b else -QUANT)) / QUANT) * QUANT
+                        changed = True
+            if not changed:
+                break
 
     def dig(self, x0, x1, z0, z1, depth):
         """Cut a channel `depth` below the ground on each side, with the floor level."""
@@ -324,7 +358,7 @@ class Alpine(Town):
                 self.tree_pts.append((x, z))
                 placed += 1
 
-    def trench(self, x0, x1, z):
+    def trench(self, x0, x1, z, cross=()):
         """A channel dug 1.6 m into the slope, 4 m wide, with a ramp down at each
         end and roofed stretches over the middle."""
         rng = self.rng
@@ -344,15 +378,40 @@ class Alpine(Town):
         self.base_y = 0.0
         for side in (-1, 1):
             self.box((x0 + x1) / 2, floor + DEPTH / 2, z + side * (INNER + (hw - INNER) / 2), (x1 - x0) / 2 - 10, DEPTH / 2, (hw - INNER) / 2, 0, 'wood', 0)
-        # lids at the rim's height over some stretches: a roof you walk over
+        # lids at the rim's height: one under every road that crosses, and some more
+        def lid(cx, L):
+            rim = min(self.ground(cx, z + hw + 1.0), self.ground(cx, z - hw - 1.0))
+            self.box(cx, rim + 0.06, z, L / 2, 0.08, hw + 0.15, 0, 'flatroof', 2)
+            self.lids.append((cx - L / 2, cx + L / 2, z - hw - 0.15, z + hw + 0.15, rim + 0.14))
+        for cx in cross:
+            lid(cx, 8.0)
         x = x0 + 14
         while x < x1 - 16:
             L = min(rng.uniform(6, 10), x1 - 16 - x)
-            if rng.random() < 0.7:
-                rim = self.ground(x + L / 2, z + hw + 1.0)
-                self.box(x + L / 2, rim + 0.06, z, L / 2, 0.08, hw + 0.15, 0, 'flatroof', 2)
+            if rng.random() < 0.7 and all(abs(x + L / 2 - cx) > 4 + L / 2 for cx in cross):
+                lid(x + L / 2, L)
             x += L + rng.uniform(2.0, 5.0)
         self.rects.append(((x0 + x1) / 2, z, (x1 - x0) / 2, hw + 0.4, 0.0))
+
+    def level_road(self, pts, w, skip_band=None):
+        """Flatten the ground across a road's width: every column of cells across
+        the road takes the height of the cell on the centre line, so the road is
+        level across and steps only along its length, as the land does."""
+        for i in range(len(pts) - 1):
+            (ax, az), (bx2, bz2) = pts[i], pts[i + 1]
+            along_x = abs(bx2 - ax) >= abs(bz2 - az)
+            if along_x:
+                i0, i1 = self.cell(min(ax, bx2), az)[0], self.cell(max(ax, bx2), az)[0]
+                for ix in range(i0, i1 + 1):
+                    cx = -self.bx + (ix + 0.5) * CELL
+                    self.flatten(cx, az, 0.01, w / 2 + 0.5, self.ground(cx, az))
+            else:
+                j0, j1 = self.cell(ax, min(az, bz2))[1], self.cell(ax, max(az, bz2))[1]
+                for iz in range(j0, j1 + 1):
+                    cz = -self.bz + (iz + 0.5) * CELL
+                    if skip_band and skip_band[0] <= cz <= skip_band[1]:
+                        continue      # the main road's band keeps the main road's level
+                    self.flatten(ax, cz, w / 2 + 0.5, 0.01, self.ground(ax, cz))
 
     def spawn_y(self, pts):
         return [[p[0], p[1], round(self.ground(p[0], p[1]), 2)] for p in pts]
@@ -368,7 +427,9 @@ class Alpine(Town):
         self.spawn_e = (68.0, rng.uniform(4, 14))
         self.site_a = (-24.0, 6.0)
         self.site_b = (38.0, 24.0)
-        self.hills = [(0.0, 8.0), (0.0, -bz + 13.5), (-46.0, 22.0)]
+        self.hills = [(0.0, 19.0), (0.0, -bz + 13.5), (-46.0, 22.0)]     # the helipad sits just south of the road
+        for (hx, hz) in self.hills:
+            self.props.append((hx, hz, 6.5))      # nothing grows or parks on a hill
 
         # the walls of the world: rock all round above the ground
         top = self.ridge_top()
@@ -379,11 +440,26 @@ class Alpine(Town):
         self.rock(bx + 1.5, (wh + 6) / 2, 0, 1.5, (wh + 6) / 2, bz + 3)
         self.rock(0, (top + wh) / 2, -bz - 1.5, bx + 3, (top + wh) / 2, 1.5)
 
-        # level ground where the road, the pads and the gates need it
-        self.flatten(0.0, 8.0, 9.0, 9.0)                                   # the helipad
+        # the roads first: level across their width, following the land along their length
+        # level pads for everything that needs one: the helipad, the gates, site B,
+        # every building and every truck; then let the land ramp into them
+        self.flatten(0.0, 19.0, 8.0, 8.0)                                  # the helipad
         self.flatten(self.spawn_w[0], self.spawn_w[1], 7.0, 8.0)
         self.flatten(self.spawn_e[0], self.spawn_e[1], 7.0, 8.0)
         self.flatten(self.site_b[0], self.site_b[1], 7.0, 7.0)
+        self.flatten(-24.0, -10.0, 10.0, 8.0)                              # the radar building
+        for (x, z, w, d) in ((38.0, -8.0, 12.0, 9.0), (-46.0, 32.0, 11.0, 8.0), (12.0, 30.0, 12.0, 9.0)):
+            self.flatten(x, z, w / 2 + 2.0, d / 2 + 2.0)                   # the bunkers
+        for (x, z) in ((-56.0, 14.0), (58.0, -2.0), (-12.0, 40.0)):
+            self.flatten(x, z, 4.5, 2.0)                                   # the trucks
+        self.relax()
+        # then the roads: the main road first, and the side tracks keep out of its
+        # band, so every road is one level across its width and steps only along it
+        self.lids = []
+        self.road_lines = [([(-bx, 6.0), (bx, 6.0)], 9.0), ([(-24.0, 6.0), (-24.0, bz)], 5.0), ([(38.0, 6.0), (38.0, bz)], 5.0)]
+        self.level_road(self.road_lines[0][0], 9.0)
+        for (pts, w) in self.road_lines[1:]:
+            self.level_road(pts, w, skip_band=(0.0, 12.0))
 
         # buildings on their pads
         self.radar(-24.0, -10.0)
@@ -399,9 +475,9 @@ class Alpine(Town):
         self.areas.append({'n': 'The Ridge', 'x': 0.0, 'z': -bz + 12.0, 'r': 0})
 
         # the trench cut into the southern slope, and the ridge ramps
-        self.trench(-60.0, -6.0, bz - 9.0)
-        self.trench(4.0, 62.0, bz - 9.0)
-        self.areas.append({'n': 'South Trench', 'x': 0.0, 'z': bz - 9.0, 'r': 0})
+        self.trench(-60.0, -6.0, bz - 8.0, cross=[-24.0])       # z 46: two whole cells, 44..48
+        self.trench(4.0, 62.0, bz - 8.0, cross=[38.0])
+        self.areas.append({'n': 'South Trench', 'x': 0.0, 'z': bz - 8.0, 'r': 0})
         self.ramps()
 
         # the ground itself, now every pad and cut is in
@@ -435,16 +511,18 @@ class Alpine(Town):
         for (x, z, yaw) in ((-40.0, -4.0, 0.3), (24.0, 14.0, 1.2), (52.0, 10.0, 0.0)):
             if self.free(x, z, 2.0, 1.0, 0.8, road=False):
                 self.generator(x, z, yaw)
-        for (x, z, yaw) in ((-56.0, 14.0, 0.2), (58.0, -2.0, 1.4), (10.0, 20.0, 2.8)):
+        for (x, z, yaw) in ((-56.0, 14.0, 0.2), (58.0, -2.0, 1.4), (-12.0, 40.0, 0.2)):
             if self.free(x, z, 4.0, 1.0, 0.8, road=False):
                 self.truck(x, z, yaw)
         for x in (-50.0, -34.0, -8.0, 16.0, 30.0, 50.0):
             self.jersey(x + rng.uniform(-3, 3), 6.0 + rng.choice([-5.5, 5.5]), rng.uniform(-0.3, 0.3), rng.choice([2, 3]))
-        hy = self.ground(0.0, 8.0)
-        self.deco.append({'k': 'helipad', 'x': 0.0, 'y': round(hy, 2), 'z': 8.0, 'r': 7.0})
+        hy = self.ground(0.0, 19.0)
+        self.deco.append({'k': 'helipad', 'x': 0.0, 'y': round(hy, 2), 'z': 19.0, 'r': 7.0})
         for i in range(3):
             a = i / 3 * math.tau + 0.7
-            self.jersey(math.cos(a) * 9.5, 8.0 + math.sin(a) * 9.5, a + math.pi / 2, 2)
+            bx_, bz_ = math.cos(a) * 9.5, 19.0 + math.sin(a) * 9.5
+            if abs(bz_ - 6.0) > 5.5:      # never on the road
+                self.jersey(bx_, bz_, a + math.pi / 2, 2)
 
         # pine woods on the open slopes
         self.wood(-52.0, -12.0, 12, 8, 24)
@@ -467,21 +545,38 @@ class Alpine(Town):
                 self.tree_pts.append((x, z))
         self.base_y = 0.0
 
-        # the snow road, sampled every half metre so it follows the steps
+        # the snow road: a point at every cell centre and a pair either side of each
+        # change of level, so the strip lies flat on every step
         def road(pts, w):
             out = []
             for i in range(len(pts) - 1):
                 (ax, az), (bx2, bz2) = pts[i], pts[i + 1]
-                n = max(1, int(math.hypot(bx2 - ax, bz2 - az) / 0.5))
-                for k in range(n + (1 if i == len(pts) - 2 else 0)):
+                L = math.hypot(bx2 - ax, bz2 - az)
+                n = max(1, int(L / 0.25))
+                last_cell = None
+                for k in range(n + 1):
                     t = k / n
                     x, z = ax + (bx2 - ax) * t, az + (bz2 - az) * t
-                    out.append([round(x, 2), round(z, 2), round(self.ground(x, z) + 0.03, 2)])
+                    cell = self.cell(x, z)
+                    g = self.ground(x, z)
+                    for (lx0, lx1, lz0, lz1, top) in self.lids:
+                        if lx0 <= x <= lx1 and lz0 <= z <= lz1:
+                            g = max(g, top)
+                    if last_cell is not None and cell != last_cell and out and abs(out[-1][2] - (g + 0.03)) > 0.01:
+                        # step: close the old level exactly at the cell edge and open the new one
+                        if cell[0] != last_cell[0]:
+                            ex, ez = -self.bx + max(cell[0], last_cell[0]) * CELL, z
+                        else:
+                            ex, ez = x, -self.bz + max(cell[1], last_cell[1]) * CELL
+                        out.append([round(ex, 2), round(ez, 2), out[-1][2]])
+                        out.append([round(ex, 2), round(ez, 2), round(g + 0.03, 2)])
+                    elif last_cell is None or cell != last_cell or k == n:
+                        out.append([round(x, 2), round(z, 2), round(g + 0.03, 2)])
+                    last_cell = cell
             self.deco.append({'k': 'road', 'w': w, 'c': 'snow', 'pts': out})
             self.roads.append({'w': w, 'pts': [(p[0], p[1]) for p in out]})
-        road([(-bx, 6.0), (bx, 6.0)], 9.0)
-        road([(-24.0, 6.0), (-24.0, bz)], 5.0)
-        road([(38.0, 6.0), (38.0, bz)], 5.0)
+        for (pts, w) in self.road_lines:
+            road(pts, w)
 
         for (px, pz, yaw) in ((-bx + 0.02, 6.0, math.pi / 2), (bx - 0.02, 6.0, -math.pi / 2), (-24.0, bz - 0.02, math.pi), (38.0, bz - 0.02, math.pi)):
             self.base_y = self.ground(px, pz)

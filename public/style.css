@@ -98,6 +98,17 @@ button { cursor: pointer; }
 .status i { width: 8px; height: 8px; border-radius: 50%; background: var(--plaster-dim); }
 .status.online i { background: var(--good); box-shadow: 0 0 8px var(--good); }
 .status.offline i, .status.lost i { background: var(--brick); }
+.maps { display: grid; gap: 10px; }
+.maps-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 18px; }
+.map-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.mapcard { text-align: left; padding: 12px 14px; border-radius: 6px; border: 1px solid rgba(239, 228, 207, 0.18); background: rgba(18, 21, 28, 0.55); color: var(--plaster); cursor: pointer; display: grid; gap: 4px; font: inherit; }
+.mapcard:hover { border-color: var(--saffron); background: rgba(40, 44, 54, 0.7); }
+.mapcard .mc-name { font-weight: 700; font-size: 16px; }
+.mapcard .mc-desc { font-size: 12px; color: var(--plaster-dim); }
+.mapcard .mc-swatch { height: 6px; border-radius: 3px; }
+.maps-note { font-size: 13px; color: var(--plaster-dim); margin: 0; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+@media (max-width: 640px) { .map-cards { grid-template-columns: 1fr; } }
 .room-list { display: grid; gap: 6px; max-height: 52vh; overflow-y: auto; }
 .room {
   display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; text-align: left;

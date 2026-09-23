@@ -111,6 +111,14 @@ function onMessage(m) {
     toast(m.m);
     return;
   }
+  if (m.t === 'kicked') {
+    if (game.inRoom) {
+      game.leave();
+      showMenu();
+    }
+    toast(m.why === 'idle' ? 'You were removed from the match after 5 minutes without moving' : 'You were removed from the match');
+    return;
+  }
   if (m.t === 'map' && m.preview && game.inRoom) return;
   game.onMessage(m);
 }
@@ -155,7 +163,7 @@ function renderModes() {
       b.className = 'mode';
       b.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
         `<span class="m-meta"><span><span class="m-count">0</span> playing</span><span class="m-play">Play →</span></span>`;
-      b.addEventListener('click', () => join({ mode: id }));
+      b.addEventListener('click', () => pickMap(id));
       host.appendChild(b);
       modeButtons[id] = b;
     }
@@ -189,7 +197,7 @@ function renderModes() {
 function renderRooms() {
   const host = $('rooms');
   const sorted = [...rooms].sort((a, b) => b.n - a.n || MODE_ORDER.indexOf(a.mode) - MODE_ORDER.indexOf(b.mode));
-  const key = JSON.stringify(sorted.map((r) => [r.id, r.name, r.n, r.max, r.ph]));
+  const key = JSON.stringify(sorted.map((r) => [r.id, r.name, r.n, r.max, r.ph, r.map]));
   if (key !== roomsKey) {
     roomsKey = key;
     host.innerHTML = '';
@@ -198,7 +206,7 @@ function renderRooms() {
       const full = r.n >= r.max;
       b.className = 'room' + (full ? ' full' : '');
       b.innerHTML = `<span class="r-name">${esc(r.name)}</span><span class="r-count">${r.n}/${r.max}</span>` +
-        `<span class="r-phase${r.ph === 'live' ? ' r-live' : ''}">${PHASE_TEXT[r.ph] || r.ph}</span>`;
+        `<span class="r-phase${r.ph === 'live' ? ' r-live' : ''}">${PHASE_TEXT[r.ph] || r.ph}${r.map ? ' · ' + esc(r.map) : ''}</span>`;
       if (!full) b.addEventListener('click', () => join({ room: r.id }));
       host.appendChild(b);
     }
@@ -213,6 +221,48 @@ function onStatusCount() {
   const n = rooms.reduce((a, r) => a + r.n, 0);
   $('status').querySelector('span').textContent = `Online · ${n} playing`;
 }
+
+// the maps a match can be played on, in rotation order
+const MAPS = [
+  { id: 'town', name: 'Old Town', desc: 'Sun-baked streets, rooftops and tunnels', swatch: 'linear-gradient(90deg,#c9a877,#e9d6b4)' },
+  { id: 'dock', name: 'The Dockyard', desc: 'Containers, cranes and warehouses', swatch: 'linear-gradient(90deg,#8f949a,#b8412f,#2e6fa3)' },
+  { id: 'alpine', name: 'Ridgeline', desc: 'A snowbound ridge, bunkers and pines', swatch: 'linear-gradient(90deg,#e9edf1,#6f8fb0)' },
+];
+
+// after a mode is chosen: pick the map, unless a match in that mode is already
+// under way, in which case you join it on whatever map it is playing
+function pickMap(mode) {
+  const busy = rooms.filter((r) => r.mode === mode && r.n > 0 && r.n < r.max).sort((a, b) => b.n - a.n)[0];
+  if (busy) {
+    toast(`Joining ${busy.name}${busy.map ? ' on ' + busy.map : ''}`);
+    join({ mode });
+    return;
+  }
+  $('modes').hidden = true;
+  const box = $('maps');
+  box.hidden = false;
+  $('maps-title').textContent = `${MODE_INFO[mode].name} · pick a map`;
+  const host = $('map-cards');
+  host.innerHTML = '';
+  for (const m of MAPS) {
+    const b = document.createElement('button');
+    b.className = 'mapcard';
+    b.innerHTML = `<span class="mc-swatch" style="background:${m.swatch}"></span><span class="mc-name">${m.name}</span><span class="mc-desc">${m.desc}</span>`;
+    b.addEventListener('click', () => {
+      closeMaps();
+      join({ mode, map: m.id });
+    });
+    host.appendChild(b);
+  }
+  $('maps-note').textContent = 'Nobody is in this mode yet, so you choose where it starts. Maps take turns after each match.';
+}
+
+function closeMaps() {
+  $('maps').hidden = true;
+  $('modes').hidden = false;
+}
+
+$('maps-back').addEventListener('click', () => { uiBlip(); closeMaps(); });
 
 function join(target) {
   unlockAudio();

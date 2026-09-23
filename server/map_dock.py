@@ -174,6 +174,42 @@ class Dockyard(Town):
             self.doors.append((x + wx, z + wz))
         return H
 
+    def rig(self, x, z, yaw, open_back):
+        """An articulated truck: a tractor unit and a box trailer behind it, both
+        solid; an open trailer is a hollow box you can climb into from the back.
+        Local +x is forward: the tractor sits at the front."""
+        TL, TH, TW = 6.6, 1.35, 1.25          # trailer half length, half height, half width
+        FLOOR = 1.15                          # the trailer floor above the ground
+        # tractor: chassis, cab
+        cx, cz = rot(TL + 2.3, 0, yaw)
+        self.box(x + cx, 0.9, z + cz, 2.2, 0.55, 1.2, yaw, 'car', 5)
+        cabx, cabz = rot(TL + 3.1, 0, yaw)
+        self.box(x + cabx, 2.15, z + cabz, 1.25, 0.9, 1.2, yaw, 'car', 5)
+        # trailer
+        if open_back:
+            th = 0.08
+            self.box(x, FLOOR - 0.1, z, TL, 0.1, TW, yaw, 'steel', 1)                              # floor
+            self.box(x, FLOOR + 2 * TH, z, TL, th, TW, yaw, 'steel', 1)                            # roof
+            for side in (-1, 1):
+                ox, oz = rot(0, side * (TW - th), yaw)
+                self.box(x + ox, FLOOR + TH, z + oz, TL, TH, th, yaw, 'steel', 1)                   # sides
+            fx, fz = rot(TL - th, 0, yaw)
+            self.box(x + fx, FLOOR + TH, z + fz, th, TH, TW, yaw, 'steel', 1)                       # front wall
+            # the doors swung wide against the sides
+            for side in (-1, 1):
+                dx, dz = rot(-TL - 1.2, side * (TW + 0.06), yaw)
+                self.box(x + dx, FLOOR + TH, z + dz, 1.2, TH, 0.04, yaw, 'steel', 1)
+        else:
+            self.box(x, FLOOR + TH, z, TL, TH, TW, yaw, 'steel', 1)
+        # the undercarriage: axles and the landing legs are what you'd bump into below the floor
+        self.box(x, 0.45, z, TL - 1.0, 0.45, TW - 0.2, yaw, 'inv')
+        self.deco.append({'k': 'rig', 'x': round(x, 2), 'z': round(z, 2), 'yaw': round(yaw, 4), 'open': 1 if open_back else 0})
+        # one footprint from the cab's nose to the tips of the open doors, so nothing spawns in it
+        mx, mz = rot(1.0, 0, yaw)
+        self.rects.append((x + mx, z + mz, TL + 3.6, TW + 0.7, yaw))
+        self.props.append((x, z, TL + 0.5))
+        self.props.append((x + cabx, z + cabz, 2.0))
+
     def on_road(self, x, z, r):
         """Would something of radius r here sit on the main lane or a crossing?"""
         return abs(z) < LANE_W / 2 + r or abs(abs(x) - CROSS_X) < CROSS_W / 2 + r
@@ -258,6 +294,11 @@ class Dockyard(Town):
             self.container(sx * 56.0, -32.0, math.pi / 2, 0, False)
         self.crane(-56.0, 0.0, 0.0, 22.0, 13.0)
         self.crane(56.0, 0.0, 0.0, 22.0, 13.0)
+        # semi trucks parked in the blocks, off the roads; two are open at the back
+        self.rig(-30.0, -11.0, math.pi, True)          # below the west warehouse, nose west
+        self.rig(31.0, 11.5, 0.0, False)               # outside the fuel yard, nose east
+        self.rig(-41.5, 36.0, math.pi / 2, True)        # along the office's west side, nose north
+        self.rig(-8.0, 36.0, 0.0, False)               # the south yard, nose east
         # rows behind the warehouses and beside the office and fuel yard
         row(-43.0 + C_LEN, -39.0, 1, 0.0, [2])
         row(21.0, -39.0, 1, 0.0, [1])

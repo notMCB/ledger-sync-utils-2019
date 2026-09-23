@@ -85,11 +85,35 @@ async def test_forklift():
     await asyncio.sleep(0.5)
 
 
+async def test_idle():
+    """A player who does nothing is removed (the test server runs with SOUK_IDLE=13)."""
+    a, b = P('Idler'), P('Mover')
+    await a.start('tdm')
+    await b.start('tdm')
+    await phase(a, 'live', 15)
+    await settle(a, a, b)
+    t0 = asyncio.get_event_loop().time()
+    # the mover keeps moving; the idler sends nothing
+    while asyncio.get_event_loop().time() - t0 < 16.0:
+        b.move([b.pos[0] + 0.5, 0, b.pos[2]])
+        b.move([b.pos[0] - 0.5, 0, b.pos[2]])
+        await asyncio.sleep(0.4)
+    kicked = [m for m in a.msgs if m.get('t') == 'kicked']
+    assert kicked and kicked[0].get('why') == 'idle', 'the idler should have been kicked: %r' % kicked
+    assert not [m for m in b.msgs if m.get('t') == 'kicked'], 'the mover must stay'
+    assert not any(row[0] == a.id for row in b.snap_players), 'the idler should be gone from the match'
+    print('idle ok: the idler was removed after the idle limit, the mover stayed')
+    a.ws.w.close()
+    b.ws.w.close()
+    await asyncio.sleep(0.5)
+
+
 async def main():
     await play_on('dock', 'tdm')
     await play_on('alpine', 'ffa')
     await play_on('town', 'koth')
     await test_forklift()
+    await test_idle()
     print('all passed')
 
 

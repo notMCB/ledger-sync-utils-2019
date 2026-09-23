@@ -15,7 +15,7 @@ const CONTAINER_TINTS = ['#b8412f', '#2e6fa3', '#3f7a4a', '#d9a13a', '#7a7f85', 
 // sky, fog and light for each kind of map
 const THEMES = {
   sand: { top: '#5d93c9', mid: '#bcd3e2', bot: '#e9d6b4', fog: '#d9cdb4', near: 70, far: 260, hemi: ['#cfe0ee', '#a9855a', 1.1], sun: ['#fff0d6', 2.7, [55, 62, 35]] },
-  concrete: { top: '#4f7fb5', mid: '#aabfcf', bot: '#c9c6bf', fog: '#c4c3bd', near: 60, far: 240, hemi: ['#c8d6e2', '#6f6f6c', 1.1], sun: ['#fff3e0', 2.5, [40, 58, -30]] },
+  concrete: { top: '#5a8dc4', mid: '#c2d4e0', bot: '#dcdad4', fog: '#d6d6d1', near: 70, far: 260, hemi: ['#dbe6ef', '#8c8c88', 1.5], sun: ['#fff6e8', 3.2, [40, 62, -30]] },
   snow: { top: '#6f8fb0', mid: '#d5dde6', bot: '#e6ebf0', fog: '#dfe5ec', near: 45, far: 210, hemi: ['#dbe6f2', '#b9c0c8', 1.2], sun: ['#fff8f0', 2.2, [-45, 40, 30]] },
 };
 
@@ -430,6 +430,8 @@ export class World {
         this.addContainerTrim(steel, paint, d);
       } else if (d.k === 'portal') {
         this.addPortal(steel, paint, root, d);
+      } else if (d.k === 'rig') {
+        this.addRig(cars, steel, paint, wheels, wheelGeo, d);
       } else if (d.k === 'forklift') {
         if (d.id === undefined) this.addForklift(steel, paint, wheels, wheelGeo, d);
       } else if (d.k === 'tank') {
@@ -846,6 +848,59 @@ export class World {
       for (const lx of [1.7, -1.7]) {
         const [x, z] = W(lx, lz);
         wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.34, z, Math.PI / 2, yaw + Math.PI / 2, 0, 1.3, 1, 1.3), color: colorOf('#161617') });
+      }
+    }
+  }
+
+  // an articulated truck: a cab up front and a box trailer on its wheels behind,
+  // with the rear doors open on some. The collision boxes are laid by mapgen.
+  addRig(cars, steel, paint, wheels, wheelGeo, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const TL = 6.6, TH = 1.35, TW = 1.25, FLOOR = 1.15;
+    const paintCol = colorOf(['#b03a2e', '#2f5f8f', '#e0e0d8', '#3c6b3c'][Math.abs(Math.round(d.x + d.z)) % 4]);
+    const white = colorOf('#e8e8e2');
+    const dark = colorOf('#26292c');
+    const box = (gb, lx, ly, lz, hx, hy, hz, color) => {
+      const [x, z] = W(lx, lz);
+      gb.box(x, ly, z, hx, hy, hz, yaw, color, 2);
+    };
+    // tractor
+    box(cars, TL + 2.3, 0.9, 0, 2.2, 0.35, 1.15, dark);              // chassis
+    box(cars, TL + 3.1, 2.15, 0, 1.25, 0.9, 1.2, paintCol);          // cab
+    box(cars, TL + 4.36, 2.35, 0, 0.03, 0.5, 1.0, colorOf('#0f1114'));   // windscreen
+    box(cars, TL + 3.1, 2.35, 1.21, 0.9, 0.4, 0.02, colorOf('#0f1114'));
+    box(cars, TL + 3.1, 2.35, -1.21, 0.9, 0.4, 0.02, colorOf('#0f1114'));
+    box(cars, TL + 4.45, 1.0, 0, 0.1, 0.2, 1.2, dark);               // bumper
+    box(steel, TL + 1.6, 3.3, 0.6, 0.12, 0.7, 0.12, colorOf('#8f949a'));   // exhaust stacks
+    box(steel, TL + 1.6, 3.3, -0.6, 0.12, 0.7, 0.12, colorOf('#8f949a'));
+    box(cars, TL + 1.4, 1.4, 0, 0.9, 0.15, 1.0, dark);               // fifth wheel plate
+    // trailer body (open ones are hollow: walls only)
+    if (d.open) {
+      box(steel, 0, FLOOR - 0.1, 0, TL, 0.1, TW, white);
+      box(steel, 0, FLOOR + 2 * TH, 0, TL, 0.08, TW, white);
+      box(steel, 0, FLOOR + TH, TW - 0.08, TL, TH, 0.08, white);
+      box(steel, 0, FLOOR + TH, -TW + 0.08, TL, TH, 0.08, white);
+      box(steel, TL - 0.08, FLOOR + TH, 0, 0.08, TH, TW, white);
+      box(steel, -TL - 1.2, FLOOR + TH, TW + 0.06, 1.2, TH, 0.04, white);
+      box(steel, -TL - 1.2, FLOOR + TH, -TW - 0.06, 1.2, TH, 0.04, white);
+    } else {
+      box(steel, 0, FLOOR + TH, 0, TL, TH, TW, white);
+      // door seams at the back
+      box(steel, -TL - 0.01, FLOOR + TH, 0, 0.01, TH - 0.1, 0.02, dark);
+      for (const lz of [-0.6, 0.6]) box(steel, -TL - 0.03, FLOOR + TH, lz, 0.02, TH - 0.2, 0.05, dark);
+    }
+    // rails, underframe and landing legs
+    box(cars, 0, FLOOR - 0.3, 0, TL - 0.2, 0.15, TW - 0.1, dark);
+    box(cars, TL - 1.2, 0.55, 0.7, 0.08, 0.5, 0.08, dark);
+    box(cars, TL - 1.2, 0.55, -0.7, 0.08, 0.5, 0.08, dark);
+    box(cars, 0, FLOOR - 0.45, TW - 0.05, TL - 0.5, 0.06, 0.03, colorOf('#c8352a'));   // marker rails
+    box(cars, 0, FLOOR - 0.45, -TW + 0.05, TL - 0.5, 0.06, 0.03, colorOf('#c8352a'));
+    for (const lx of [-TL + 1.3, -TL + 2.6, TL + 1.2, TL + 3.7]) {
+      for (const lz of [1.1, -1.1]) {
+        const [x, z] = W(lx, lz);
+        wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.5, z, Math.PI / 2, yaw, 0, 1.5, 1.4, 1.5), color: colorOf('#1d1d1f') });
       }
     }
   }

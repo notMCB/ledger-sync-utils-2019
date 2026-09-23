@@ -105,6 +105,8 @@ HILL_MOVE = 75.0
 COUNTDOWN = 10.0
 POSTMATCH = 12.0
 PROTECT = 1.5
+# players who neither move nor act for this long are taken out of their match
+IDLE_KICK = float(os.environ.get('SOUK_IDLE') or 300.0)
 
 rooms = {}
 lobby = set()
@@ -223,6 +225,7 @@ class Player:
         self.account = None       # {'id', 'username'} once signed in
         self.perk_left = 0
         self.last_chat = 0.0
+        self.last_active = now()   # the last time they moved or did anything
         self.auth_times = []
 
     def send(self, obj):
@@ -472,6 +475,7 @@ class Room:
         p.perk_left = PERK_USES[p.perk]
         p.sc += 1
         p.protect_until = now() + PROTECT
+        p.last_active = now()      # a fresh life starts the idle clock again
         p.in_round = True
         p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team})
         self.roster_dirty = True
@@ -1150,6 +1154,14 @@ class Room:
     def update(self, t):
         n = self.count()
         self.update_devices(t)
+        # idlers go back to the menu so they don't hold a slot or a team place
+        for p in list(self.players.values()):
+            if t - p.last_active > IDLE_KICK:
+                p.send({'t': 'kicked', 'why': 'idle'})
+                p.last_active = t
+                conn = p.conn
+                self.remove(p)
+                lobby.add(conn)
         if n == 0:
             if self.phase != 'waiting':
                 self.set_phase('waiting')
@@ -1584,6 +1596,7 @@ class Conn:
                     return
                 r = quick_room(mode)
             p.pick(m)
+            p.last_active = now()
             if 'cos' in m:
                 p.cos = owned_cos(p, clean_cos(m.get('cos')))
             # an empty room takes the map its first player asks for
@@ -1629,6 +1642,7 @@ class Conn:
             if not p.alive or int(num(m.get('sc'))) != p.sc:
                 return
             r = p.room
+            old_pos = list(p.pos)
             if r.mode == 'bomb' and r.phase == 'freeze':
                 pos = vec3(m.get('p'))
                 if dist2(pos, p.pos) < 0.5:
@@ -1639,14 +1653,18 @@ class Conn:
             p.pos[0] = max(-bx, min(bx, p.pos[0]))
             p.pos[2] = max(-bz, min(bz, p.pos[2]))
             p.pos[1] = max(-8.0, min(30.0, p.pos[1]))   # the tunnels run below the town
+            if dist3(p.pos, old_pos) > 0.3 or abs(num(m.get('y')) - p.yaw) > 0.05:
+                p.last_active = now()
             p.yaw = num(m.get('y'))
             p.pitch = num(m.get('pi'), -1.6, 1.6)
             p.flags = int(num(m.get('f'), 0, 65535))
             p.slot = int(num(m.get('sl'), 0, 3))
             p.byaw = num(m.get('by'), default=p.yaw) if 'by' in m else p.yaw
         elif t == 'shot':
+            p.last_active = now()
             p.room.handle_shot(p, m)
         elif t == 'nade':
+            p.last_active = now()
             p.room.handle_nade(p, m)
         elif t == 'boom':
             p.room.handle_boom(p, m)
