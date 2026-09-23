@@ -106,11 +106,14 @@ STARTING_DINARS = 300
 
 
 GUN_ATTACH_SLOTS = ('optic', 'muzzle', 'mag', 'ammo', 'trigger')
+# the choices a loadout has (keyed by loadout number as a string); the first is the default
+NADE_CHOICES = {'0': ('frag',), '1': ('frag', 'smoke'), '2': ('frag', 'flash'), '3': ('frag',)}
+PERK_CHOICES = {'0': ('ammo',), '1': ('med', 'wall'), '2': ('ladder',), '3': ('drone', 'beacon')}
 
 
 def new_locker():
     return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {},
-            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}}, 'opened': 0}
+            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}}, 'opened': 0}
 
 
 def clean_locker(d, dinar_cap=None):
@@ -153,7 +156,7 @@ def clean_locker(d, dinar_cap=None):
 
 def clean_equip(e, locker):
     """Equipped items, dropping anything the locker doesn't own."""
-    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}}
+    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}}
     if not isinstance(e, dict):
         return res
     if e.get('outfit') in locker['outfits']:
@@ -169,8 +172,13 @@ def clean_equip(e, locker):
         if isinstance(f, str) and 'pistol:%s' % f in locker['guns']:
             res['pistol'][ld] = f
     n = e.get('nade') if isinstance(e.get('nade'), dict) else {}
-    if n.get('2') in ('frag', 'flash'):
-        res['nade']['2'] = n['2']
+    for ld, kinds in NADE_CHOICES.items():
+        if n.get(ld) in kinds:
+            res['nade'][ld] = n[ld]
+    pk = e.get('perk') if isinstance(e.get('perk'), dict) else {}
+    for ld, opts in PERK_CHOICES.items():
+        if pk.get(ld) in opts:
+            res['perk'][ld] = pk[ld]
     # fitted attachments: ids are checked against the kills the player has in the game
     at = e.get('attach') if isinstance(e.get('attach'), dict) else {}
     for wpn, fitted in at.items():

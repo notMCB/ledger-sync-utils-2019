@@ -587,7 +587,13 @@ function buildPistol(sleeve) {
 
 // a tactical fighting knife: straight clip-point blade, textured grip
 function buildKnife(sleeve) {
+  const root = new THREE.Group();
+  // the whole knife is built pointing forward, then held point-up and
+  // tilted a little across the body, the way a fighting knife is carried
   const g = new THREE.Group();
+  g.rotation.set(1.25, 0, 0.3);
+  g.position.set(0.0, -0.02, 0.0);
+  root.add(g);
   const edge = MAT.steel;
   // blade: a flat bar with a bevelled spine, tapering to a clipped point
   box(g, 0.026, 0.008, 0.2, edge, 0, 0.012, -0.135);
@@ -604,10 +610,10 @@ function buildKnife(sleeve) {
   box(g, 0.03, 0.034, 0.1, MAT.polymer, 0, 0.01, 0.032);
   for (let i = 0; i < 4; i++) box(g, 0.032, 0.012, 0.012, MAT.dark, 0, -0.006, 0.0 + i * 0.024);
   box(g, 0.032, 0.03, 0.022, MAT.dark, 0, 0.01, 0.092);
-  const h = hands(g, new THREE.Vector3(0, 0.0, 0.04), new THREE.Vector3(0, 0, 0), sleeve);
+  const h = hands(root, new THREE.Vector3(0, 0.02, 0.0), new THREE.Vector3(0, 0, 0), sleeve);
   h.left.visible = false;
   return {
-    group: g, sight: 0.05, muzzle: new THREE.Vector3(0, 0.02, -0.2), hands: h,
+    group: root, sight: 0.05, muzzle: new THREE.Vector3(0, 0.02, -0.2), hands: h,
     hip: new THREE.Vector3(0.15, -0.16, -0.33), ads: new THREE.Vector3(0.11, -0.14, -0.29), kind: 'knife',
   };
 }

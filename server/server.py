@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.3.0'
+VERSION = '2.4.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -65,8 +65,16 @@ WEAPONS = {
 SLUG = {'dmg': 85, 'head': 1.5, 'near': 30, 'far': 90, 'min': 0.55, 'rpm': 70, 'pellets': 1, 'range': 200}
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 # each loadout's perk and how many uses it has per life
-PERKS = ['ammo', 'med', 'ladder', 'beacon']
-PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1}
+PERKS = ['ammo', 'med', 'ladder', 'drone']
+# the perks a loadout may pick from (first is the default), and the grenades
+PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('drone', 'beacon')]
+NADE_OPTIONS = [('frag',), ('frag', 'smoke'), ('frag', 'flash'), ('frag',)]
+PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1}
+WALL_HP = 300
+WALL_LIFE = 90.0
+DRONE_HP = 40
+DRONE_SPEED = 14.0      # keep in step with DRONE_SPEED in public/js/game.js
+DRONE_EXTRA = 4.0       # battery beyond the there-and-back trip, in seconds
 MED_HEAL = 50
 ASSIST_DAMAGE = 50       # hurt someone this much and someone else finishes them: that's an assist
 LADDER_LIFE = 60.0
@@ -75,6 +83,7 @@ BEACON_RANGE = 35.0
 BEACON_EVERY = 2.5
 CRATE_LIFE = 45.0
 CRATE_REACH = 2.4
+CRATE_AGAIN = 15.0      # stand on the same crate again this much later and it works again
 NADES = [3, 2, 2, 2]   # grenades per life, by loadout (Assault carries three)
 NADE_MAX = 3
 NADE_RADIUS = 7.0
@@ -125,7 +134,7 @@ def clean_cos(c):
 
 
 # dinars paid out for playing
-EARN = {'assist': 10, 'kill': 50, 'headshot': 10, 'plant': 20, 'defuse': 25, 'round': 15, 'match': 25, 'win': 50, 'hill': 5}
+EARN = {'assist': 10, 'supply': 10, 'shotdown': 10, 'kill': 50, 'headshot': 10, 'plant': 20, 'defuse': 25, 'round': 15, 'match': 25, 'win': 50, 'hill': 5}
 
 
 def owned_cos(p, cos):
@@ -189,6 +198,8 @@ class Player:
         self.kills = 0
         self.deaths = 0
         self.score = 0
+        self.perk = 'ammo'       # the perk this loadout uses (some loadouts choose)
+        self.nade_kind = 'frag'
         self.last_fire = {}      # weapon -> the virtual clock its rate limit runs on
         self.rejects = {}        # why shots were dropped, counted (for the log)
         self.reject_log_at = 0.0
@@ -210,6 +221,19 @@ class Player:
 
     def send(self, obj):
         self.conn.send(obj)
+
+    def pick(self, m):
+        """Loadout, perk and grenade choices from a join, ld or picks message."""
+        if 'ld' in m:
+            self.loadout = int(num(m.get('ld'), 0, 3))
+        opts = PERK_OPTIONS[self.loadout]
+        self.perk = m.get('pk') if m.get('pk') in opts else opts[0]
+        kinds = NADE_OPTIONS[self.loadout]
+        self.nade_kind = m.get('nk') if m.get('nk') in kinds else kinds[0]
+
+    def nades_for(self):
+        # smoke is harmless, so you carry twice as many
+        return NADES[self.loadout] * (2 if self.nade_kind == 'smoke' else 1)
 
     def reset_stats(self):
         self.kills = self.deaths = self.score = self.assists = 0
@@ -251,6 +275,9 @@ class Room:
         self.beacons = {}
         self.crates = {}
         self.crate_seq = 0
+        self.walls = {}
+        self.wall_seq = 0
+        self.drones = {}
 
     # -- map --
 
@@ -277,8 +304,9 @@ class Room:
         self.ladders = {}
         self.beacons = {}
         self.crates = {}
-        self.crates = {}
         self.crate_seq = 0
+        self.walls = {}
+        self.drones = {}
 
     # -- membership --
 
@@ -312,6 +340,10 @@ class Room:
             p.send({'t': 'beacon', 'id': oid, 'p': B['p'], 'tm': B['team'], 'age': round(now() - B['born'], 2)})
         for cid, C in self.crates.items():
             p.send({'t': 'supply', 'id': cid, 'k': C['k'], 'p': C['p'], 'tm': C['team'], 'owner': C['owner']})
+        for wid, W in self.walls.items():
+            p.send({'t': 'wall', 'id': wid, 'p': W['p'], 'y': W['y'], 'hp': int(W['hp']), 'tm': W['team'], 'owner': W['owner']})
+        for oid, D in self.drones.items():
+            p.send({'t': 'drone', 'id': oid, 'p': D['p'], 'tm': D['team'], 'life': round(D['until'] - now(), 1), 'hp': D['hp']})
         self.roster_dirty = True
         self.event({'e': 'join', 'id': p.id, 'n': p.name})
         if self.phase in ('waiting', 'countdown'):
@@ -408,8 +440,8 @@ class Room:
         p.hp = 100
         p.alive = True
         p.hurt_by = {}
-        p.nades = NADES[p.loadout]
-        p.perk_left = PERK_USES[PERKS[p.loadout]]
+        p.nades = p.nades_for()
+        p.perk_left = PERK_USES[p.perk]
         p.sc += 1
         p.protect_until = now() + PROTECT
         p.in_round = True
@@ -687,6 +719,38 @@ class Room:
             q = self.players.get(tid)
             if q and q.alive:
                 self.damage(q, p, int(round(dmg)), w, head)
+        # cover walls hit: [wall id, pellets]
+        props = m.get('pr') if isinstance(m.get('pr'), list) else []
+        for pr in props[:4]:
+            if not isinstance(pr, list) or len(pr) < 2:
+                continue
+            wid = str(pr[0])[:24]
+            n = int(num(pr[1], 0, spec['pellets']))
+            W = self.walls.get(wid)
+            if not W or n <= 0 or dist3(p.pos, W['p']) > spec['range'] + 5:
+                continue
+            self.hurt_wall(wid, int(round(spec['dmg'] * n)))
+        # drones hit: one owner id per pellet
+        for oid in (m.get('dh') if isinstance(m.get('dh'), list) else [])[:spec['pellets']]:
+            oid = int(num(oid))
+            D = self.drones.get(oid)
+            owner = self.players.get(oid)
+            if not D or not owner or oid == p.id or not self.enemies(p, owner):
+                continue
+            d = dist3(p.pos, D['p'])
+            if d > spec['range'] + 5:
+                continue
+            if d <= spec['near']:
+                f = 1.0
+            elif d >= spec['far']:
+                f = spec['min']
+            else:
+                f = 1.0 - (1.0 - spec['min']) * (d - spec['near']) / (spec['far'] - spec['near'])
+            D['hp'] -= spec['dmg'] * f
+            if D['hp'] <= 0:
+                self.drone_off(oid, 'shot', by=p)
+                p.score += 25
+                self.earn(p, 'shotdown')
         if shielded and not per_target:
             # tell the shooter their bullets bounced off spawn protection
             p.send({'t': 'hitok', 'd': 0, 'k': False, 'hs': False, 'sh': 1})
@@ -716,6 +780,8 @@ class Room:
         q.alive = False
         q.hp = 0
         q.deaths += 1
+        if q.id in self.drones:
+            self.drone_off(q.id, 'pilot')
         if self.bomb:
             if self.bomb.get('carrier') == q.id:
                 self.drop_bomb(q)
@@ -763,7 +829,7 @@ class Room:
             return
         p.nades -= 1
         nid = int(num(m.get('n')))
-        kind = 'flash' if m.get('k') == 'flash' and p.loadout == 2 else 'frag'
+        kind = m.get('k') if m.get('k') in NADE_OPTIONS[p.loadout] else 'frag'
         p.nade_ids[nid] = (now(), kind)
         self.broadcast({'t': 'nade', 'id': p.id, 'n': nid, 'k': kind, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}, skip=p)
 
@@ -777,10 +843,18 @@ class Room:
         if dist3(pos, p.pos) > 60:
             return
         self.broadcast({'t': 'boom', 'id': p.id, 'n': nid, 'p': pos, 'k': kind}, skip=p)
-        if kind == 'flash':
-            return  # blinding is worked out on each screen; no damage
+        if kind in ('flash', 'smoke'):
+            return  # blinding and smoke are worked out on each screen; no damage
+        self.explode(p, pos)
+
+    def explode(self, p, pos):
+        """A frag-sized blast at pos, credited to p: players in reach and any cover walls."""
         if self.phase in ('post', 'ended'):
             return
+        for wid, W in list(self.walls.items()):
+            d = dist3(pos, [W['p'][0], W['p'][1] + 0.6, W['p'][2]])
+            if d < NADE_RADIUS:
+                self.hurt_wall(wid, int(NADE_DMG * (1 - d / NADE_RADIUS) ** 1.2))
         for q in list(self.players.values()):
             if not q.alive:
                 continue
@@ -804,7 +878,7 @@ class Room:
 
     def handle_perk(self, p, m):
         k = m.get('k')
-        if not p.alive or k != PERKS[p.loadout] or p.perk_left <= 0 or self.phase == 'ended':
+        if not p.alive or k != p.perk or p.perk_left <= 0 or self.phase == 'ended':
             return
         t = now()
         if k in ('med', 'ammo'):
@@ -814,7 +888,8 @@ class Room:
                 return
             self.crate_seq += 1
             cid = '%d-%d' % (p.id, self.crate_seq)
-            C = {'k': k, 'p': [round(v, 3) for v in pos], 'team': p.team, 'owner': p.id, 'until': t + CRATE_LIFE, 'used': set()}
+            C = {'k': k, 'p': [round(v, 3) for v in pos], 'team': p.team, 'owner': p.id, 'until': t + CRATE_LIFE,
+                 'used': {}, 'paid': set()}
             self.crates[cid] = C
             self.broadcast({'t': 'supply', 'id': cid, 'k': k, 'p': C['p'], 'tm': p.team, 'owner': p.id})
         elif k == 'ladder':
@@ -832,8 +907,75 @@ class Room:
             B = {'p': [round(v, 3) for v in pos], 'team': p.team, 'until': t + BEACON_LIFE, 'next': t + 0.3, 'born': t}
             self.beacons[p.id] = B
             self.broadcast({'t': 'beacon', 'id': p.id, 'p': B['p'], 'tm': p.team, 'age': 0})
+        elif k == 'wall':
+            # a steel barricade standing just in front of you, facing the way you face
+            pos = vec3(m.get('p'))
+            if dist2(pos, p.pos) > 4.0 or abs(pos[1] - p.pos[1]) > 1.5:
+                return
+            self.wall_seq += 1
+            wid = '%d-%d' % (p.id, self.wall_seq)
+            W = {'p': [round(v, 3) for v in pos], 'y': round(num(m.get('y')), 4), 'hp': WALL_HP,
+                 'team': p.team, 'owner': p.id, 'until': t + WALL_LIFE}
+            self.walls[wid] = W
+            self.broadcast({'t': 'wall', 'id': wid, 'p': W['p'], 'y': W['y'], 'hp': WALL_HP, 'tm': p.team, 'owner': p.id})
+        elif k == 'drone':
+            if p.id in self.drones:
+                return
+            pos = [p.pos[0], p.pos[1] + 1.8, p.pos[2]]
+            bx, bz = self.map['bounds']
+            # enough battery to cross the town lengthways and come back, plus a little
+            life = (4.0 * max(bx, bz)) / DRONE_SPEED + DRONE_EXTRA
+            D = {'p': [round(v, 3) for v in pos], 'y': round(p.yaw, 4), 'team': p.team, 'born': t, 'until': t + life, 'hp': DRONE_HP}
+            self.drones[p.id] = D
+            self.broadcast({'t': 'drone', 'id': p.id, 'p': D['p'], 'tm': p.team, 'life': round(life, 1), 'hp': DRONE_HP})
         p.perk_left -= 1
         p.send({'t': 'perkleft', 'k': k, 'n': p.perk_left})
+
+    def hurt_wall(self, wid, dmg):
+        W = self.walls.get(wid)
+        if not W or dmg <= 0:
+            return
+        W['hp'] -= dmg
+        if W['hp'] <= 0:
+            del self.walls[wid]
+            self.broadcast({'t': 'wall', 'id': wid, 'off': 1, 'p': W['p'], 'y': W['y']})
+        else:
+            self.broadcast({'t': 'wall', 'id': wid, 'hp': int(W['hp'])})
+
+    def handle_drone(self, p, m):
+        """The pilot moving their drone."""
+        D = self.drones.get(p.id)
+        if not D or not p.alive:
+            return
+        pos = vec3(m.get('p'))
+        bx, bz = self.map['bounds']
+        pos[0] = max(-bx, min(bx, pos[0]))
+        pos[2] = max(-bz, min(bz, pos[2]))
+        pos[1] = max(-8.0, min(45.0, pos[1]))
+        # no teleporting: at most a short hop per message
+        step = dist3(pos, D['p'])
+        if step > 4.0:
+            k = 4.0 / step
+            pos = [D['p'][i] + (pos[i] - D['p'][i]) * k for i in range(3)]
+        D['p'] = [round(v, 3) for v in pos]
+        D['y'] = round(num(m.get('y')), 4)
+
+    def handle_drone_boom(self, p, m):
+        D = self.drones.pop(p.id, None)
+        if not D:
+            return
+        self.broadcast({'t': 'drone', 'id': p.id, 'boom': 1, 'p': D['p']})
+        self.explode(p, D['p'])
+
+    def drone_off(self, oid, why, by=None):
+        D = self.drones.pop(oid, None)
+        if not D:
+            return
+        msg = {'t': 'drone', 'id': oid, 'off': 1, 'p': D['p'], 'why': why}
+        if by:
+            msg['by'] = by.id
+            msg['byn'] = by.name
+        self.broadcast(msg)
 
     def friendly(self, a, b):
         """On the same side (in free-for-all only you are on your side)."""
@@ -849,7 +991,10 @@ class Room:
                 self.broadcast({'t': 'supply', 'id': cid, 'off': 1})
                 continue
             for q in self.players.values():
-                if not q.alive or q.id in C['used'] or not self.friendly(owner, q):
+                if not q.alive or not self.friendly(owner, q):
+                    continue
+                # each player can use a crate again every CRATE_AGAIN seconds
+                if t - C['used'].get(q.id, -1e9) < CRATE_AGAIN:
                     continue
                 if dist3(q.pos, C['p']) > CRATE_REACH:
                     continue
@@ -860,12 +1005,24 @@ class Room:
                     q.send({'t': 'heal', 'hp': 100, 'by': owner.name if owner is not q else ''})
                 else:
                     q.send({'t': 'perkok', 'k': 'ammo', 'by': owner.name if owner is not q else ''})
-                C['used'].add(q.id)
-                if owner is not q:
-                    self.earn(owner, 'assist')
+                C['used'][q.id] = t
+                # the owner is paid once per teammate per crate, not every 15 seconds
+                if owner is not q and q.id not in C['paid']:
+                    C['paid'].add(q.id)
+                    self.earn(owner, 'supply')
 
     def update_devices(self, t):
         self.update_crates(t)
+        for wid, W in list(self.walls.items()):
+            if t >= W['until']:
+                del self.walls[wid]
+                self.broadcast({'t': 'wall', 'id': wid, 'off': 1, 'p': W['p'], 'y': W['y']})
+        for oid, D in list(self.drones.items()):
+            owner = self.players.get(oid)
+            if not owner or not owner.alive:
+                self.drone_off(oid, 'pilot')
+            elif t >= D['until']:
+                self.drone_off(oid, 'battery')
         for oid, L in list(self.ladders.items()):
             if t >= L['until']:
                 del self.ladders[oid]
@@ -1095,7 +1252,11 @@ class Room:
                 f |= 128
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
                        round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp)])
-        return {'t': 'snap', 'g': self.game_state(t), 'p': pl}
+        snap = {'t': 'snap', 'g': self.game_state(t), 'p': pl}
+        if self.drones:
+            snap['dr'] = [[oid, round(D['p'][0], 2), round(D['p'][1], 2), round(D['p'][2], 2), round(D['y'], 3), int(D['hp'])]
+                          for oid, D in self.drones.items()]
+        return snap
 
     def roster(self):
         return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths, 'a': p.assists,
@@ -1273,6 +1434,11 @@ class Conn:
             return
         # one live locker per account, shared by all of that player's tabs
         lk = LIVE_LOCKERS.setdefault(user['id'], user['locker'])
+        if str(user.get('username', '')).lower() == 'mcb':
+            # the owner's account: every gun fully unlocked and a full purse
+            for w in catalog.SHOOTERS:
+                lk['kills'][w] = max(lk['kills'].get(w, 0), 100)
+            lk['dinars'] = max(lk.get('dinars', 0), 10000)
         p.account = {'id': user['id'], 'username': user['username']}
         p.name = user['username']
         self.send({'t': 'auth', 'user': {'username': user['username'], 'email': user['email']},
@@ -1328,7 +1494,7 @@ class Conn:
                 if mode not in MODES:
                     return
                 r = quick_room(mode)
-            p.loadout = int(num(m.get('ld'), 0, 3))
+            p.pick(m)
             if 'cos' in m:
                 p.cos = owned_cos(p, clean_cos(m.get('cos')))
             lobby.discard(self)
@@ -1391,16 +1557,23 @@ class Conn:
         elif t == 'boom':
             p.room.handle_boom(p, m)
         elif t == 'ld':
-            p.loadout = int(num(m.get('ld'), 0, 3))
+            p.pick(m)
             r = p.room
             p.room.roster_dirty = True
             # swap straight away when it is safe to
             if p.alive and (r.phase in ('waiting', 'countdown', 'freeze') or now() - (p.protect_until - PROTECT) < 8):
                 # the new loadout's perk, but never more uses than you had left
-                p.perk_left = min(p.perk_left, PERK_USES[PERKS[p.loadout]])
-                p.nades = min(p.nades, NADES[p.loadout])
+                p.perk_left = min(p.perk_left, PERK_USES[p.perk])
+                p.nades = min(p.nades, p.nades_for())
                 p.send({'t': 'ldnow', 'ld': p.loadout})
-                p.send({'t': 'perkleft', 'k': PERKS[p.loadout], 'n': p.perk_left})
+                p.send({'t': 'perkleft', 'k': p.perk, 'n': p.perk_left})
+        elif t == 'picks':
+            # a perk or grenade chosen in the Locker mid-match: counts from the next spawn
+            p.pick({'pk': m.get('pk'), 'nk': m.get('nk')})
+        elif t == 'dr':
+            p.room.handle_drone(p, m)
+        elif t == 'drboom':
+            p.room.handle_drone_boom(p, m)
         elif t == 'cos':
             p.cos = owned_cos(p, clean_cos(m.get('cos')))
             p.room.roster_dirty = True

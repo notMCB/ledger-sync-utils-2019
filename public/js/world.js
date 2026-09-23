@@ -275,7 +275,7 @@ export class World {
       } else if (mat === 'crate') {
         B('crate').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 1, { unitUV: true });
       } else if (mat === 'car') {
-        B('car').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CAR_TINTS[tint % CAR_TINTS.length]), 2);
+        continue;   // drawn from the 'car' deco instead, with wheels and windows
       } else if (mat === 'hay') {
         B('wood').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#e8c96a', 1.25), 1.2);
       }
@@ -332,7 +332,10 @@ export class World {
   }
 
   buildDeco(map, root, tx) {
-    const barrels = [], trunks = [], leaves = [], domes = [], cloth = CLOTH.map(() => []), poles = [], goods = [];
+    const barrels = [], trunks = [], leaves = [], domes = [], cloth = CLOTH.map(() => []), poles = [], goods = [], wheels = [];
+    const cars = new GeoBuilder();
+    const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
+    const hubGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.26, 12);
     const cyl = new THREE.CylinderGeometry(0.32, 0.32, 1.0, 14);
     const trunkSeg = new THREE.CylinderGeometry(0.16, 0.22, 1, 8);
     const leafGeo = new THREE.PlaneGeometry(3.2, 1.0, 4, 1);
@@ -350,7 +353,9 @@ export class World {
     const white = new THREE.Color('#ffffff');
     for (const d of map.deco) {
       if (d.k === 'barrel') {
-        barrels.push({ geo: cyl, matrix: mtx(d.x, 0.5, d.z), color: colorOf(BARREL[d.c % 3]) });
+        barrels.push({ geo: cyl, matrix: mtx(d.x, (d.y || 0) + 0.5, d.z), color: colorOf(BARREL[d.c % 3]) });
+      } else if (d.k === 'car') {
+        this.addCar(cars, wheels, wheelGeo, hubGeo, d);
       } else if (d.k === 'palm') {
         const segs = 5;
         let x = d.x, z = d.z, y = 0;
@@ -599,6 +604,14 @@ export class World {
       root.add(mesh);
     };
     add(barrels, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }));
+    add(wheels, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    if (!cars.empty) {
+      const mesh = new THREE.Mesh(cars.geometry(), new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }));
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      root.add(mesh);
+    }
+    wheelGeo.dispose(); hubGeo.dispose();
     add(trunks, new THREE.MeshLambertMaterial({ vertexColors: true }));
     add(leaves, new THREE.MeshLambertMaterial({ map: tx.leaf, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 }));
     add(domes, new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }));
@@ -606,6 +619,56 @@ export class World {
     add(goods, new THREE.MeshLambertMaterial({ vertexColors: true }));
     cloth.forEach((list, i) => add(list, new THREE.MeshLambertMaterial({ map: tx.cloth[i], side: THREE.DoubleSide, vertexColors: true })));
     cyl.dispose(); trunkSeg.dispose(); leafGeo.dispose();
+  }
+
+  // a parked car: body, bonnet and boot, a glazed cabin, bumpers, lights
+  // and four wheels. Sits exactly over the two collision boxes mapgen laid.
+  addCar(cars, wheels, wheelGeo, hubGeo, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const paint = colorOf(CAR_TINTS[(d.c || 0) % CAR_TINTS.length]);
+    const dark = colorOf('#2a2a2e');
+    const glass = colorOf('#5d7f96', 0.9);
+    const box = (lx, ly, lz, hx, hy, hz, color, extraYaw = 0) => {
+      const [x, z] = W(lx, lz);
+      cars.box(x, ly, z, hx, hy, hz, yaw + extraYaw, color, 2);
+    };
+    // lower body, from wheel height to the window line
+    box(0, 0.66, 0, 2.05, 0.3, 0.86, paint);
+    // sills and wheel arches: a darker skirt under the doors
+    box(0, 0.4, 0, 1.95, 0.06, 0.88, dark);
+    // bonnet slopes up to the windscreen; boot is a little lower
+    box(1.55, 0.98, 0, 0.55, 0.05, 0.84, paint);
+    box(-1.65, 0.99, 0, 0.45, 0.04, 0.84, paint);
+    // cabin: glass all round, painted pillars and roof
+    box(-0.2, 1.23, 0, 1.0, 0.24, 0.76, glass);
+    box(-0.2, 1.23, 0, 1.02, 0.24, 0.05, dark);              // a centre pillar line
+    box(-0.2, 1.5, 0, 1.03, 0.05, 0.8, paint);               // roof
+    box(0.86, 1.23, 0, 0.06, 0.24, 0.8, dark, 0);             // windscreen frame
+    box(-1.26, 1.23, 0, 0.06, 0.24, 0.8, dark, 0);            // rear window frame
+    // bumpers, headlights and tail lights
+    box(2.08, 0.5, 0, 0.08, 0.1, 0.86, dark);
+    box(-2.08, 0.5, 0, 0.08, 0.1, 0.86, dark);
+    box(2.06, 0.78, 0.58, 0.03, 0.07, 0.14, colorOf('#fff2c0', 1.3));
+    box(2.06, 0.78, -0.58, 0.03, 0.07, 0.14, colorOf('#fff2c0', 1.3));
+    box(-2.06, 0.78, 0.58, 0.03, 0.06, 0.14, colorOf('#d8352a', 1.2));
+    box(-2.06, 0.78, -0.58, 0.03, 0.06, 0.14, colorOf('#d8352a', 1.2));
+    // wing mirrors and door handles
+    box(0.75, 1.1, 0.92, 0.06, 0.04, 0.06, paint);
+    box(0.75, 1.1, -0.92, 0.06, 0.04, 0.06, paint);
+    box(0.1, 0.9, 0.87, 0.1, 0.02, 0.02, dark);
+    box(-0.9, 0.9, 0.87, 0.1, 0.02, 0.02, dark);
+    box(0.1, 0.9, -0.87, 0.1, 0.02, 0.02, dark);
+    box(-0.9, 0.9, -0.87, 0.1, 0.02, 0.02, dark);
+    // wheels: rubber tyre and a lighter hub, axles across the car
+    for (const lx of [1.3, -1.3]) {
+      for (const lz of [0.9, -0.9]) {
+        const [x, z] = W(lx, lz);
+        wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.34, z, Math.PI / 2, yaw, 0), color: colorOf('#1d1d1f') });
+        wheels.push({ geo: hubGeo, matrix: mtx(x, 0.34, z, Math.PI / 2, yaw, 0), color: colorOf('#a9a9a3') });
+      }
+    }
   }
 
   // a dirt road: one strip following the points, a little above the sand

@@ -699,6 +699,53 @@ class Town:
         for (x, z) in spots:
             self.deco.append({'k': 'hatch', 'x': round(x, 2), 'z': round(z, 2), 'r': HATCH_HALF, 'd': TUN_FLOOR})
             self.areas.append({'n': 'Tunnels', 'x': round(x, 1), 'z': round(z, 1), 'r': 3})
+        self.tunnel_cover(rects, spots)
+
+    def tunnel_cover(self, rects, spots):
+        """Barrels, crates, rubble and sandbags down the corridors, hugging one
+        wall or the other, so a long straight stretch is not a shooting gallery."""
+        rng = self.rng
+        placed = []
+        for (x0, z0, x1, z1) in rects:
+            along_x = (x1 - x0) >= (z1 - z0)
+            L = (x1 - x0) if along_x else (z1 - z0)
+            if L < 7:
+                continue
+            n = max(1, int(L / 6.0))
+            for i in range(n):
+                t = (i + 0.5 + rng.uniform(-0.22, 0.22)) / n
+                side = 1 if (i + int(x0 * 3)) % 2 == 0 else -1
+                half = ((z1 - z0) if along_x else (x1 - x0)) / 2
+                off = side * (half - 0.5)
+                if along_x:
+                    cx, cz = x0 + (x1 - x0) * t, (z0 + z1) / 2 + off
+                else:
+                    cx, cz = (x0 + x1) / 2 + off, z0 + (z1 - z0) * t
+                if any(math.hypot(cx - hx, cz - hz) < 3.2 for (hx, hz) in spots):
+                    continue
+                if any(math.hypot(cx - px, cz - pz) < 2.5 for (px, pz) in placed):
+                    continue
+                placed.append((cx, cz))
+                kind = rng.choice(('barrel', 'barrel', 'crate', 'rubble', 'bags'))
+                yaw = 0.0 if along_x else math.pi / 2
+                if kind == 'barrel':
+                    self.box(cx, TUN_FLOOR + 0.5, cz, 0.32, 0.5, 0.32, 0, 'inv')
+                    self.deco.append({'k': 'barrel', 'x': round(cx, 2), 'y': TUN_FLOOR, 'z': round(cz, 2), 'c': rng.randrange(3)})
+                    # often a second one right beside it
+                    if rng.random() < 0.5:
+                        bx, bz = (cx + 0.7, cz) if along_x else (cx, cz + 0.7)
+                        self.box(bx, TUN_FLOOR + 0.5, bz, 0.32, 0.5, 0.32, 0, 'inv')
+                        self.deco.append({'k': 'barrel', 'x': round(bx, 2), 'y': TUN_FLOOR, 'z': round(bz, 2), 'c': rng.randrange(3)})
+                elif kind == 'crate':
+                    self.box(cx, TUN_FLOOR + 0.42, cz, 0.42, 0.42, 0.42, yaw + rng.uniform(-0.2, 0.2), 'crate')
+                    if rng.random() < 0.6:
+                        self.box(cx, TUN_FLOOR + 1.12, cz, 0.3, 0.28, 0.3, yaw + rng.uniform(-0.5, 0.5), 'crate')
+                elif kind == 'rubble':
+                    self.box(cx, TUN_FLOOR + 0.3, cz, 0.7, 0.3, 0.42, yaw, 'stone', 1)
+                    self.box(cx, TUN_FLOOR + 0.72, cz, 0.4, 0.14, 0.3, yaw + 0.3, 'stone', 1)
+                else:
+                    # a low sandbag wall: waist high, kneel behind it
+                    self.box(cx, TUN_FLOOR + 0.42, cz, 0.85, 0.42, 0.32, yaw, 'hay')
 
     # -- roads -----------------------------------------------------------------
 
@@ -967,6 +1014,7 @@ class Town:
         self.box(x, 0.55, z, 2.1, 0.45, 0.9, yaw, 'car', c)
         ox, oz = rot(-0.2, 0, yaw)
         self.box(x + ox, 1.25, z + oz, 1.1, 0.3, 0.82, yaw, 'car', c)
+        self.deco.append({'k': 'car', 'x': round(x, 2), 'z': round(z, 2), 'yaw': round(yaw, 4), 'c': c})
 
     def stall(self, x, z, yaw):
         rng = self.rng

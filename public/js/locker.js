@@ -7,6 +7,7 @@
 
 import { RARITIES, FINISHES, OUTFITS, GUN_IDS, FINISH, OUTFIT } from './skins.js';
 import { clean as cleanAttach, HAS_ATTACHMENTS } from './attachments.js';
+import { LOADOUTS } from './weapons.js';
 
 export const CRATES = {
   gun: { id: 'gun', name: 'Armory Crate', price: 100, blurb: 'One random gun finish for one of your five guns.' },
@@ -26,7 +27,7 @@ const KEY = 'souk-siege-locker-v1';
 
 function blank() {
   return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], kills: {},
-    equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {} }, opened: 0 };
+    equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {}, perk: {} }, opened: 0 };
 }
 
 function normalise(s) {
@@ -40,6 +41,7 @@ function normalise(s) {
   s.equip.pistol = s.equip.pistol || {};
   s.equip.nade = s.equip.nade || {};
   s.equip.attach = s.equip.attach || {};
+  s.equip.perk = s.equip.perk || {};
   s.kills = s.kills && typeof s.kills === 'object' ? s.kills : {};
   // older guest lockers kept one pistol finish for every loadout
   if (s.equip.guns.pistol) {
@@ -270,6 +272,14 @@ export const locker = {
   },
 
   // only used by the localhost test links
+  // the owner's own account: every gun at least this many kills, at least this many dinars
+  grant(kills, dinars) {
+    const s = state();
+    for (const w of HAS_ATTACHMENTS) s.kills[w] = Math.max(this.killsWith(w), kills);
+    s.dinars = Math.max(s.dinars, dinars);
+    this.saved();
+  },
+
   setKills(weapon, n) {
     state().kills[weapon] = Math.max(0, Math.floor(n) || 0);
     this.saved();
@@ -287,8 +297,31 @@ export const locker = {
     this.saved();
   },
 
+  // the grenade this loadout carries, out of the kinds it may
   nadeFor(ld) {
-    return String(ld) === '2' && state().equip.nade['2'] === 'flash' ? 'flash' : 'frag';
+    const L = LOADOUTS[ld];
+    const want = state().equip.nade[String(ld)];
+    return L && L.nadeKinds.includes(want) ? want : 'frag';
+  },
+
+  // the perk this loadout uses, out of the ones it may choose from
+  perkFor(ld) {
+    const L = LOADOUTS[ld];
+    if (!L) return 'ammo';
+    const want = state().equip.perk[String(ld)];
+    return L.perks.includes(want) ? want : L.perks[0];
+  },
+
+  setPerk(ld, id) {
+    const L = LOADOUTS[ld];
+    if (!L || !L.perks.includes(id)) return;
+    state().equip.perk[String(ld)] = id;
+    this.saved();
+  },
+
+  // what the server needs to know about a loadout beyond its number
+  picks(ld) {
+    return { pk: this.perkFor(ld), nk: this.nadeFor(ld) };
   },
 
   equipGun(weapon, finish) {
@@ -314,8 +347,9 @@ export const locker = {
   },
 
   setNade(ld, kind) {
-    if (String(ld) !== '2') return;
-    state().equip.nade['2'] = kind === 'flash' ? 'flash' : 'frag';
+    const L = LOADOUTS[ld];
+    if (!L || !L.nadeKinds.includes(kind)) return;
+    state().equip.nade[String(ld)] = kind;
     this.saved();
   },
 

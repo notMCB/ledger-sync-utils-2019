@@ -328,6 +328,18 @@ export function flashPop(pos) {
   thump(sp.input, t, 140, 50, 0.25, 0.7);
 }
 
+// a smoke grenade: a pop, then a long hiss as it pours out
+export function smokePop(pos) {
+  if (!ensure()) return;
+  const sp = spatial(pos, 90);
+  if (!sp) return;
+  sp.input.gain.value = sp.gain;
+  sp.output.connect(master);
+  const t = ctx.currentTime;
+  thump(sp.input, t, 160, 60, 0.12, 0.5);
+  noiseBurst(sp.input, t + 0.05, 2.2, 3200, 1400, 0.6, 0.35, 'bandpass');
+}
+
 // the whine in your ears after a flash
 export function flashRing(strength) {
   if (!ensure()) return;

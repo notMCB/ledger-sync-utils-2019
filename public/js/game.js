@@ -8,7 +8,7 @@ import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
 import { Hud, MODE_INFO } from './hud.js';
 import { input } from './input.js';
 import { settings, keyName } from './settings.js';
-import { WEAPONS, LOADOUTS, PERKS, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor } from './weapons.js';
+import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor } from './weapons.js';
 import { serverFlags } from './attachments.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
@@ -26,6 +26,10 @@ const WALK = 4.8;
 const RUN = 7.0;
 const CROUCH_SPEED = 2.5;
 const SEND_HZ = 20;
+// the Medic's cover wall (half sizes) and the Marksman's bomb drone
+const WALL_W = 0.8, WALL_H = 1.25, WALL_T = 0.08;
+const DRONE_SPEED = 14;      // keep in step with DRONE_SPEED in server/server.py
+const DRONE_R = 0.5;         // how big a target it is
 const SITE_R = 4.8;
 const HILL_R = 6.0;
 
@@ -82,6 +86,9 @@ export class Game {
     this.ladders = new Map();   // player id -> ladder
     this.beacons = new Map();   // player id -> beacon
     this.crates = new Map();    // crate id -> ammo / medic crate
+    this.walls = new Map();     // wall id -> cover wall (mesh + collision box)
+    this.drones = new Map();    // player id -> their drone in the air
+    this.drone = null;          // my own drone while I'm flying it
     this.flashT = 0;
     this.flashMax = 1;
     this.chat = null;
@@ -200,6 +207,8 @@ export class Game {
       else this.refillAmmo();
     } else if (m.k === 'ladder') this.onLadder({ id: -1, p: m.p, y: m.y, h: m.h });
     else if (m.k === 'beacon') this.onBeacon({ id: -1, p: m.p });
+    else if (m.k === 'wall') this.onWall({ id: 'local' + me.perkLeft, p: m.p, y: m.y, hp: 300, tm: -1, owner: -1 });
+    else if (m.k === 'drone') this.onDrone({ id: this.myId, p: [m.p[0], m.p[1] + 1.8, m.p[2]], hp: 40, tm: -1, life: 40 });
     me.perkLeft = Math.max(0, me.perkLeft - 1);
   }
 
@@ -229,6 +238,8 @@ export class Game {
         if (m.k === 'ammo') this.refillAmmo(m.by);
         return;
       case 'supply': return this.onCrate(m);
+      case 'wall': return this.onWall(m);
+      case 'drone': return this.onDrone(m);
       case 'perkleft':
         this.me.perkLeft = m.n;
         return;
@@ -344,15 +355,18 @@ export class Game {
     this.vm.setSkins(locker.cosmetics(ld).g);
     this.me.nadeKind = locker.nadeFor(ld);
     this.updateTeamLook();
-    if (this.inRoom && this.net) this.send({ t: 'cos', cos: locker.cosmetics(ld) });
+    if (this.inRoom && this.net) {
+      this.send({ t: 'cos', cos: locker.cosmetics(ld) });
+      this.send({ t: 'picks', ...locker.picks(ld) });
+    }
   }
 
   applyLoadout(ld) {
     const me = this.me;
     me.loadout = ld;
     me.nadeKind = locker.nadeFor(ld);
-    me.perkLeft = PERKS[LOADOUTS[ld].perk].uses;
-    me.nades = Math.min(me.nades, nadesFor(ld));
+    me.perkLeft = PERKS[locker.perkFor(ld)].uses;
+    me.nades = Math.min(me.nades, nadesFor(ld, me.nadeKind));
     const primary = LOADOUTS[ld].weapon;
     const fitted = locker.attachFor(primary);
     const pistolFit = locker.attachFor('pistol');
@@ -384,7 +398,7 @@ export class Game {
     me.alive = true;
     me.hp = 100;
     me.team = m.tm;
-    me.nades = nadesFor(m.ld);
+    me.nades = nadesFor(m.ld, locker.nadeFor(m.ld));
     me.crouch = false;
     me.crouchK = 0;
     me.adsK = 0;
@@ -394,7 +408,7 @@ export class Game {
     me.slide = null;
     me.vault = null;
     me.climbing = false;
-    me.perkLeft = PERKS[LOADOUTS[m.ld].perk].uses;
+    me.perkLeft = PERKS[locker.perkFor(m.ld)].uses;
     me.interacting = false;
     me.spawnT = this.clock;
     me.grounded = true;
@@ -409,6 +423,7 @@ export class Game {
   onDead(m) {
     const me = this.me;
     me.alive = false;
+    this.endDrone('');
     me.deathPos.copy(me.pos);
     me.killerId = m.by;
     me.respawnAt = m.rs >= 0 ? this.clock + m.rs : -1;
@@ -435,6 +450,7 @@ export class Game {
       }
     }
     this.avatars.sync(m.p, this.myId, t);
+    if (m.dr) this.syncDrones(m.dr);
     if (prevPhase !== this.g.ph) this.onPhase(prevPhase, this.g.ph);
   }
 
@@ -587,6 +603,11 @@ export class Game {
   }
 
   detonate(p, kind) {
+    if (kind === 'smoke') {
+      this.fx.smoke(p);
+      sfx.smokePop(p);
+      return;
+    }
     if (kind === 'flash') {
       this.fx.flashPop(p);
       sfx.flashPop(p);
@@ -626,7 +647,7 @@ export class Game {
 
   usePerk() {
     const me = this.me;
-    const perk = LOADOUTS[me.loadout].perk;
+    const perk = locker.perkFor(me.loadout);
     if (me.perkLeft <= 0) {
       this.hud.center(`No ${PERKS[perk].name} left`, 'You get more when you respawn', '', 1.6, 1);
       return;
@@ -642,7 +663,209 @@ export class Game {
     } else if (perk === 'beacon') {
       const p = this.dropSpot(0.6);
       this.perkSend({ t: 'perk', k: 'beacon', p: [p.x, p.y, p.z].map((v) => +v.toFixed(3)) });
+    } else if (perk === 'wall') {
+      const spot = this.wallSpot();
+      if (!spot) return this.hud.center('No room for the wall here', 'Face open ground, standing still', '', 1.8, 1);
+      this.perkSend({ t: 'perk', k: 'wall', p: [spot.x, spot.y, spot.z].map((v) => +v.toFixed(3)), y: +me.yaw.toFixed(4) });
+    } else if (perk === 'drone') {
+      if (this.drone || this.drones.has(this.myId)) return;
+      if (!me.grounded) return this.hud.center('Land first', '', '', 1.2, 1);
+      this.perkSend({ t: 'perk', k: 'drone', p: [me.pos.x, me.pos.y, me.pos.z].map((v) => +v.toFixed(3)) });
     }
+  }
+
+  // where a cover wall would stand: a little in front of you, on your floor,
+  // with nothing in the way across its whole width
+  wallSpot() {
+    const me = this.me;
+    if (!me.grounded) return null;
+    const phys = this.world.physics;
+    const fwd = new THREE.Vector3(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
+    const right = new THREE.Vector3(Math.cos(me.yaw), 0, -Math.sin(me.yaw));
+    const base = new THREE.Vector3(me.pos.x, me.pos.y, me.pos.z);
+    for (const h of [0.3, 0.9]) {
+      const from = base.clone().add(new THREE.Vector3(0, h, 0));
+      const hit = phys.raycast(from, fwd, 1.3 + WALL_T + 0.1);
+      if (hit && !hit.ground) return null;
+    }
+    const centre = base.clone().addScaledVector(fwd, 1.3);
+    for (const side of [1, -1]) {
+      const from = centre.clone().add(new THREE.Vector3(0, 0.6, 0));
+      const hit = phys.raycast(from, right.clone().multiplyScalar(side), WALL_W + 0.1);
+      if (hit && !hit.ground) return null;
+    }
+    // the same floor as you: don't hang it off a ledge
+    const floorHere = phys.floorAt(centre.x, centre.z, me.pos.y + 0.5);
+    if (Math.abs(floorHere - me.pos.y) > 0.6) return null;
+    centre.y = me.pos.y;
+    return centre;
+  }
+
+  // -- cover walls --
+
+  onWall(m) {
+    const phys = this.world.physics;
+    let W = this.walls.get(m.id);
+    if (m.off) {
+      if (!W) return;
+      const p = W.mesh.position.clone();
+      this.scene.remove(W.mesh);
+      phys.remove(W.box);
+      this.walls.delete(m.id);
+      for (let i = 0; i < 4; i++) this.fx.impact(p.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.4, 0.3 + Math.random() * 0.9, 0)), new THREE.Vector3(0, 1, 0), 'car');
+      sfx.knifeHit(p);
+      return;
+    }
+    if (!W) {
+      if (!m.p) return;
+      const mesh = makeWallMesh();
+      mesh.position.set(m.p[0], m.p[1], m.p[2]);
+      mesh.rotation.y = m.y || 0;
+      this.scene.add(mesh);
+      const box = phys.add([m.p[0], m.p[1] + WALL_H / 2, m.p[2], WALL_W, WALL_H / 2, WALL_T, m.y || 0, 'car']);
+      box.prop = m.id;
+      W = { mesh, box, hp: m.hp || 300, max: m.hp || 300, tm: m.tm, owner: m.owner, x: m.p[0], z: m.p[2], hitT: 0 };
+      this.walls.set(m.id, W);
+      sfx.footstep(new THREE.Vector3(m.p[0], m.p[1], m.p[2]), 1.8);
+    }
+    if (typeof m.hp === 'number') {
+      if (m.hp < W.hp) W.hitT = 0.12;
+      W.hp = m.hp;
+      const k = Math.max(0, W.hp / W.max);
+      // it scorches and dents as it takes damage
+      W.mesh.userData.plate.color.copy(W.mesh.userData.base).lerp(new THREE.Color('#3a2a22'), 1 - k);
+      W.mesh.userData.plate.emissive.setScalar(0);
+    }
+  }
+
+  // -- the Marksman's bomb drone --
+
+  onDrone(m) {
+    if (m.boom || m.off) {
+      const D = this.drones.get(m.id);
+      const p = new THREE.Vector3(...(m.p || (D ? D.pos.toArray() : [0, 0, 0])));
+      if (D) {
+        this.scene.remove(D.mesh);
+        this.drones.delete(m.id);
+      }
+      if (m.boom) this.detonate(p, 'frag');
+      else {
+        for (let i = 0; i < 3; i++) this.fx.impact(p, new THREE.Vector3(0, 1, 0), 'car');
+        sfx.beep(520, 0.3, 0.3, p);
+      }
+      if (m.id === this.myId) {
+        this.endDrone(m.boom ? '' : m.why === 'shot' ? `Drone shot down${m.byn ? ' by ' + m.byn : ''}` : m.why === 'battery' ? 'Drone battery dead' : '');
+      } else if (m.off && m.by === this.myId) this.hud.center('Drone shot down', '', '', 1.4, 1);
+      return;
+    }
+    if (!m.p) return;
+    let D = this.drones.get(m.id);
+    if (!D) {
+      const mesh = makeDroneMesh();
+      D = { mesh, pos: new THREE.Vector3(...m.p), target: new THREE.Vector3(...m.p), yaw: 0, hp: m.hp || 40, tm: m.tm, owner: m.id, t: 0 };
+      mesh.position.copy(D.pos);
+      this.scene.add(mesh);
+      this.drones.set(m.id, D);
+      sfx.beep(1500, 0.12, 0.2, D.pos);
+    }
+    if (m.id === this.myId) this.startDrone(D, m.life || 30);
+  }
+
+  syncDrones(list) {
+    for (const [oid, x, y, z, yaw, hp] of list) {
+      let D = this.drones.get(oid);
+      if (!D) {
+        this.onDrone({ id: oid, p: [x, y, z], hp, tm: -1, life: 30 });
+        D = this.drones.get(oid);
+        if (!D) continue;
+      }
+      D.target.set(x, y, z);
+      D.yaw = yaw;
+      D.hp = hp;
+    }
+  }
+
+  startDrone(D, life) {
+    const me = this.me;
+    this.drone = { pos: D.pos.clone(), yaw: me.yaw, pitch: -0.15, vel: new THREE.Vector3(), life, max: life, sendT: 0 };
+    D.mesh.visible = false;
+    me.adsK = 0;
+    me.aimToggled = false;
+    this.hud.center('Drone launched', `Fly with your move keys · ${keyName(settings.binds.jump)} up · ${keyName(settings.binds.crouch)} down · click to detonate · ${keyName(settings.binds.perk)} to let it go`, '', 4, 2);
+    this.hud.droneOverlay(true, 1, keyName(settings.binds.perk));
+  }
+
+  endDrone(why) {
+    if (!this.drone) return;
+    const D = this.drones.get(this.myId);
+    if (D) D.mesh.visible = true;
+    this.drone = null;
+    this.hud.droneOverlay(false);
+    if (why) this.hud.center(why, '', '', 1.8, 1);
+  }
+
+  updateDrone(dt) {
+    const dr = this.drone;
+    const me = this.me;
+    const phys = this.world.physics;
+    me.adsK = Math.max(0, me.adsK - dt * 8);
+    // fly: move keys along the way you look, jump up, crouch down
+    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
+    const r = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    const u = (input.down('jump') ? 1 : 0) - (input.down('crouch') ? 1 : 0);
+    const want = new THREE.Vector3(-Math.sin(dr.yaw) * f + Math.cos(dr.yaw) * r, u, -Math.cos(dr.yaw) * f - Math.sin(dr.yaw) * r);
+    if (want.lengthSq() > 0) want.normalize().multiplyScalar(DRONE_SPEED);
+    dr.vel.lerp(want, Math.min(1, dt * 6));
+    const step = dr.vel.clone().multiplyScalar(dt);
+    const len = step.length();
+    if (len > 1e-5) {
+      const dir = step.clone().divideScalar(len);
+      const hit = phys.raycast(dr.pos, dir, len + 0.45);
+      if (hit && !hit.ground) {
+        dr.vel.multiplyScalar(-0.2);   // bump off a wall
+      } else dr.pos.add(step);
+    }
+    // stay in the town, above the ground and under the sky
+    const [bx, bz] = this.map.bounds;
+    dr.pos.x = Math.max(-bx, Math.min(bx, dr.pos.x));
+    dr.pos.z = Math.max(-bz, Math.min(bz, dr.pos.z));
+    const floor = phys.floorAt(dr.pos.x, dr.pos.z, dr.pos.y);
+    dr.pos.y = Math.max(floor + 0.45, Math.min(42, dr.pos.y));
+    dr.life = Math.max(0, dr.life - dt);
+    // keep my own drone's marker where I actually am
+    const D = this.drones.get(this.myId);
+    if (D) { D.pos.copy(dr.pos); D.target.copy(dr.pos); D.yaw = dr.yaw; }
+    dr.sendT -= dt;
+    if (dr.sendT <= 0) {
+      dr.sendT = 1 / SEND_HZ;
+      if (!this.offline) this.send({ t: 'dr', p: [+dr.pos.x.toFixed(3), +dr.pos.y.toFixed(3), +dr.pos.z.toFixed(3)], y: +dr.yaw.toFixed(4) });
+    }
+    this.hud.droneOverlay(true, dr.life / dr.max, keyName(settings.binds.perk));
+    if (input.pressed('fire')) {
+      if (this.offline) this.onDrone({ id: this.myId, boom: 1, p: dr.pos.toArray() });
+      else this.send({ t: 'drboom' });
+    } else if (input.pressed('perk')) {
+      this.endDrone('Drone left hovering');
+    } else if (dr.life <= 0 && this.offline) {
+      this.onDrone({ id: this.myId, off: 1, why: 'battery', p: dr.pos.toArray() });
+    }
+  }
+
+  // a bullet against a drone: the closest one it passes through
+  droneRaycast(o, d, maxT) {
+    const teamMode = this.isTeamMode() && !this.warmup();
+    let best = null;
+    for (const D of this.drones.values()) {
+      if (D.owner === this.myId || (teamMode && D.tm === this.me.team)) continue;
+      const ox = o.x - D.pos.x, oy = o.y - D.pos.y, oz = o.z - D.pos.z;
+      const b = ox * d.x + oy * d.y + oz * d.z;
+      const cc = ox * ox + oy * oy + oz * oz - DRONE_R * DRONE_R;
+      const disc = b * b - cc;
+      if (disc < 0) continue;
+      const t = -b - Math.sqrt(disc);
+      if (t >= 0 && t < maxT && (!best || t < best.t)) best = { id: D.owner, t };
+    }
+    return best;
   }
 
   // a spot on the floor just in front of you (or at your feet if a wall is in the way)
@@ -754,6 +977,22 @@ export class Game {
       B.sweep = k;
     }
     for (const C of this.crates.values()) C.mesh.userData.icon.rotation.y += dt * 1.2;
+    for (const W of this.walls.values()) {
+      if (W.hitT > 0) {
+        W.hitT -= dt;
+        W.mesh.userData.plate.emissive.setScalar(W.hitT > 0 ? 0.25 : 0);
+      }
+    }
+    for (const D of this.drones.values()) {
+      D.t += dt;
+      if (!(this.drone && D.owner === this.myId)) D.pos.lerp(D.target, Math.min(1, dt * 10));
+      D.mesh.position.copy(D.pos);
+      D.mesh.rotation.y = D.yaw;
+      // a little tilt into its motion, spinning rotors, a blinking light
+      D.mesh.rotation.z = Math.sin(D.t * 3) * 0.03;
+      for (const r of D.mesh.userData.rotors) r.rotation.y += dt * 45;
+      D.mesh.userData.led.visible = D.t % 0.6 < 0.3;
+    }
     // flashbang whiteout
     const el = document.getElementById('flash');
     if (this.flashT > 0) {
@@ -770,9 +1009,14 @@ export class Game {
     for (const L of this.ladders.values()) if (L.mesh) this.scene.remove(L.mesh);
     for (const B of this.beacons.values()) this.scene.remove(B.mesh);
     for (const C of this.crates.values()) this.scene.remove(C.mesh);
+    for (const W of this.walls.values()) { this.scene.remove(W.mesh); this.world.physics.remove(W.box); }
+    for (const D of this.drones.values()) this.scene.remove(D.mesh);
     this.ladders.clear();
     this.beacons.clear();
     this.crates.clear();
+    this.walls.clear();
+    this.drones.clear();
+    this.endDrone('');
   }
 
   onHurt(m) {
@@ -835,19 +1079,22 @@ export class Game {
 
     // look
     if (input.locked && !this.paused) {
-      const zoom = ws ? ws.def.zoom : 1;
+      const zoom = ws && !this.drone ? ws.def.zoom : 1;
       const adsMul = 1 + (settings.adsSens / Math.max(1, zoom * 0.9) - 1) * me.adsK;
       // aim help: slow the turn a little while the crosshair is over an enemy
-      const help = settings.aimAssist && this.aimCached ? 0.62 : 1;
+      const help = settings.aimAssist && this.aimCached && !this.drone ? 0.62 : 1;
       const k = 0.0022 * settings.sens * adsMul * help;
-      me.yaw -= mx * k;
-      me.pitch -= my * k * (settings.invertY ? -1 : 1);
-      me.pitch = Math.max(-1.52, Math.min(1.52, me.pitch));
+      const who = this.drone || me;   // flying the drone turns the drone, not you
+      who.yaw -= mx * k;
+      who.pitch -= my * k * (settings.invertY ? -1 : 1);
+      who.pitch = Math.max(-1.52, Math.min(1.52, who.pitch));
     }
     this.lookDelta = [mx, my];
 
-    this.aimWant = act && this.readAim();
-    if (act) {
+    this.aimWant = act && !this.drone && this.readAim();
+    if (act && this.drone) {
+      this.updateDrone(dt);
+    } else if (act) {
       this.updateMovement(dt);
       this.updateWeapons(dt);
       this.updateInteract();
@@ -865,7 +1112,7 @@ export class Game {
         this.hud.center('Score reset', '', '', 1.2, 1);
       }
       for (const w of Object.values(me.weapons || {})) w.reserve = w.def.reserve;
-      me.nades = nadesFor(me.loadout);
+      me.nades = nadesFor(me.loadout, me.nadeKind);
     }
     if (this.inRoom && this.chat && !this.offline) {
       if (input.pressed('chat')) this.chat.open(false);
@@ -1298,7 +1545,7 @@ export class Game {
     if (h) origin.copy(cam.position).addScaledVector(fwd, Math.max(0, h.t - 0.15));
     const vel = fwd.clone().multiplyScalar(15).add(new THREE.Vector3(0, 3, 0)).addScaledVector(me.vel, 0.5);
     const nid = me.nextNade++;
-    const kind = me.loadout === 2 ? me.nadeKind : 'frag';
+    const kind = me.nadeKind || 'frag';
     this.fx.throwNade(this.myId, nid, origin, vel, true, (p) => {
       this.send({ t: 'boom', n: nid, p: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] });
       this.detonate(p, kind);
@@ -1341,7 +1588,12 @@ export class Game {
       const rh = this.range.raycast(origin, fwd, reach);
       if (rh) this.range.hit(rh, rh.t);
     }
-    if (hits.length && this.inRoom) this.send({ t: 'shot', w: 'knife', q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: [], h: hits });
+    const pr = wall && wall.box && wall.box.prop ? [[wall.box.prop, 1]] : null;
+    if ((hits.length || pr) && this.inRoom) {
+      const msg = { t: 'shot', w: 'knife', q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: [], h: hits };
+      if (pr) msg.pr = pr;
+      this.send(msg);
+    }
   }
 
   fire(ws) {
@@ -1361,6 +1613,7 @@ export class Game {
     const scoped = this.vm.scoped;
     if (scoped) muzzle.copy(origin).addScaledVector(up, -0.08).addScaledVector(fwd, 0.4);
     const hits = [], ends = [];
+    const props = {}, droneHits = [];   // cover walls hit (id -> pellets) and drones hit
     const phys = this.world.physics;
     let rangeHit = false;
     if (this.range) this.range.stats.shots++;
@@ -1375,10 +1628,16 @@ export class Game {
       const dir = fwd.clone().addScaledVector(right, Math.cos(th) * t).addScaledVector(up, Math.sin(th) * t).normalize();
       const wh = phys.raycast(origin, dir, d.range);
       const wt = wh ? wh.t : d.range;
-      const ph = this.avatars.raycast(origin, dir, wt, skip);
+      let ph = this.avatars.raycast(origin, dir, wt, skip);
+      const dh = this.droneRaycast(origin, dir, ph ? ph.t : wt);
+      if (dh) ph = null;
       const rh = this.range && this.range.raycast(origin, dir, wt);
       let end;
-      if (rh) {
+      if (dh) {
+        end = origin.clone().addScaledVector(dir, dh.t);
+        droneHits.push(dh.id);
+        this.fx.impact(end, dir.clone().negate(), 'car');
+      } else if (rh) {
         end = origin.clone().addScaledVector(dir, rh.t);
         if (!rangeHit) this.range.hit(rh, rh.t);
         rangeHit = true;
@@ -1394,6 +1653,7 @@ export class Game {
       } else if (wh) {
         end = wh.point.clone();
         this.fx.impact(wh.point, wh.normal, wh.box && wh.box.mat);
+        if (wh.box && wh.box.prop) props[wh.box.prop] = (props[wh.box.prop] || 0) + 1;
       } else {
         end = origin.clone().addScaledVector(dir, d.range);
       }
@@ -1415,10 +1675,14 @@ export class Game {
     me.punch += upK * 0.5;
     ws.bloom = Math.min(d.bloomMax, ws.bloom + d.bloomShot);
     if (this.range && !rangeHit) this.range.miss();
-    this.send({
+    const msg = {
       t: 'shot', w: d.id, q: quiet ? 1 : 0, f: flashMul, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)),
       e: ends.map((e) => [+e.x.toFixed(2), +e.y.toFixed(2), +e.z.toFixed(2)]), h: hits,
-    });
+    };
+    const pr = Object.entries(props);
+    if (pr.length) msg.pr = pr;
+    if (droneHits.length) msg.dh = droneHits;
+    this.send(msg);
   }
 
   // plant or defuse while the key is held
@@ -1465,7 +1729,11 @@ export class Game {
     const me = this.me;
     const ws = this.weapon();
     let fov = settings.fov;
-    if (this.inRoom && me.alive) {
+    if (this.inRoom && me.alive && this.drone) {
+      const dr = this.drone;
+      cam.position.copy(dr.pos);
+      cam.rotation.set(dr.pitch, dr.yaw, Math.sin(this.clock * 9) * 0.004, 'YXZ');
+    } else if (this.inRoom && me.alive) {
       const eye = EYE_STAND + (EYE_CROUCH - EYE_STAND) * me.crouchK;
       cam.position.set(me.pos.x, me.pos.y + eye, me.pos.z);
       const sh = this.fx.shake;
@@ -1618,6 +1886,11 @@ export class Game {
       if (!ours) continue;
       mmObj.push({ x: B.x, z: B.z, r: 35, color: 'rgba(255, 110, 90, 0.9)', fill: 'rgba(255, 90, 70, 0.1)', sweep: B.sweep });
     }
+    // drones: yours and your team's in blue, enemy ones in red so they can be hunted
+    for (const D of this.drones.values()) {
+      const ours = D.owner === this.myId || (teamMode && D.tm === this.me.team);
+      mmObj.push({ x: D.pos.x, z: D.pos.z, dot: true, color: ours ? '#7fc8ff' : '#ff4a33' });
+    }
     // crates your side can use
     for (const C of this.crates.values()) {
       const ours = C.owner === this.myId || (teamMode && C.tm === this.me.team) || C.owner === -1;
@@ -1635,8 +1908,8 @@ export class Game {
     if (!this.inRoom) return;
     const ws = this.weapon();
     if (ws) hud.setAmmo(ws, me.nades, nadesFor(me.loadout), keyName(settings.binds.reload));
-    const perk = PERKS[LOADOUTS[me.loadout].perk];
-    hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), me.loadout === 2 && me.nadeKind === 'flash' ? 'Flash' : 'Frag');
+    const perk = PERKS[locker.perkFor(me.loadout)];
+    hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), (NADE_INFO[me.nadeKind] || NADE_INFO.frag).name);
     hud.setHP(me.alive ? me.hp : 0);
     if (this.range) hud.rangeTop(this.range.stats);
     else hud.top(g, me.team, this.myId, this.roster, this.clock);
@@ -1645,7 +1918,7 @@ export class Game {
       const spread = THREE.MathUtils.degToRad(ws.def.pelletSpread ? ws.def.pelletSpread * (1 + (0.72 - 1) * me.adsK) + ws.bloom * 0.3 : this.spreadDeg(ws));
       const px = (Math.tan(spread) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) * (window.innerHeight / 2);
       const onEnemy = this.aimTarget();
-      hud.crosshair(px, me.adsK < 0.5 && !this.vm.scoped, onEnemy);
+      hud.crosshair(px, me.adsK < 0.5 && !this.vm.scoped && !this.drone, onEnemy);
     } else hud.crosshair(0, false, false);
     // held messages
     if (g) {
@@ -1677,7 +1950,8 @@ export class Game {
       else if (a.revealT > 0) others.push({ x: a.pos.x, z: a.pos.z, color: '#ff4a33' });
     }
     const objs = this.updateObjectives(dt);
-    const view = me.alive ? { x: me.pos.x, z: me.pos.z, yaw: me.yaw } : { x: this.camera.position.x, z: this.camera.position.z, yaw: this.camera.rotation.y };
+    const view = this.drone ? { x: this.drone.pos.x, z: this.drone.pos.z, yaw: this.drone.yaw }
+      : me.alive ? { x: me.pos.x, z: me.pos.z, yaw: me.yaw } : { x: this.camera.position.x, z: this.camera.position.z, yaw: this.camera.rotation.y };
     hud.minimap(view, others, objs);
     hud.fullmap(this.mapOpen, view, others, objs, keyName(settings.binds.map));
     hud.area(view.x, view.z);
@@ -1730,7 +2004,7 @@ export class Game {
           this.indoorT = 0.25;
           this.indoor = this.world.physics.covered(this.camera.position);
         }
-        this.vm.visible = true;
+        this.vm.visible = !this.drone;
         this.vm.update(dt, {
           ads: me.adsK, speed: Math.hypot(me.vel.x, me.vel.z), grounded: me.grounded, sprint: me.sprinting,
           crouch: me.crouch, look: this.lookDelta || [0, 0], landed: me.landed, indoor: this.indoor,
@@ -1775,6 +2049,76 @@ function makeLadderMesh(H = LADDER_H) {
     rung.position.set(0, y, 0);
     g.add(rung);
   }
+  return g;
+}
+
+// the Medic's cover wall: a steel plate two players wide and chest high,
+// with a folded top edge, side posts and two braces holding it up from behind
+function makeWallMesh() {
+  const g = new THREE.Group();
+  const base = new THREE.Color('#5a6a5c');
+  const plate = new THREE.MeshLambertMaterial({ color: base.clone() });
+  const dark = new THREE.MeshLambertMaterial({ color: '#2e3431' });
+  const add = (w, h, d, mat, x, y, z, rx = 0) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.rotation.x = rx;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    g.add(m);
+    return m;
+  };
+  add(WALL_W * 2, WALL_H, WALL_T * 2, plate, 0, WALL_H / 2, 0);
+  add(WALL_W * 2 + 0.04, 0.06, 0.22, dark, 0, WALL_H - 0.03, 0.03);      // folded top lip
+  for (const x of [-WALL_W + 0.03, WALL_W - 0.03]) {
+    add(0.06, WALL_H, 0.2, dark, x, WALL_H / 2, 0.02);                    // side posts
+    add(0.05, 0.05, 0.9, dark, x, 0.55, 0.42, 0.95);                       // angled brace
+    add(0.12, 0.04, 0.5, dark, x, 0.02, 0.3);                              // foot
+  }
+  // rivet rows across the plate
+  for (let i = 0; i < 5; i++) add(0.03, 0.03, 0.02, dark, -WALL_W + 0.25 + i * 0.28, 0.2, -WALL_T - 0.005);
+  for (let i = 0; i < 5; i++) add(0.03, 0.03, 0.02, dark, -WALL_W + 0.25 + i * 0.28, WALL_H - 0.15, -WALL_T - 0.005);
+  g.userData.plate = plate;
+  g.userData.base = base;
+  return g;
+}
+
+// a quadcopter about a metre across, carrying a grenade underneath
+function makeDroneMesh() {
+  const g = new THREE.Group();
+  const dark = new THREE.MeshLambertMaterial({ color: '#2b2f33' });
+  const grey = new THREE.MeshLambertMaterial({ color: '#8a9096' });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 0.3), dark);
+  g.add(body);
+  const cam = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.06), grey);
+  cam.position.set(0, -0.06, -0.16);
+  g.add(cam);
+  const rotors = [];
+  for (const [x, z] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.03, 0.04), grey);
+    arm.position.set(x * 0.18, 0.02, z * 0.18);
+    arm.rotation.y = Math.atan2(-z, x);
+    g.add(arm);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.06, 8), dark);
+    hub.position.set(x * 0.36, 0.05, z * 0.36);
+    g.add(hub);
+    const rotor = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.006, 0.03), new THREE.MeshBasicMaterial({ color: '#111315', transparent: true, opacity: 0.55 }));
+    rotor.position.set(x * 0.36, 0.085, z * 0.36);
+    g.add(rotor);
+    rotors.push(rotor);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.17, 20), new THREE.MeshBasicMaterial({ color: '#8a9096', transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }));
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(x * 0.36, 0.085, z * 0.36);
+    g.add(disc);
+  }
+  const nade = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), new THREE.MeshLambertMaterial({ color: '#4a5236' }));
+  nade.position.y = -0.13;
+  g.add(nade);
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), new THREE.MeshBasicMaterial({ color: '#ff3b2f' }));
+  led.position.set(0, 0.07, 0.12);
+  g.add(led);
+  g.userData.rotors = rotors;
+  g.userData.led = led;
   return g;
 }
 

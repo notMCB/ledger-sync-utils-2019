@@ -41,6 +41,7 @@ export class Effects {
     this.nadeGeo = new THREE.SphereGeometry(0.06, 10, 8);
     this.nadeMat = new THREE.MeshStandardMaterial({ color: '#4a5236', roughness: 0.7, metalness: 0.2 });
     this.flashNadeMat = new THREE.MeshStandardMaterial({ color: '#c9ccd1', roughness: 0.4, metalness: 0.5 });
+    this.smokeNadeMat = new THREE.MeshStandardMaterial({ color: '#6f7a6a', roughness: 0.8, metalness: 0.3 });
     this.nades = [];
     this.shake = 0;
   }
@@ -90,7 +91,7 @@ export class Effects {
     if (!quiet) this.light(pos, 5);
   }
 
-  particle(tex, pos, vel, size, grow, life, gravity = 0, opacity = 1, additive = false) {
+  particle(tex, pos, vel, size, grow, life, gravity = 0, opacity = 1, additive = false, hold = 0) {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
     const s = new THREE.Sprite(mat);
@@ -98,7 +99,23 @@ export class Effects {
     s.scale.set(size, size, 1);
     mat.rotation = Math.random() * Math.PI * 2;
     this.group.add(s);
-    this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity });
+    // hold: the fraction of its life a particle stays at full strength before fading
+    this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity, hold });
+  }
+
+  // a smoke grenade: a thick cloud about seven metres across that hangs for 15 seconds
+  smoke(pos) {
+    for (let i = 0; i < 34; i++) {
+      const start = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.6, 0.4 + Math.random() * 1.6, (Math.random() - 0.5) * 1.6));
+      const v = new THREE.Vector3(Math.random() - 0.5, (Math.random() - 0.3) * 0.4, Math.random() - 0.5).multiplyScalar(2.2);
+      const life = 12 + Math.random() * 4;
+      this.particle(this.smokeTex, start, v, 2.4 + Math.random() * 1.6, 1.4, life, -0.02, 0.95, false, 0.7);
+    }
+    // a small burst of lighter puffs as it pops
+    for (let i = 0; i < 8; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(5);
+      this.particle(this.puffTex, pos.clone().add(new THREE.Vector3(0, 0.3, 0)), v, 0.6, 3, 1.2, -0.3, 0.6);
+    }
   }
 
   impact(point, normal, mat) {
@@ -168,7 +185,7 @@ export class Effects {
   // grenades are simulated the same way on every screen from the thrower's
   // starting point and velocity; the thrower's copy decides where it goes off
   throwNade(owner, nid, origin, vel, local, onBoom, kind = 'frag') {
-    const mesh = new THREE.Mesh(this.nadeGeo, kind === 'flash' ? this.flashNadeMat : this.nadeMat);
+    const mesh = new THREE.Mesh(this.nadeGeo, kind === 'flash' ? this.flashNadeMat : kind === 'smoke' ? this.smokeNadeMat : this.nadeMat);
     mesh.position.copy(origin);
     mesh.castShadow = false;
     this.group.add(mesh);
@@ -235,7 +252,7 @@ export class Effects {
       p.s.position.addScaledVector(p.vel, dt);
       const s = Math.max(0.01, p.size * (1 + p.grow * k));
       p.s.scale.set(s, s, 1);
-      p.s.material.opacity = p.opacity * (1 - k);
+      p.s.material.opacity = p.opacity * (p.hold && k < p.hold ? 1 : (1 - k) / (1 - (p.hold || 0)));
     }
     // grenades
     const d = new THREE.Vector3();

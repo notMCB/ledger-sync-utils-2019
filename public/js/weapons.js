@@ -57,21 +57,29 @@ export const WEAPONS = {
 
 // Each loadout's perk. Uses are per life.
 export const PERKS = {
-  ammo: { id: 'ammo', name: 'Ammo Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to restock spare ammo, once each. (Grenades don’t come back.)' },
-  med: { id: 'med', name: 'Medic Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to heal to full, once each.' },
+  ammo: { id: 'ammo', name: 'Ammo Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to restock spare ammo. Stand on it again 15 seconds later and it restocks you again. (Grenades don’t come back.)' },
+  med: { id: 'med', name: 'Medic Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to heal to full. Come back 15 seconds later and it heals you again.' },
   ladder: { id: 'ladder', name: 'Breaching Ladder', uses: 1, blurb: 'Stand it against a wall to climb in through high windows. Anyone can use it.' },
   beacon: { id: 'beacon', name: 'Recon Beacon', uses: 1, blurb: 'Drop it and it pulses for 30 seconds, scanning 35 m around it. Your whole team sees the area on the map, with every enemy inside marked as a red dot.' },
+  wall: { id: 'wall', name: 'Cover Wall', uses: 2, blurb: 'Put up a steel barricade in front of you: two players wide and chest high. Crouch behind it and you are hidden; stand up and your head shows. It takes 300 damage before it falls.' },
+  drone: { id: 'drone', name: 'Bomb Drone', uses: 1, blurb: 'Launch a drone and fly it over the town to see where everyone is, then click to bring it down and blow it like a frag grenade. The battery lasts one trip across the town and back. Anyone can shoot it down.' },
 };
 
 export const LOADOUTS = [
-  { id: 0, weapon: 'smg', perk: 'ammo', nades: 3, title: 'Assault', blurb: 'Fast-firing SMG and three grenades. Quick to aim, strong up close. Kills with it unlock attachments.' },
-  { id: 1, weapon: 'lmg', perk: 'med', nades: 2, title: 'Medic', blurb: '100-round LMG. Heavy, slow to reload. Kills with it unlock attachments.' },
-  { id: 2, weapon: 'shotgun', perk: 'ladder', nades: 2, title: 'Breacher', blurb: 'Pump shotgun, devastating in rooms and doorways. Frag or flash grenades.' },
-  { id: 3, weapon: 'sniper', perk: 'beacon', nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope. One headshot kills.' },
+  { id: 0, weapon: 'smg', perk: 'ammo', perks: ['ammo'], nadeKinds: ['frag'], nades: 3, title: 'Assault', blurb: 'Fast-firing SMG and three grenades. Quick to aim, strong up close. Kills with it unlock attachments.' },
+  { id: 1, weapon: 'lmg', perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
+  { id: 2, weapon: 'shotgun', perk: 'ladder', perks: ['ladder'], nadeKinds: ['frag', 'flash'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun, devastating in rooms and doorways. Frag or flash grenades.' },
+  { id: 3, weapon: 'sniper', perk: 'drone', perks: ['drone', 'beacon'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope. One headshot kills. Flies a bomb drone, or drops a recon beacon.' },
 ];
 
 export const NADES_PER_LIFE = 2;
-export const nadesFor = (ld) => (LOADOUTS[ld] ? LOADOUTS[ld].nades : 2);
+// smoke is harmless, so you carry twice as many
+export const nadesFor = (ld, kind = 'frag') => (LOADOUTS[ld] ? LOADOUTS[ld].nades : 2) * (kind === 'smoke' ? 2 : 1);
+export const NADE_INFO = {
+  frag: { id: 'frag', name: 'Frag', blurb: 'Explodes — up to 125 damage' },
+  flash: { id: 'flash', name: 'Flash', blurb: 'Blinds anyone looking — no damage' },
+  smoke: { id: 'smoke', name: 'Smoke', blurb: 'A thick cloud for 15 seconds — no damage, and you carry twice as many' },
+};
 
 // nothing is suppressed out of the box any more: fit a suppressor to a gun
 // in the Locker and it turns quiet, flashes less and keeps you off enemy minimaps

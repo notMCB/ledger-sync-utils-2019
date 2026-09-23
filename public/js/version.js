@@ -2,9 +2,25 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.3.0';
+export const VERSION = '2.4.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.4.0',
+    date: '23 September 2026',
+    title: 'Bomb drone, cover walls, smoke and tunnel cover',
+    notes: [
+      'Marksman: a Bomb Drone. Press your perk key to launch it, then fly it with your move keys (jump climbs, crouch dives) and watch the town from above. Click to bring it down like a frag grenade. The battery lasts one trip across the town and back, and anyone can shoot it out of the sky for 10 dinars. The Recon Beacon is still there as a choice in the Locker.',
+      'Medic: a Cover Wall as an alternative to the Medic Crate. It stands two players wide and chest high: crouch behind it and you are hidden, stand up and your head shows. It takes 300 damage before it falls, from any gun, knife or grenade. Two per life.',
+      'Medic: smoke grenades as an alternative to frags. A thick cloud for 15 seconds, no damage, and you carry four of them.',
+      'Medic and ammo crates work again and again: stand on the same crate 15 seconds later and it heals or restocks you again, for your whole team, until it packs up.',
+      'Tunnels: barrels, crates, rubble and sandbags down the corridors, so the long stretches are no longer a shooting gallery.',
+      'Tunnels: walking through a corner no longer lifts you up onto the street above.',
+      'Cars are cars now: wheels, windows, bumpers and lights, in place of the painted blocks.',
+      'The knife is held point up, tilted a little across the body.',
+      'Perk and grenade choices live in the Locker, under each loadout.',
+    ],
+  },
   {
     version: '2.3.0',
     date: '23 September 2026',

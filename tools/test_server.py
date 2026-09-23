@@ -30,11 +30,12 @@ class P:
         self.pos = [0, 0, 0]
         self.alive = False
         self.snap_players = []
+        self.msgs = []        # every message, for tests that look at more than events
 
-    async def start(self, mode):
+    async def start(self, mode, ld=0, **picks):
         self.ws = await WS.connect(URL)
         self.ws.send({'t': 'hello', 'name': self.name, 'v': '2.0.0'})
-        self.ws.send({'t': 'join', 'mode': mode, 'ld': 0})
+        self.ws.send({'t': 'join', 'mode': mode, 'ld': ld, **picks})
         asyncio.ensure_future(self.read())
 
     async def read(self):
@@ -46,6 +47,8 @@ class P:
             if not m:
                 continue
             t = m['t']
+            if t != 'snap':
+                self.msgs.append(m)
             if t == 'welcome':
                 self.id = m['id']
             elif t == 'joined':

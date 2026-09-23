@@ -30,8 +30,10 @@ export class Physics {
   // the level the ground sits at here: 0 everywhere except down an open hatch
   floorAt(x, z, y = 1) {
     if (this.shafts.length && Physics.inRects(this.shafts, x, z)) return this.pitFloor;
-    // already below the street: you're in the tunnels, so the tunnel floor holds you
-    if (y < -0.6 && Physics.inRects(this.pits, x, z)) return this.pitFloor;
+    // already below the street: you're in the tunnels, so the tunnel floor
+    // holds you wherever you are down there (the walls keep you in the
+    // corridors; asking the rects would pop you up to the street at a corner)
+    if (y < -0.6) return this.pitFloor;
     return 0;
   }
 
@@ -50,14 +52,31 @@ export class Physics {
     this.boxes.push(b);
     const x0 = Math.floor((cx - ex) / CELL), x1 = Math.floor((cx + ex) / CELL);
     const z0 = Math.floor((cz - ez) / CELL), z1 = Math.floor((cz + ez) / CELL);
+    b.cells = [];
     for (let ix = x0; ix <= x1; ix++) {
       for (let iz = z0; iz <= z1; iz++) {
         const k = ix * 4096 + iz;
         let arr = this.cells.get(k);
         if (!arr) this.cells.set(k, (arr = []));
         arr.push(b);
+        b.cells.push(k);
       }
     }
+    return b;
+  }
+
+  // take out a box that was added after the map was built (a cover wall)
+  remove(b) {
+    if (!b || !b.cells) return;
+    for (const k of b.cells) {
+      const arr = this.cells.get(k);
+      if (!arr) continue;
+      const i = arr.indexOf(b);
+      if (i >= 0) arr.splice(i, 1);
+    }
+    const i = this.boxes.indexOf(b);
+    if (i >= 0) this.boxes.splice(i, 1);
+    b.cells = null;
   }
 
   query(minx, minz, maxx, maxz, out) {

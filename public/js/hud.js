@@ -84,6 +84,24 @@ export class Hud {
     $('perk').classList.toggle('spent', left <= 0);
   }
 
+  // flying the bomb drone: a battery bar and the controls
+  droneOverlay(on, frac = 1, perkKey = 'X') {
+    const el = $('drone');
+    if (!on) {
+      if (!el.hidden) el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    const bar = $('drone-bat');
+    bar.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
+    bar.classList.toggle('low', frac < 0.25);
+    const hint = `Click to detonate · ${perkKey} to let it go`;
+    if (this.droneHint !== hint) {
+      this.droneHint = hint;
+      $('drone-hint').textContent = hint;
+    }
+  }
+
   crosshair(gapPx, visible, enemy) {
     this.ch.style.display = visible ? '' : 'none';
     if (!visible) return;
@@ -547,7 +565,7 @@ export class Hud {
 
   // dinars earned, floating up by the ammo counter
   earn(n, why) {
-    const labels = { kill: 'Kill', assist: 'Kill assist', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
+    const labels = { kill: 'Kill', assist: 'Kill assist', supply: 'Teammate used your crate', shotdown: 'Drone shot down', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
     const el = document.createElement('div');
     el.className = 'earn-pop';
     el.innerHTML = `<b>+${n}</b> dinars <span>${esc(labels[why] || '')}</span>`;

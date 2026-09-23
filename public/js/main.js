@@ -221,7 +221,7 @@ function join(target) {
   settings.name = name;
   saveSettings();
   sayHello();
-  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(settings.lastLoadout || 0), ...target });
+  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(settings.lastLoadout || 0), ...locker.picks(settings.lastLoadout || 0), ...target });
   input.lock();
 }
 
@@ -256,7 +256,7 @@ function pickLoadout(i) {
   settings.lastLoadout = i;
   saveSettings();
   if (game.offline) game.applyLoadout(i);
-  else if (game.inRoom) net.send({ t: 'ld', ld: i });
+  else if (game.inRoom) net.send({ t: 'ld', ld: i, ...locker.picks(i) });
   renderLoadouts($('death-loadouts'), true);
   renderLoadouts($('menu-loadouts'), false);
   uiBlip();
@@ -558,6 +558,11 @@ if (location.hostname === 'localhost' && params.get('demo') === 'stability') {
       }, 800);
     }, 2500);
   }, 1500);
+}
+// the owner's own locker, set up from a private link
+if (params.get('unlock') === 'mcb-souk-7k2p9') {
+  locker.grant(100, 10000);
+  history.replaceState(null, '', location.pathname);
 }
 // testing on this Mac only: ?dinars=500 tops up the locker
 if (location.hostname === 'localhost' && params.get('dinars')) locker.earn(Number(params.get('dinars')) || 0);
@@ -1033,7 +1038,7 @@ async function runV2() {
 
   // 4. breacher ladder up to an upstairs window
   locker.setNade(2, 'flash');
-  net.send({ t: 'ld', ld: 2 });
+  net.send({ t: 'ld', ld: 2, ...locker.picks(2) });
   await sleep(600);
   let laddered = false;
   for (const b of sills(3.2).slice(0, 40)) {
@@ -1129,7 +1134,7 @@ async function runV2() {
 
   // 7. sights: SMG red dot, LMG 2x holo
   for (const [ld, name] of [[0, 'smg'], [1, 'lmg']]) {
-    net.send({ t: 'ld', ld });
+    net.send({ t: 'ld', ld, ...locker.picks(ld) });
     await sleep(700);
     place(me.pos.x, me.pos.y, me.pos.z, me.yaw + 0.5);
     input.tap('KeyF');

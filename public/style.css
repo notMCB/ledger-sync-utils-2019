@@ -433,6 +433,12 @@ button { cursor: pointer; }
 .perk b { font-family: var(--mono); color: var(--saffron); }
 .perk .pk-nade { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--plaster-dim); margin-left: 6px; }
 .perk.spent { opacity: 0.45; }
+#drone { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); display: grid; gap: 5px; justify-items: center; padding: 8px 14px; border-radius: 4px; background: rgba(18, 21, 28, 0.55); pointer-events: none; }
+#drone .dr-title { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #7fc8ff; font-weight: 700; }
+#drone .dr-bat { width: 180px; height: 8px; border-radius: 2px; background: rgba(239, 228, 207, 0.18); overflow: hidden; }
+#drone .dr-bat i { display: block; height: 100%; width: 100%; background: #7fc8ff; transition: width 0.2s linear; }
+#drone .dr-bat i.low { background: #ff5a44; }
+#drone .dr-hint { font-size: 12px; color: var(--plaster-dim); }
 #flash { position: absolute; inset: 0; background: #fffdf4; opacity: 0; pointer-events: none; }
 #chat { position: absolute; left: 18px; bottom: 120px; width: min(420px, calc(100% - 36px)); display: grid; gap: 6px; }
 #chat-log { display: grid; gap: 2px; max-height: 190px; overflow: hidden; align-content: end; }

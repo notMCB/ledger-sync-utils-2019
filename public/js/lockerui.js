@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { locker, CRATES, roll } from './locker.js';
 import { FINISHES, FINISH, OUTFITS, OUTFIT, RARITY, swatch, tickSkins } from './skins.js';
-import { WEAPONS, LOADOUTS, PERKS } from './weapons.js';
+import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, nadesFor } from './weapons.js';
 import { buildPreviewGun } from './viewmodel.js';
 import { Avatar } from './avatars.js';
 import { settings, saveSettings, keyName } from './settings.js';
@@ -175,7 +175,7 @@ function renderLoadouts(host) {
     const b = document.createElement('button');
     b.className = 'lk-ld' + (i === ldSel ? ' on' : '');
     b.innerHTML = `<span class="ld-title">${L.title}</span><span class="ld-gun">${WEAPONS[L.weapon].name}</span>` +
-      `<span class="ld-perk">${PERKS[L.perk].name}</span>${i === inUse ? '<span class="lk-inuse">In use</span>' : ''}`;
+      `<span class="ld-perk">${PERKS[locker.perkFor(i)].name}</span>${i === inUse ? '<span class="lk-inuse">In use</span>' : ''}`;
     b.addEventListener('click', () => {
       ldSel = i;
       selected = { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) };
@@ -222,26 +222,45 @@ function renderLoadouts(host) {
   kn.appendChild(finishRow('knife', locker.equippedGun('knife'), (f) => locker.equipGun('knife', f)));
   detail.appendChild(kn);
 
-  const perk = PERKS[L.perk];
+  const perkId = locker.perkFor(L.id);
+  const perk = PERKS[perkId];
   const pk = section(`Perk · ${perk.name}`, `${perk.uses} per life · use with ${keyName(settings.binds.perk)}`);
+  if (L.perks.length > 1) {
+    // a choice of perk: pick one
+    const prow = document.createElement('div');
+    prow.className = 'lk-nades';
+    for (const id of L.perks) {
+      const b = document.createElement('button');
+      b.className = 'lk-nade' + (id === perkId ? ' on' : '');
+      b.innerHTML = `<b>${esc(PERKS[id].name)}</b><small>${PERKS[id].uses} per life</small>`;
+      b.addEventListener('click', () => {
+        locker.setPerk(L.id, id);
+        uiBlip();
+        render();
+      });
+      prow.appendChild(b);
+    }
+    pk.appendChild(prow);
+  }
   const pd = document.createElement('p');
   pd.className = 'lk-perk';
   pd.textContent = perk.blurb;
   pk.appendChild(pd);
   detail.appendChild(pk);
 
-  const nd = section('Grenades', `${L.nades === 3 ? 'Three' : 'Two'} per life`);
+  const kinds = L.nadeKinds || ['frag'];
+  const cur = locker.nadeFor(L.id);
+  const count = nadesFor(L.id, cur);
+  const nd = section('Grenades', `${['', 'One', 'Two', 'Three', 'Four'][count] || count} per life`);
   const row = document.createElement('div');
   row.className = 'lk-nades';
-  const kinds = L.id === 2 ? ['frag', 'flash'] : ['frag'];
-  const cur = locker.nadeFor(L.id);
   for (const k of kinds) {
     const b = document.createElement('button');
     b.className = 'lk-nade' + (k === cur ? ' on' : '');
-    b.innerHTML = k === 'frag' ? '<b>Frag</b><small>Explodes — up to 125 damage</small>' : '<b>Flash</b><small>Blinds anyone looking — no damage</small>';
+    b.innerHTML = `<b>${esc(NADE_INFO[k].name)}</b><small>${esc(NADE_INFO[k].blurb)}</small>`;
     if (kinds.length > 1) {
       b.addEventListener('click', () => {
-        locker.setNade(2, k);
+        locker.setNade(L.id, k);
         uiBlip();
         render();
       });
@@ -251,7 +270,7 @@ function renderLoadouts(host) {
   if (kinds.length === 1) {
     const note = document.createElement('div');
     note.className = 'lk-hint';
-    note.textContent = 'Only the Breacher can swap to flash grenades.';
+    note.textContent = 'The Medic can carry smoke and the Breacher can carry flash.';
     row.appendChild(note);
   }
   nd.appendChild(row);
