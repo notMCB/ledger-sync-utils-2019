@@ -114,6 +114,7 @@ class Town:
         self.seed = seed
         self.rng = random.Random(seed)
         self.bx, self.bz = BX, BZ
+        self.base_y = 0.0    # the ground level things are built on (terrain maps move it)
         self.boxes = []
         self.deco = []
         self.rects = []      # building footprints, for placement tests
@@ -132,6 +133,7 @@ class Town:
     def box(self, cx, cy, cz, hx, hy, hz, yaw=0.0, mat='wall', tint=0):
         if hx <= 0.005 or hy <= 0.005 or hz <= 0.005:
             return
+        cy += self.base_y
         self.boxes.append([round(cx, 3), round(cy, 3), round(cz, 3),
                            round(hx, 3), round(hy, 3), round(hz, 3),
                            round(yaw, 4), mat, tint])
@@ -428,7 +430,7 @@ class Town:
                 wx, wz = rot(lx, lz, yaw)
                 self.doors.append((bx + wx, bz + wz))
                 if rng.random() < 0.45:
-                    self.deco.append({'k': 'awning', 'x': round(bx + wx, 2), 'y': 2.75,
+                    self.deco.append({'k': 'awning', 'x': round(bx + wx, 2), 'y': round(2.75 + self.base_y, 2),
                                       'z': round(bz + wz, 2), 'w': round(wid + 1.0, 2),
                                       'yaw': round(yaw + fy, 4), 'c': rng.randrange(6)})
         return H
@@ -1024,14 +1026,14 @@ class Town:
 
     def barrel(self, x, z):
         self.box(x, 0.5, z, 0.32, 0.5, 0.32, 0, 'inv')
-        self.deco.append({'k': 'barrel', 'x': round(x, 2), 'z': round(z, 2), 'c': self.rng.randrange(3)})
+        self.deco.append({'k': 'barrel', 'x': round(x, 2), 'y': round(self.base_y, 2), 'z': round(z, 2), 'c': self.rng.randrange(3)})
 
     def car(self, x, z, yaw):
         c = self.rng.randrange(5)
         self.box(x, 0.55, z, 2.1, 0.45, 0.9, yaw, 'car', c)
         ox, oz = rot(-0.2, 0, yaw)
         self.box(x + ox, 1.25, z + oz, 1.1, 0.3, 0.82, yaw, 'car', c)
-        self.deco.append({'k': 'car', 'x': round(x, 2), 'z': round(z, 2), 'yaw': round(yaw, 4), 'c': c})
+        self.deco.append({'k': 'car', 'x': round(x, 2), 'y': round(self.base_y, 2), 'z': round(z, 2), 'yaw': round(yaw, 4), 'c': c})
 
     def stall(self, x, z, yaw):
         rng = self.rng

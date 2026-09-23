@@ -451,9 +451,10 @@ class Room:
                                                  for q in others)), pts[0])
         else:
             best = self.random_spawn(p, others, warmup)
-        x, z = best
+        x, z = best[0], best[1]
+        y = float(best[2]) if len(best) > 2 else 0.0
         yaw = random.uniform(-math.pi, math.pi)
-        p.pos = [x, 0.0, z]
+        p.pos = [x, y, z]
         p.yaw = yaw
         p.hp = 100
         p.alive = True
@@ -463,7 +464,7 @@ class Room:
         p.sc += 1
         p.protect_until = now() + PROTECT
         p.in_round = True
-        p.send({'t': 'spawn', 'p': [x, 0.0, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team})
+        p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team})
         self.roster_dirty = True
 
     def random_spawn(self, p, others, warmup):
@@ -479,7 +480,7 @@ class Room:
         if len(safe) < 3:
             safe = sorted(pts, key=near, reverse=True)[:6]
         for pt in safe[:10]:
-            eye = [pt[0], 1.6, pt[1]]
+            eye = [pt[0], (pt[2] if len(pt) > 2 else 0.0) + 1.6, pt[1]]
             seen = any(dist3(eye, q.pos) < 45 and not self.solid.blocked(eye, [q.pos[0], q.pos[1] + 1.5, q.pos[2]])
                        for q in enemies)
             if not seen:
@@ -607,8 +608,10 @@ class Room:
                 b['defuse_t'] = now()
 
     def site_at(self, pos):
-        for k, (x, z) in self.map['sites'].items():
-            if math.hypot(pos[0] - x, pos[2] - z) < SITE_R and pos[1] < 2.0:
+        for k, site in self.map['sites'].items():
+            x, z = site[0], site[1]
+            sy = site[2] if len(site) > 2 else 0.0
+            if math.hypot(pos[0] - x, pos[2] - z) < SITE_R and pos[1] < sy + 2.0:
                 return k
         return None
 
@@ -1166,7 +1169,7 @@ class Room:
             self.hill_i = random.choice(choices)
             self.hill_next = t + HILL_MOVE
             self.event({'e': 'hillmove', 'i': self.hill_i})
-        hx, hz = hills[self.hill_i]
+        hx, hz = hills[self.hill_i][0], hills[self.hill_i][1]
         present = [0, 0]
         for p in self.players.values():
             if p.alive and p.team in (0, 1) and math.hypot(p.pos[0] - hx, p.pos[2] - hz) < HILL_R and p.pos[1] < 2.5:

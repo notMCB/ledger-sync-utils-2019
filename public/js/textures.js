@@ -183,6 +183,36 @@ export function corrugated() {
   return tex(c);
 }
 
+// a shipping container's side: deep ribs every 40 cm or so, weathered paint
+export function containerSkin() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(71);
+  g.fillStyle = '#b9bcbf';
+  g.fillRect(0, 0, S, S);
+  const rib = 32;
+  for (let x = 0; x < S; x += rib) {
+    const grd = g.createLinearGradient(x, 0, x + rib, 0);
+    grd.addColorStop(0, 'rgba(0,0,0,0.38)');
+    grd.addColorStop(0.18, 'rgba(255,255,255,0.18)');
+    grd.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+    grd.addColorStop(0.82, 'rgba(0,0,0,0.12)');
+    grd.addColorStop(1, 'rgba(0,0,0,0.42)');
+    g.fillStyle = grd;
+    g.fillRect(x, 0, rib, S);
+  }
+  for (let i = 0; i < 26; i++) {
+    const x = r() * S, y = r() * S, rad = 6 + r() * 26;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, r() < 0.6 ? 'rgba(110,60,30,0.28)' : 'rgba(40,40,40,0.2)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  speckle(g, S, r, 900, ['rgba(120,70,40,0.35)', 'rgba(255,255,255,0.15)'], 1, 2);
+  return tex(c);
+}
+
 // grey mountain rock
 export function rock() {
   const S = 256;

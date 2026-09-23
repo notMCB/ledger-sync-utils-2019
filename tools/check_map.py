@@ -121,17 +121,17 @@ def check(kind, seed):
         if abs(b[0]) > bx + 1.5 or abs(b[2]) > bz + 1.5:
             bad.append('box outside walls: %r' % (b[:3],))
     grid = walk_grid(m)
-    for i, (x, z) in enumerate(m['ffaSpawns']):
+    for i, (x, z, *_) in enumerate(m['ffaSpawns']):
         if not clear(grid, m, x, z):
             bad.append('ffa spawn %d at %.1f,%.1f is inside something' % (i, x, z))
     for t, zone in enumerate(m['teamSpawns']):
-        for (x, z) in zone:
+        for (x, z, *_) in zone:
             if not clear(grid, m, x, z):
                 bad.append('team %d spawn at %.1f,%.1f is inside something' % (t, x, z))
-    for k, (x, z) in m['sites'].items():
+    for k, (x, z, *_) in m['sites'].items():
         if not clear(grid, m, x, z):
             bad.append('site %s at %.1f,%.1f is blocked' % (k, x, z))
-    for (x, z) in m['hills']:
+    for (x, z, *_) in m['hills']:
         if not clear(grid, m, x, z):
             bad.append('hill at %.1f,%.1f is blocked' % (x, z))
     start = m['teamSpawns'][0][0]

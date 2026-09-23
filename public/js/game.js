@@ -1861,8 +1861,8 @@ export class Game {
     const attacking = g.att === me.team;
     if (attacking && b.s === 'carried' && b.c === this.myId) {
       for (const k of ['A', 'B']) {
-        const [x, z] = this.map.sites[k];
-        if (Math.hypot(me.pos.x - x, me.pos.z - z) < SITE_R && me.pos.y < 2) return { kind: 'plant', site: k };
+        const [x, z, sy] = this.map.sites[k];
+        if (Math.hypot(me.pos.x - x, me.pos.z - z) < SITE_R && me.pos.y < (sy || 0) + 2) return { kind: 'plant', site: k };
       }
       return null;
     }
@@ -2034,9 +2034,9 @@ export class Game {
         document.getElementById('bombcarry').hidden = true;
       }
       if (g.mode === 'koth' && g.h) {
-        const [x, z] = this.map.hills[g.h.i];
+        const [x, z, hy] = this.map.hills[g.h.i];
         this.hill.visible = true;
-        this.hill.position.set(x, 0, z);
+        this.hill.position.set(x, hy || 0, z);
         const col = g.h.c ? '#ffffff' : g.h.o >= 0 ? TEAM_COLORS[g.h.o] : '#efe4cf';
         for (const m of this.hill.userData.mats) m.color.set(col);
         this.hill.userData.mats[0].opacity = 0.18 + (g.h.c ? Math.abs(Math.sin(this.clock * 6)) * 0.2 : 0);

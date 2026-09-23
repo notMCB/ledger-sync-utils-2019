@@ -299,9 +299,10 @@ export class Hud {
     const theme = map.theme || 'sand';
     g.fillStyle = theme === 'snow' ? 'rgba(226, 232, 240, 0.55)' : theme === 'concrete' ? 'rgba(125, 126, 130, 0.5)' : 'rgba(201, 168, 119, 0.35)';
     g.fillRect(S / 2 - bx * scale, S / 2 - bz * scale, bx * 2 * scale, bz * 2 * scale);
-    // rock terrain: the ridge and its terraces
-    g.fillStyle = 'rgba(150, 148, 144, 0.9)';
+    // rock terrain: the ridge and its terraces, or stepped ground shaded by height
     for (const f of world.terrain()) {
+      const t = Math.max(0, Math.min(1, (f.h - 1) / 8));
+      g.fillStyle = theme === 'snow' ? `rgba(${Math.round(150 + 90 * t)}, ${Math.round(156 + 88 * t)}, ${Math.round(166 + 84 * t)}, 0.95)` : 'rgba(150, 148, 144, 0.9)';
       g.save();
       g.translate(S / 2 + f.x * scale, S / 2 + f.z * scale);
       g.rotate(-f.yaw);

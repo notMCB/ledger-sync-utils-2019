@@ -26,7 +26,7 @@ function textures() {
     plaster: T.plaster(), stone: T.stone(), ground: T.ground(), tiles: T.tiles(), wood: T.wood(),
     crate: T.crate(), metal: T.metal(), leaf: T.palmLeaf(),
     cloth: CLOTH.map((c) => T.cloth(c)),
-    concrete: T.concrete(), snow: T.snow(), corrugated: T.corrugated(), rock: T.rock(),
+    concrete: T.concrete(), snow: T.snow(), corrugated: T.corrugated(), rock: T.rock(), container: T.containerSkin(),
   };
   return texCache;
 }
@@ -69,7 +69,8 @@ class GeoBuilder {
     const x0 = -hx, x1 = hx, y0 = -hy, y1 = hy, z0 = -hz, z1 = hz;
     const yb = cy - hy, yt = cy + hy;
     const skipBottom = opts.skipBottom;
-    const f = (a, b, cc, d, n, uv) => this.quad(W(...a), W(...b), W(...cc), W(...d), Nv(...n), uv, color);
+    const side = opts.sideColor || color;
+    const f = (a, b, cc, d, n, uv) => this.quad(W(...a), W(...b), W(...cc), W(...d), Nv(...n), uv, n[1] === 0 ? side : color);
     const UV = (u0, v0, u1, v1) => unit ? [[0, 0], [1, 0], [1, 1], [0, 1]] : [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
     // +x
     f([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0], UV(u(-(oz + z1)), u(yb), u(-(oz + z0)), u(yt)));
@@ -277,6 +278,7 @@ export class World {
     const root = new THREE.Group();
     this.root = root;
     this.applyTheme(map.theme);
+    this.hasTerrain = map.boxes.some((b) => b[7] === 'terrain');
 
     const mats = {
       wall: new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }),
@@ -287,9 +289,10 @@ export class World {
       car: new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true }),
       concrete: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
       steel: new THREE.MeshLambertMaterial({ map: tx.corrugated, vertexColors: true }),
-      container: new THREE.MeshLambertMaterial({ map: tx.corrugated, vertexColors: true }),
+      container: new THREE.MeshLambertMaterial({ map: tx.container, vertexColors: true }),
       flatroof: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
       rock: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
+      terrain: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
     };
     const builders = {};
     const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
@@ -319,7 +322,12 @@ export class World {
       } else if (mat === 'steel') {
         B('steel').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(STEEL_TINTS[tint % 4]), 1.0);
       } else if (mat === 'container') {
-        B('container').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(CONTAINER_TINTS[tint % 6]), { ao: true }), 1.0);
+        B('container').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CONTAINER_TINTS[tint % 6]), 3.4);
+      } else if (mat === 'terrain') {
+        // stepped ground: snow on top, rock on the risers
+        const snowy = map.theme === 'snow';
+        B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(snowy ? '#f2f5f8' : '#c9b68f', 1.15), 4.0,
+          { skipBottom: true, sideColor: colorOf(snowy ? '#8d8f92' : '#a08a66') });
       } else if (mat === 'flatroof') {
         B('flatroof').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#7d7b76'), 3.0);
       } else if (mat === 'rock') {
@@ -413,19 +421,23 @@ export class World {
         this.addWreck(cars, wheels, wheelGeo, d);
       } else if (d.k === 'truck') {
         this.addTruck(cars, wheels, wheelGeo, d);
+      } else if (d.k === 'cbox') {
+        this.addContainerTrim(steel, paint, d);
       } else if (d.k === 'forklift') {
         this.addForklift(steel, paint, wheels, wheelGeo, d);
       } else if (d.k === 'tank') {
-        tanks.push({ geo: unitCyl, matrix: mtx(d.x, d.h / 2, d.z, 0, 0, 0, d.r, d.h, d.r), color: colorOf('#c9c4b8') });
-        tanks.push({ geo: unitCyl, matrix: mtx(d.x, d.h * 0.72, d.z, 0, 0, 0, d.r * 1.015, 0.35, d.r * 1.015), color: colorOf('#b8352a') });
-        tanks.push({ geo: unitCyl, matrix: mtx(d.x, d.h + 0.08, d.z, 0, 0, 0, d.r * 1.03, 0.16, d.r * 1.03), color: colorOf('#8d8a84') });
+        const ty = d.y || 0;
+        tanks.push({ geo: unitCyl, matrix: mtx(d.x, ty + d.h / 2, d.z, 0, 0, 0, d.r, d.h, d.r), color: colorOf('#c9c4b8') });
+        tanks.push({ geo: unitCyl, matrix: mtx(d.x, ty + d.h * 0.72, d.z, 0, 0, 0, d.r * 1.015, 0.35, d.r * 1.015), color: colorOf('#b8352a') });
+        tanks.push({ geo: unitCyl, matrix: mtx(d.x, ty + d.h + 0.08, d.z, 0, 0, 0, d.r * 1.03, 0.16, d.r * 1.03), color: colorOf('#8d8a84') });
         // a ladder up the side
-        for (let y = 0.3; y < d.h - 0.2; y += 0.35) steel.box(d.x + d.r + 0.18, y, d.z, 0.18, 0.02, 0.02, 0, colorOf('#5b636c'), 1);
-        steel.box(d.x + d.r + 0.18, d.h / 2, d.z + 0.2, 0.03, d.h / 2, 0.03, 0, colorOf('#5b636c'), 1);
-        steel.box(d.x + d.r + 0.18, d.h / 2, d.z - 0.2, 0.03, d.h / 2, 0.03, 0, colorOf('#5b636c'), 1);
+        for (let y = 0.3; y < d.h - 0.2; y += 0.35) steel.box(d.x + d.r + 0.18, ty + y, d.z, 0.18, 0.02, 0.02, 0, colorOf('#5b636c'), 1);
+        steel.box(d.x + d.r + 0.18, ty + d.h / 2, d.z + 0.2, 0.03, d.h / 2, 0.03, 0, colorOf('#5b636c'), 1);
+        steel.box(d.x + d.r + 0.18, ty + d.h / 2, d.z - 0.2, 0.03, d.h / 2, 0.03, 0, colorOf('#5b636c'), 1);
       } else if (d.k === 'mast') {
-        steel.box(d.x, d.h - 0.35, d.z, 0.7, 0.16, 0.28, 0, colorOf('#3a3f45'), 1);
-        for (const dx of [-0.35, 0.35]) paint.box(d.x + dx, d.h - 0.35, d.z + 0.3, 0.22, 0.12, 0.01, 0, colorOf('#fff6d8', 1.4), 1);
+        const my = d.y || 0;
+        steel.box(d.x, my + d.h - 0.35, d.z, 0.7, 0.16, 0.28, 0, colorOf('#3a3f45'), 1);
+        for (const dx of [-0.35, 0.35]) paint.box(d.x + dx, my + d.h - 0.35, d.z + 0.3, 0.22, 0.12, 0.01, 0, colorOf('#fff6d8', 1.4), 1);
       } else if (d.k === 'crane') {
         this.addCrane(steel, paint, d);
       } else if (d.k === 'lines') {
@@ -434,7 +446,7 @@ export class World {
         const g = new THREE.CircleGeometry(d.r, 40);
         g.rotateX(-Math.PI / 2);
         const pad = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: '#5a5d61', polygonOffset: true, polygonOffsetFactor: -1 }));
-        pad.position.set(d.x, 0.02, d.z);
+        pad.position.set(d.x, (d.y || 0) + 0.02, d.z);
         pad.receiveShadow = true;
         root.add(pad);
         const lg = new THREE.PlaneGeometry(d.r * 1.4, d.r * 1.4);
@@ -442,7 +454,7 @@ export class World {
         const lm = new THREE.MeshBasicMaterial({ map: T.siteDecal('H', '#f3f1e6'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, fog: true });
         lm.userData.own = true;
         const label = new THREE.Mesh(lg, lm);
-        label.position.set(d.x, 0.035, d.z);
+        label.position.set(d.x, (d.y || 0) + 0.035, d.z);
         label.renderOrder = 1;
         root.add(label);
       } else if (d.k === 'radome') {
@@ -453,16 +465,16 @@ export class World {
       } else if (d.k === 'tower') {
         this.addTower(steel, paint, d);
       } else if (d.k === 'generator') {
-        const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+        const c = Math.cos(d.yaw), s = Math.sin(d.yaw), gy = d.y || 0;
         const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
         const [ex, ez] = W(-1.1, 0.4);
-        steel.box(ex, 2.05, ez, 0.08, 0.5, 0.08, d.yaw, colorOf('#3a3f45'), 1);          // exhaust stack
+        steel.box(ex, gy + 2.05, ez, 0.08, 0.5, 0.08, d.yaw, colorOf('#3a3f45'), 1);          // exhaust stack
         for (let i = 0; i < 5; i++) {                                                     // vent louvres
           const [vx, vz] = W(-0.9 + i * 0.35, 0.82);
-          steel.box(vx, 1.05, vz, 0.12, 0.28, 0.02, d.yaw, colorOf('#2e3236'), 1);
+          steel.box(vx, gy + 1.05, vz, 0.12, 0.28, 0.02, d.yaw, colorOf('#2e3236'), 1);
         }
         const [px, pz] = W(1.2, 0);
-        paint.box(px, 1.62, pz, 0.12, 0.03, 0.12, d.yaw, colorOf('#d1b83c'), 1);          // fuel cap
+        paint.box(px, gy + 1.62, pz, 0.12, 0.03, 0.12, d.yaw, colorOf('#d1b83c'), 1);          // fuel cap
       } else if (d.k === 'pine') {
         this.addPine(trunks, cones, trunkSeg, coneGeo, d);
       } else if (d.k === 'palm') {
@@ -700,7 +712,7 @@ export class World {
           polygonOffset: true, polygonOffsetFactor: -2, fog: true });
         mat.userData.own = true;
         const mesh = new THREE.Mesh(g, mat);
-        mesh.position.set(d.x, 0.03, d.z);
+        mesh.position.set(d.x, (d.y || 0) + 0.03, d.z);
         mesh.renderOrder = 1;
         root.add(mesh);
       }
@@ -831,6 +843,35 @@ export class World {
     }
   }
 
+  // the fittings that make a box read as a container: corner castings and
+  // posts, top and bottom rails, and a pair of barred doors at each end
+  addContainerTrim(steel, paint, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const hx = d.l, hz = 1.3, H = 2.6;
+    const y0 = (d.y || 0) + (d.lv || 0) * H;
+    const base = new THREE.Color(CONTAINER_TINTS[(d.t || 0) % 6]);
+    const dark = { r: base.r * 0.45, g: base.g * 0.45, b: base.b * 0.45 };
+    const P = (lx, ly, lz, ax, ay, az, color, extra = 0) => {
+      const [x, z] = W(lx, lz);
+      steel.box(x, y0 + ly, z, ax, ay, az, yaw + extra, color, 1);
+    };
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) P(sx * (hx - 0.06), H / 2, sz * (hz - 0.06), 0.07, H / 2 + 0.01, 0.07, dark);   // corner posts
+      P(0, 0.08, sx * hz, hx, 0.05, 0.03, dark);                  // bottom rails
+      P(0, H - 0.08, sx * hz, hx, 0.05, 0.03, dark);              // top rails
+      // doors on each end: two leaves, three locking bars each
+      for (const lz of [-0.62, -0.2, 0.2, 0.62]) P(sx * (hx + 0.01), H / 2, lz, 0.02, H / 2 - 0.15, 0.035, dark);
+      P(sx * (hx + 0.005), H / 2, 0, 0.02, H / 2 - 0.12, 0.012, dark);   // the seam between the leaves
+      for (const ly of [0.55, 1.45]) P(sx * (hx + 0.02), ly, 0.4, 0.02, 0.03, 0.09, dark);   // handles
+      for (const ly of [0.55, 1.45]) P(sx * (hx + 0.02), ly, -0.4, 0.02, 0.03, 0.09, dark);
+    }
+    // a faded owner's mark on one side
+    const [mx, mz] = W(-hx * 0.55, hz + 0.012);
+    paint.box(mx, y0 + H * 0.62, mz, hx * 0.22, 0.28, 0.005, yaw, colorOf('#f0ede4', 0.95), 1);
+  }
+
   // a military truck: chassis, cab and a canvas-covered bed on six wheels
   addTruck(cars, wheels, wheelGeo, d) {
     const yaw = d.yaw || 0;
@@ -843,21 +884,22 @@ export class World {
       const [x, z] = W(lx, lz);
       cars.box(x, ly, z, hx, hy, hz, yaw, color, 2);
     };
-    box(0, 0.85, 0, 3.3, 0.22, 1.05, dark);                 // chassis
-    box(2.5, 1.55, 0, 1.0, 0.55, 1.15, olive);              // cab
-    box(1.52, 1.75, 0, 0.03, 0.3, 0.9, colorOf('#0f1114')); // windscreen
-    box(2.5, 1.75, 1.16, 0.7, 0.28, 0.02, colorOf('#0f1114'));
-    box(2.5, 1.75, -1.16, 0.7, 0.28, 0.02, colorOf('#0f1114'));
-    box(3.35, 1.25, 0, 0.5, 0.35, 1.1, olive);              // bonnet
-    box(3.9, 0.95, 0, 0.08, 0.15, 1.15, dark);              // bumper
-    box(-0.9, 1.15, 0, 2.3, 0.15, 1.2, olive);              // bed floor
-    box(-0.9, 1.95, 0, 2.2, 0.72, 1.2, canvas);             // canvas tilt
-    box(-0.9, 2.66, 0, 2.2, 0.03, 1.22, canvas);
-    box(-3.15, 1.6, 0, 0.05, 0.4, 1.15, olive);             // tailgate
+    const dy = d.y || 0;
+    box(0, dy + 0.85, 0, 3.3, 0.22, 1.05, dark);            // chassis
+    box(2.5, dy + 1.55, 0, 1.0, 0.55, 1.15, olive);              // cab
+    box(1.52, dy + 1.75, 0, 0.03, 0.3, 0.9, colorOf('#0f1114')); // windscreen
+    box(2.5, dy + 1.75, 1.16, 0.7, 0.28, 0.02, colorOf('#0f1114'));
+    box(2.5, dy + 1.75, -1.16, 0.7, 0.28, 0.02, colorOf('#0f1114'));
+    box(3.35, dy + 1.25, 0, 0.5, 0.35, 1.1, olive);              // bonnet
+    box(3.9, dy + 0.95, 0, 0.08, 0.15, 1.15, dark);              // bumper
+    box(-0.9, dy + 1.15, 0, 2.3, 0.15, 1.2, olive);              // bed floor
+    box(-0.9, dy + 1.95, 0, 2.2, 0.72, 1.2, canvas);             // canvas tilt
+    box(-0.9, dy + 2.66, 0, 2.2, 0.03, 1.22, canvas);
+    box(-3.15, dy + 1.6, 0, 0.05, 0.4, 1.15, olive);             // tailgate
     for (const lx of [2.6, -0.8, -2.2]) {
       for (const lz of [1.15, -1.15]) {
         const [x, z] = W(lx, lz);
-        wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.5, z, Math.PI / 2, yaw, 0, 1.5, 1.2, 1.5), color: colorOf('#1d1d1f') });
+        wheels.push({ geo: wheelGeo, matrix: mtx(x, dy + 0.5, z, Math.PI / 2, yaw, 0, 1.5, 1.2, 1.5), color: colorOf('#1d1d1f') });
       }
     }
   }
@@ -917,28 +959,29 @@ export class World {
     const grey = colorOf('#8f949a');
     const red = colorOf('#c8352a');
     const yaw = Math.PI / 4;
+    const ty = d.y || 0;
     for (const [lx, lz] of [[0.45, 0.45], [0.45, -0.45], [-0.45, 0.45], [-0.45, -0.45]]) {
       const x = d.x + Math.cos(yaw) * lx + Math.sin(yaw) * lz, z = d.z - Math.sin(yaw) * lx + Math.cos(yaw) * lz;
-      steel.box(x, d.h / 2, z, 0.06, d.h / 2, 0.06, yaw, grey, 1);
+      steel.box(x, ty + d.h / 2, z, 0.06, d.h / 2, 0.06, yaw, grey, 1);
     }
     for (let y = 1.5; y < d.h; y += 2.5) {
-      steel.box(d.x, y, d.z, 0.47, 0.035, 0.035, yaw, grey, 1);
-      steel.box(d.x, y, d.z, 0.035, 0.035, 0.47, yaw, grey, 1);
-      steel.box(d.x, y, d.z, 0.47, 0.035, 0.47, yaw, Object.assign(colorOf('#8f949a'), {}), 1);
+      steel.box(d.x, ty + y, d.z, 0.47, 0.035, 0.035, yaw, grey, 1);
+      steel.box(d.x, ty + y, d.z, 0.035, 0.035, 0.47, yaw, grey, 1);
     }
-    paint.box(d.x + 0.7, d.h - 2, d.z, 0.06, 0.45, 0.55, 0.5, colorOf('#f4f4f0'), 1);   // dishes
-    paint.box(d.x - 0.7, d.h - 3.5, d.z, 0.06, 0.45, 0.55, -0.6, colorOf('#f4f4f0'), 1);
-    paint.box(d.x, d.h + 0.4, d.z, 0.1, 0.4, 0.1, 0, red, 1);                          // beacon
+    paint.box(d.x + 0.7, ty + d.h - 2, d.z, 0.06, 0.45, 0.55, 0.5, colorOf('#f4f4f0'), 1);   // dishes
+    paint.box(d.x - 0.7, ty + d.h - 3.5, d.z, 0.06, 0.45, 0.55, -0.6, colorOf('#f4f4f0'), 1);
+    paint.box(d.x, ty + d.h + 0.4, d.z, 0.1, 0.4, 0.1, 0, red, 1);                          // beacon
   }
 
   // a pine: a trunk and three tiers of dark green, each dusted with snow
   addPine(trunks, cones, trunkSeg, coneGeo, d) {
     const h = d.h || 7;
+    const py = d.y || 0;
     const greens = ['#2f5a34', '#264a2c', '#37633a'];
-    trunks.push({ geo: trunkSeg, matrix: mtx(d.x, h * 0.2, d.z, 0, 0, 0, 0.9, h * 0.4, 0.9), color: colorOf('#4a3524') });
+    trunks.push({ geo: trunkSeg, matrix: mtx(d.x, py + h * 0.2, d.z, 0, 0, 0, 0.9, h * 0.4, 0.9), color: colorOf('#4a3524') });
     const rot = (d.s || 0) * 0.7;
     for (let i = 0; i < 3; i++) {
-      const base = h * (0.24 + i * 0.22);
+      const base = py + h * (0.24 + i * 0.22);
       const th = h * 0.4;
       const r = h * 0.2 * (1 - i * 0.26);
       cones.push({ geo: coneGeo, matrix: mtx(d.x, base + th / 2, d.z, 0, rot, 0, r, th, r), color: colorOf(greens[(d.s + i) % 3]) });
@@ -952,14 +995,15 @@ export class World {
     const pts = d.pts;
     let along = 0;
     for (let i = 0; i < pts.length; i++) {
-      const [x, z] = pts[i];
+      const [x, z, ry] = pts[i];
+      const y = (ry || 0) + 0.02;   // roads over stepped ground carry their own height
       const p = pts[Math.max(0, i - 1)], n = pts[Math.min(pts.length - 1, i + 1)];
       let tx = n[0] - p[0], tz = n[1] - p[1];
       const L = Math.hypot(tx, tz) || 1;
       tx /= L; tz /= L;
       const nx = -tz * d.w / 2, nz = tx * d.w / 2;
       if (i) along += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
-      pos.push(x + nx, 0.02, z + nz, x - nx, 0.02, z - nz);
+      pos.push(x + nx, y, z + nz, x - nx, y, z - nz);
       uv.push(0, along / 5, 1, along / 5);
       if (i) {
         const a = (i - 1) * 2;
@@ -1001,7 +1045,7 @@ export class World {
     const m = new THREE.Mesh(geo, mat);
     m.rotation.x = -Math.PI / 2;
     if (d.k === 'rug') m.rotation.z = d.yaw || 0;
-    m.position.set(d.x, d.k === 'rug' ? 0.035 : 0.025, d.z);
+    m.position.set(d.x, (d.y || 0) + (d.k === 'rug' ? 0.035 : 0.025), d.z);
     m.receiveShadow = true;
     root.add(m);
   }
@@ -1021,7 +1065,8 @@ export class World {
     if (!this.map) return out;
     for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
       if (mat === 'crate' || mat === 'car' || mat === 'stone' || mat === 'inv' || mat === 'container' || mat === 'steel' || mat === 'concrete') {
-        if (cy - hy > 0.2) continue;
+        // on stepped ground a prop sits on its cell, so anything below head height counts
+        if (cy - hy > (this.hasTerrain ? 12 : 0.2) || hy > 4) continue;
         if ((mat === 'stone' || mat === 'concrete') && (hx > 30 || hz > 30)) continue;
         out.push({ x: cx, z: cz, hx, hz, yaw, mat });
       }
@@ -1034,7 +1079,7 @@ export class World {
     const out = [];
     if (!this.map) return out;
     for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
-      if (mat === 'rock' && cy - hy <= 0.2) out.push({ x: cx, z: cz, hx, hz, yaw, h: cy + hy });
+      if ((mat === 'rock' || mat === 'terrain') && cy - hy <= 0.2) out.push({ x: cx, z: cz, hx, hz, yaw, h: cy + hy });
     }
     return out;
   }
