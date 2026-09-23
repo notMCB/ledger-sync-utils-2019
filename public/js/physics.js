@@ -323,6 +323,17 @@ export class Physics {
   }
 
   // can a cylinder of this height stand here? (for standing up from a crouch)
+  // nothing solid inside this circle between two heights (the prone body's legs)
+  clearCircle(x, z, r, y0, y1) {
+    const tmp = this._tmp3 || (this._tmp3 = []);
+    this.query(x - r, z - r, x + r, z + r, tmp);
+    for (const b of tmp) {
+      if (b.maxY <= y0 || b.minY >= y1) continue;
+      if (Physics.overlapsCircle(b, x, z, r)) return false;
+    }
+    return true;
+  }
+
   fits(pos, r, h) {
     const tmp = this._tmp2 || (this._tmp2 = []);
     this.query(pos.x - r, pos.z - r, pos.x + r, pos.z + r, tmp);

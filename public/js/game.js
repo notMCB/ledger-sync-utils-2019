@@ -25,6 +25,13 @@ const EYE_CROUCH = 1.08;
 const WALK = 4.8;
 const RUN = 7.0;
 const CROUCH_SPEED = 2.5;
+// prone: flat on your front, head where your position is and the body trailing behind
+const PRONE_H = 0.65;
+const EYE_PRONE = 0.45;
+const PRONE_SPEED = 1.5;
+const PRONE_LEN = 1.45;
+const PRONE_R = 0.27;
+const wrapAngle = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 const SEND_HZ = 20;
 // the Medic's cover wall (half sizes) and the Marksman's bomb drone
 const WALL_W = 0.8, WALL_H = 1.25, WALL_T = 0.08;
@@ -78,7 +85,8 @@ export class Game {
     this.me = {
       team: -1, alive: false, pos: V(), vel: V(), yaw: 0, pitch: 0, crouch: false, crouchK: 0, grounded: true, landed: 0,
       sc: 0, hp: 100, loadout: 0, weapons: null, slot: 'primary', nades: NADES_PER_LIFE, adsK: 0, aimToggled: false,
-      sprinting: false, sprintToggled: false, crouchToggled: false, recoilDebt: 0, punch: 0, lastFire: -9, nadeBusy: 0,
+      sprinting: false, sprintToggled: false, crouchToggled: false, prone: false, proneK: 0, bodyYaw: 0, onBack: false,
+      recoilDebt: 0, punch: 0, lastFire: -9, nadeBusy: 0,
       nextNade: 1, interacting: false, deathPos: V(), killerId: 0, spawnT: 0, reloadEnd: 0, shellNext: 0,
       boltPending: 0, pumpPending: 0,
       slide: null, slideReady: 0, vault: null, climbing: false, perkLeft: 0, nadeKind: 'frag',
@@ -401,6 +409,9 @@ export class Game {
     me.nades = nadesFor(m.ld, locker.nadeFor(m.ld));
     me.crouch = false;
     me.crouchK = 0;
+    me.prone = false;
+    me.proneK = 0;
+    me.onBack = false;
     me.adsK = 0;
     me.aimToggled = false;
     me.recoilDebt = 0;
@@ -1067,7 +1078,8 @@ export class Game {
     const moveF = Math.min(1, Math.hypot(me.vel.x, me.vel.z) / WALK);
     let s = d.base + ws.bloom + moveF * d.move + (me.grounded ? 0 : d.air);
     s *= 1 + (d.adsMul - 1) * me.adsK;
-    if (me.crouch && me.grounded) s *= 0.8;
+    if (me.prone && me.grounded) s *= 0.55;      // flat on the ground: steadiest of all
+    else if (me.crouch && me.grounded) s *= 0.8;
     return s;
   }
 
@@ -1126,6 +1138,8 @@ export class Game {
       this.sendT = 1 / SEND_HZ;
       let f = 0;
       if (me.crouch) f |= 2;
+      if (me.prone) f |= 512;
+      if (me.onBack) f |= 1024;
       if (Math.hypot(me.vel.x, me.vel.z) > 0.5) f |= 4;
       if (me.adsK > 0.5) f |= 8;
       if (ws && ws.reloading) f |= 16;
@@ -1133,7 +1147,8 @@ export class Game {
       // a scoped optic catches the sun: other players get a chance to spot it
       if (this.vm.scoped || (ws && ws.def.sight === 'scope' && me.adsK > 0.6)) f |= 64;
       this.send({ t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +me.yaw.toFixed(4),
-        pi: +me.pitch.toFixed(4), f, sl: me.slot === 'knife' ? 2 : me.slot === 'pistol' ? 1 : 0, sc: me.sc });
+        pi: +me.pitch.toFixed(4), f, sl: me.slot === 'knife' ? 2 : me.slot === 'pistol' ? 1 : 0, sc: me.sc,
+        by: +(me.prone ? me.bodyYaw : me.yaw).toFixed(4) });
     }
   }
 
@@ -1173,6 +1188,17 @@ export class Game {
     else if (me.crouch && phys.fits(me.pos, RADIUS, STAND_H)) me.crouch = false;
     me.crouchK += ((me.crouch ? 1 : 0) - me.crouchK) * Math.min(1, dt * 14);
 
+    // prone: lie flat, or get up; the crouch key from prone brings you up to a crouch
+    if (!frozen && input.pressed('prone') && !me.slide && !me.climbing && me.grounded) {
+      if (me.prone) this.getUp();
+      else this.lieDown();
+    } else if (me.prone && input.pressed('crouch')) {
+      this.getUp();
+    }
+    if (me.prone && (!me.grounded || me.slide || me.climbing)) me.prone = false;
+    if (me.prone) me.crouch = false;
+    me.proneK += ((me.prone ? 1 : 0) - me.proneK) * Math.min(1, dt * 7);
+
     // wish direction
     const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
     let wx = -sy * f + cy * s;
@@ -1189,12 +1215,12 @@ export class Game {
     } else wantRun = input.down('sprint');
     const firing = input.down('fire') && this.clock - me.lastFire < 0.25;
     // aiming beats running: holding aim stops a run straight away
-    me.sprinting = !me.slide && !me.climbing && !this.aimWant &&
+    me.sprinting = !me.slide && !me.climbing && !me.prone && !this.aimWant &&
       (wantRun && f > 0 && !me.crouch && me.adsK < 0.3 && !firing && me.grounded || (me.sprinting && !me.grounded && wantRun));
     if (this.aimWant) me.sprintToggled = false;
 
     const ws = this.weapon();
-    let speed = me.crouch ? CROUCH_SPEED : me.sprinting ? RUN : WALK;
+    let speed = me.prone ? PRONE_SPEED : me.crouch ? CROUCH_SPEED : me.sprinting ? RUN : WALK;
     speed *= ws ? ws.def.moveMul : 1;
     speed *= 1 - 0.4 * me.adsK;
     if (frozen) speed = 0;
@@ -1236,6 +1262,7 @@ export class Game {
         me.grounded = false;
         me.slide = null;
         me.slideReady = now + 0.5;
+        me.crouchToggled = false;
       } else if (S.t > 0.95 || S.v < CROUCH_SPEED + 0.3 || (!me.grounded && S.t > 0.2) || frozen) {
         me.slide = null;
         me.slideReady = now + 0.5;
@@ -1247,11 +1274,17 @@ export class Game {
       me.vel.x += (tx - me.vel.x) * k;
       me.vel.z += (tz - me.vel.z) * k;
       if (!frozen && me.grounded && input.pressed('jump')) {
-        // at a window, crate or low wall a jump vaults it instead
-        if (this.tryVault(false)) return;
-        me.vel.y = JUMP_V;
-        me.grounded = false;
-        if (me.crouch && phys.fits(me.pos, RADIUS, STAND_H)) me.crouch = false;
+        if (me.prone) {
+          this.getUp();   // jumping from prone just gets you up
+        } else {
+          // at a window, crate or low wall a jump vaults it instead
+          if (this.tryVault(false)) return;
+          me.vel.y = JUMP_V;
+          me.grounded = false;
+          // a jump always ends a crouch, toggled or held
+          me.crouchToggled = false;
+          if (me.crouch && phys.fits(me.pos, RADIUS, STAND_H)) me.crouch = false;
+        }
       } else if (!frozen && !me.grounded && f > 0 && me.vel.y < 3.5) {
         // catching a ledge in mid-air (jumping at a window)
         if (this.tryVault(false)) return;
@@ -1259,7 +1292,8 @@ export class Game {
     }
 
     // physics in small steps
-    const body = { pos: me.pos, vel: me.vel, grounded: me.grounded, radius: RADIUS, height: me.crouch ? CROUCH_H : STAND_H, landed: 0 };
+    const px0 = me.pos.x, pz0 = me.pos.z;
+    const body = { pos: me.pos, vel: me.vel, grounded: me.grounded, radius: RADIUS, height: me.prone ? PRONE_H : me.crouch ? CROUCH_H : STAND_H, landed: 0 };
     let rem = dt;
     let landed = 0;
     while (rem > 1e-5) {
@@ -1271,6 +1305,7 @@ export class Game {
     me.grounded = body.grounded || me.climbing;
     me.landed = landed > 3 ? landed / 10 : 0;
     if (me.climbing && lad && me.pos.y > lad.top) me.pos.y = lad.top;
+    if (me.prone) this.proneBody(dt, wx, wz, wl, px0, pz0);
     this.clampToTown();
 
     // footsteps
@@ -1278,13 +1313,83 @@ export class Game {
     this.stepT = (this.stepT || 0) - dt * hs;
     if (me.grounded && hs > 1.5 && this.stepT <= 0 && !me.slide) {
       this.stepT = 2.1;
-      if (!me.crouch) sfx.footstep(null, me.sprinting ? 0.9 : 0.5);
+      if (!me.crouch && !me.prone) sfx.footstep(null, me.sprinting ? 0.9 : 0.5);
     }
     if (me.climbing && Math.abs(me.vel.y) > 0.5) {
       this.climbT = (this.climbT || 0) - dt;
       if (this.climbT <= 0) { this.climbT = 0.32; sfx.footstep(null, 0.6); }
     }
     if (me.landed) sfx.footstep(null, 1.2);
+  }
+
+  // -- prone --
+
+  // is there room for a body lying this way, head at pos and legs trailing behind?
+  proneFits(pos, yaw) {
+    const phys = this.world.physics;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    for (const back of [0.5, 0.95, PRONE_LEN]) {
+      if (!phys.clearCircle(pos.x - fx * back, pos.z - fz * back, PRONE_R, pos.y + 0.08, pos.y + 0.55)) return false;
+    }
+    return true;
+  }
+
+  lieDown() {
+    const me = this.me;
+    // lie the way you face if there's room, else turned a little, so a corridor still works
+    for (const off of [0, 0.6, -0.6, 1.2, -1.2, Math.PI]) {
+      const y = me.yaw + off;
+      if (!this.proneFits(me.pos, y)) continue;
+      me.prone = true;
+      me.bodyYaw = y;
+      me.onBack = false;
+      me.crouch = false;
+      me.crouchToggled = false;
+      me.sprinting = false;
+      me.sprintToggled = false;
+      return;
+    }
+    this.hud.center('No room to lie down', '', '', 1.2, 1);
+  }
+
+  getUp() {
+    const me = this.me;
+    me.prone = false;
+    me.onBack = false;
+    if (!this.world.physics.fits(me.pos, RADIUS, STAND_H)) {
+      me.crouch = true;
+      if (settings.crouchToggle) me.crouchToggled = true;
+    }
+  }
+
+  // after a prone move: the legs can't pass through walls either, the body
+  // turns toward the way you crawl, and looking far behind you rolls you over
+  proneBody(dt, wx, wz, wl, px0, pz0) {
+    const me = this.me;
+    if (wl > 0) {
+      // crawl head-first, or back away keeping the body as it lies
+      let dy = wrapAngle(Math.atan2(-wx, -wz) - me.bodyYaw);
+      if (Math.abs(dy) > Math.PI / 2) dy = wrapAngle(dy + Math.PI);
+      const turn = Math.max(-dt * 3, Math.min(dt * 3, dy));
+      const ny = me.bodyYaw + turn;
+      if (turn !== 0 && this.proneFits(me.pos, ny)) me.bodyYaw = ny;
+    }
+    if (!this.proneFits(me.pos, me.bodyYaw)) {
+      // slide along whatever the legs caught on, else stay put
+      const nx = me.pos.x, nz = me.pos.z;
+      me.pos.x = px0;
+      if (!this.proneFits(me.pos, me.bodyYaw)) {
+        me.pos.x = nx;
+        me.pos.z = pz0;
+        if (!this.proneFits(me.pos, me.bodyYaw)) {
+          me.pos.x = px0;
+          me.pos.z = pz0;
+        }
+      }
+      me.vel.x = 0;
+      me.vel.z = 0;
+    }
+    me.onBack = Math.abs(wrapAngle(me.yaw - me.bodyYaw)) > 1.75;
   }
 
   clampToTown() {
@@ -1667,13 +1772,13 @@ export class Game {
     this.vm.fire(d.kick * (me.adsK > 0.5 ? 0.6 : 1), flashMul < 0.6);
     sfx.gunshot(d.id, null, true, quiet);
     // recoil climbs; spread blooms
-    const recoilMul = (1 - 0.25 * me.adsK) * (me.crouch ? 0.85 : 1);
+    const recoilMul = (1 - 0.25 * me.adsK) * (me.prone ? 0.7 : me.crouch ? 0.85 : 1);
     const upK = d.recoilUp * recoilMul * (0.85 + Math.random() * 0.3);
     me.pitch = Math.min(1.52, me.pitch + upK);
     me.recoilDebt += upK;
     me.yaw += d.recoilSide * recoilMul * (Math.random() * 2 - 1);
     me.punch += upK * 0.5;
-    ws.bloom = Math.min(d.bloomMax, ws.bloom + d.bloomShot);
+    ws.bloom = Math.min(d.bloomMax, ws.bloom + d.bloomShot * (me.prone ? 0.7 : 1));
     if (this.range && !rangeHit) this.range.miss();
     const msg = {
       t: 'shot', w: d.id, q: quiet ? 1 : 0, f: flashMul, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)),
@@ -1734,7 +1839,8 @@ export class Game {
       cam.position.copy(dr.pos);
       cam.rotation.set(dr.pitch, dr.yaw, Math.sin(this.clock * 9) * 0.004, 'YXZ');
     } else if (this.inRoom && me.alive) {
-      const eye = EYE_STAND + (EYE_CROUCH - EYE_STAND) * me.crouchK;
+      let eye = EYE_STAND + (EYE_CROUCH - EYE_STAND) * me.crouchK;
+      eye += (EYE_PRONE - eye) * me.proneK;
       cam.position.set(me.pos.x, me.pos.y + eye, me.pos.z);
       const sh = this.fx.shake;
       this.slideRoll = (this.slideRoll || 0) + ((me.slide ? 0.06 : 0) - (this.slideRoll || 0)) * Math.min(1, dt * 10);

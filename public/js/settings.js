@@ -17,6 +17,7 @@ export const ACTIONS = [
   { id: 'swap', label: 'Switch weapon', key: 'KeyQ', alt: 'WheelDown', group: 'Combat' },
   { id: 'grenade', label: 'Throw grenade', key: 'KeyG', group: 'Combat' },
   { id: 'perk', label: 'Use perk', key: 'KeyX', group: 'Combat' },
+  { id: 'prone', label: 'Go prone / get up', key: 'KeyZ', group: 'Movement' },
   { id: 'interact', label: 'Plant / defuse bomb', key: 'KeyE', group: 'Other' },
   { id: 'map', label: 'Full map', key: 'KeyM', group: 'Other' },
   { id: 'scores', label: 'Scoreboard', key: 'Tab', group: 'Other' },

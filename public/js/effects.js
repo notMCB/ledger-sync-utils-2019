@@ -103,13 +103,13 @@ export class Effects {
     this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity, hold });
   }
 
-  // a smoke grenade: a thick cloud about seven metres across that hangs for 15 seconds
+  // a smoke grenade: a thick cloud about fifteen metres across that hangs for 15 seconds
   smoke(pos) {
-    for (let i = 0; i < 34; i++) {
-      const start = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.6, 0.4 + Math.random() * 1.6, (Math.random() - 0.5) * 1.6));
-      const v = new THREE.Vector3(Math.random() - 0.5, (Math.random() - 0.3) * 0.4, Math.random() - 0.5).multiplyScalar(2.2);
+    for (let i = 0; i < 52; i++) {
+      const start = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 3.2, 0.4 + Math.random() * 2.4, (Math.random() - 0.5) * 3.2));
+      const v = new THREE.Vector3(Math.random() - 0.5, (Math.random() - 0.3) * 0.4, Math.random() - 0.5).multiplyScalar(4.4);
       const life = 12 + Math.random() * 4;
-      this.particle(this.smokeTex, start, v, 2.4 + Math.random() * 1.6, 1.4, life, -0.02, 0.95, false, 0.7);
+      this.particle(this.smokeTex, start, v, 4.8 + Math.random() * 3.2, 1.4, life, -0.02, 0.95, false, 0.7);
     }
     // a small burst of lighter puffs as it pops
     for (let i = 0; i < 8; i++) {

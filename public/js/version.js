@@ -2,9 +2,22 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.4.0';
+export const VERSION = '2.5.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.5.0',
+    date: '23 September 2026',
+    title: 'Prone, solid domes, stronger walls',
+    notes: [
+      'Prone: press Z to lie flat on your front (Z or jump to get up, crouch to come up to a crouch). You crawl slowly, your gun is at its steadiest, and your recoil and bloom are much smaller. Your legs are solid: they cannot pass through walls, so a narrow spot may turn you or leave no room to lie down.',
+      'Prone, you can look all the way round. Look far enough behind you and you roll onto your back to look back over your legs.',
+      'The mosque domes and the minaret are solid now. No hiding inside them.',
+      'Jumping ends a crouch, toggled or held.',
+      'Cover walls take 900 damage before they fall, three times what they did.',
+      'Smoke grenades cover twice the ground, about fifteen metres across. Two a life, the same as frags.',
+    ],
+  },
   {
     version: '2.4.0',
     date: '23 September 2026',

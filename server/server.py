@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.4.0'
+VERSION = '2.5.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -70,7 +70,7 @@ PERKS = ['ammo', 'med', 'ladder', 'drone']
 PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('drone', 'beacon')]
 NADE_OPTIONS = [('frag',), ('frag', 'smoke'), ('frag', 'flash'), ('frag',)]
 PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1}
-WALL_HP = 300
+WALL_HP = 900
 WALL_LIFE = 90.0
 DRONE_HP = 40
 DRONE_SPEED = 14.0      # keep in step with DRONE_SPEED in public/js/game.js
@@ -190,6 +190,7 @@ class Player:
         self.yaw = 0.0
         self.pitch = 0.0
         self.flags = 0
+        self.byaw = 0.0          # which way the body lies when prone
         self.slot = 0
         self.hp = 100
         self.alive = False
@@ -232,8 +233,7 @@ class Player:
         self.nade_kind = m.get('nk') if m.get('nk') in kinds else kinds[0]
 
     def nades_for(self):
-        # smoke is harmless, so you carry twice as many
-        return NADES[self.loadout] * (2 if self.nade_kind == 'smoke' else 1)
+        return NADES[self.loadout]
 
     def reset_stats(self):
         self.kills = self.deaths = self.score = self.assists = 0
@@ -1251,7 +1251,7 @@ class Room:
             if t < p.protect_until:
                 f |= 128
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
-                       round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp)])
+                       round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp), round(p.byaw, 3)])
         snap = {'t': 'snap', 'g': self.game_state(t), 'p': pl}
         if self.drones:
             snap['dr'] = [[oid, round(D['p'][0], 2), round(D['p'][1], 2), round(D['p'][2], 2), round(D['y'], 3), int(D['hp'])]
@@ -1548,8 +1548,9 @@ class Conn:
             p.pos[1] = max(-8.0, min(30.0, p.pos[1]))   # the tunnels run below the town
             p.yaw = num(m.get('y'))
             p.pitch = num(m.get('pi'), -1.6, 1.6)
-            p.flags = int(num(m.get('f'), 0, 1023))
+            p.flags = int(num(m.get('f'), 0, 4095))
             p.slot = int(num(m.get('sl'), 0, 3))
+            p.byaw = num(m.get('by'), default=p.yaw) if 'by' in m else p.yaw
         elif t == 'shot':
             p.room.handle_shot(p, m)
         elif t == 'nade':

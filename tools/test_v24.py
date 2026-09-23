@@ -41,20 +41,20 @@ async def test_wall():
     await phase(a, 'live', 15)
     await settle(a, a, b)
     a.ws.send({'t': 'perk', 'k': 'wall', 'p': [a.pos[0] + 1.3, 0, a.pos[2]], 'y': 0})
-    await wait(lambda: got(a, 'wall', hp=300), 3, 'a wall standing')
-    wid = got(a, 'wall', hp=300)[0]['id']
+    await wait(lambda: got(a, 'wall', hp=900), 3, 'a wall standing')
+    wid = got(a, 'wall', hp=900)[0]['id']
     assert got(b, 'wall', id=wid), 'everyone should see the wall'
     b.move([a.pos[0] + 6, 0, a.pos[2]])
     await asyncio.sleep(0.3)
-    # nine pistol rounds at 34 each: 306, just over the wall's 300
-    for i in range(9):
+    # 27 pistol rounds at 34 each: 918, just over the wall's 900
+    for i in range(27):
         b.ws.send({'t': 'shot', 'w': 'pistol', 'o': [b.pos[0], 1.5, b.pos[2]], 'e': [[a.pos[0] + 1.3, 0.6, a.pos[2]]],
                    'h': [], 'pr': [[wid, 1]]})
         await asyncio.sleep(0.2)
-        if i == 4:
-            assert not got(b, 'wall', id=wid, off=1), 'five rounds should not drop the wall'
-    await wait(lambda: got(a, 'wall', id=wid, off=1), 3, 'the wall falling after 300 damage')
-    print('wall ok: stood at 300 hp, fell after 306 damage')
+        if i == 20:
+            assert not got(b, 'wall', id=wid, off=1), '21 rounds should not drop the wall'
+    await wait(lambda: got(a, 'wall', id=wid, off=1), 3, 'the wall falling after 900 damage')
+    print('wall ok: stood at 900 hp, fell after 918 damage')
     a.ws.w.close()
     b.ws.w.close()
 
@@ -125,18 +125,18 @@ async def test_smoke():
     await settle(a, a, b)
     b.move([a.pos[0] + 2, 0, a.pos[2]])
     await asyncio.sleep(0.3)
-    # four smokes a life: all four go, the fifth doesn't
-    for n in range(5):
+    # two smokes a life, like frags: both go, the third doesn't
+    for n in range(3):
         a.ws.send({'t': 'nade', 'n': n, 'k': 'smoke', 'o': [a.pos[0], 1.5, a.pos[2]], 'v': [1, 2, 0]})
         await asyncio.sleep(0.15)
     await asyncio.sleep(0.5)
     seen = got(b, 'nade', id=a.id)
-    assert len(seen) == 4 and all(m['k'] == 'smoke' for m in seen), 'four smoke throws expected: %r' % [(m['n'], m['k']) for m in seen]
+    assert len(seen) == 2 and all(m['k'] == 'smoke' for m in seen), 'two smoke throws expected: %r' % [(m['n'], m['k']) for m in seen]
     a.ws.send({'t': 'boom', 'n': 0, 'p': [b.pos[0], 0, b.pos[2]]})
     await asyncio.sleep(0.6)
     assert not got(b, 'hurt'), 'smoke must not hurt'
     assert got(b, 'boom', id=a.id, k='smoke'), 'the smoke popping should be relayed'
-    print('smoke ok: four a life, relayed, no damage')
+    print('smoke ok: two a life, relayed, no damage')
     a.ws.w.close()
     b.ws.w.close()
 

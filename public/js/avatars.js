@@ -129,6 +129,11 @@ let GLINT = null;
 const SHIELD_GEO = new THREE.CapsuleGeometry(0.45, 0.95, 4, 14);
 const SHIELD_MAT = new THREE.MeshBasicMaterial({ color: 0x7fc8ff, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
 
+const PRONE_LEN = 1.45;
+const Y_AXIS = new THREE.Vector3(0, 1, 0), X_AXIS = new THREE.Vector3(1, 0, 0);
+const QA = new THREE.Quaternion(), QB = new THREE.Quaternion();
+const wrapAngle = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+
 function glintMat() {
   if (!GLINT) {
     GLINT = new THREE.SpriteMaterial({ map: softDot('rgba(255,255,255,1)', 'rgba(150,220,255,0)'),
@@ -251,6 +256,10 @@ export class Avatar {
     this.glint.visible = false;
     g.add(this.glint);
     this.glintK = 0;
+    this.proneK = 0;       // lying flat
+    this.backK = 0;        // rolled onto the back
+    this.byaw = 0;         // which way the body lies (from the server)
+    this.bodyYaw = 0;
     this.shield = new THREE.Mesh(SHIELD_GEO, SHIELD_MAT);
     this.shield.position.y = 0.95;
     this.shield.visible = false;
@@ -364,8 +373,8 @@ export class Avatar {
     }
   }
 
-  push(t, x, y, z, yaw, pitch, flags) {
-    this.snaps.push({ t, x, y, z, yaw, pitch, flags });
+  push(t, x, y, z, yaw, pitch, flags, byaw = yaw) {
+    this.snaps.push({ t, x, y, z, yaw, pitch, flags, byaw });
     if (this.snaps.length > 30) this.snaps.shift();
   }
 
@@ -392,6 +401,7 @@ export class Avatar {
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
     this.yaw = a.yaw + dy * k;
+    this.byaw = a.byaw + wrapAngle(b.byaw - a.byaw) * k;
     this.pitch = a.pitch + (b.pitch - a.pitch) * k;
     this.flags = k < 0.5 ? a.flags : b.flags;
   }
@@ -407,6 +417,10 @@ export class Avatar {
     this.alive = alive;
     const crouch = !!(this.flags & 2);
     this.crouchK += ((crouch ? 1 : 0) - this.crouchK) * Math.min(1, dt * 12);
+    const prone = !!(this.flags & 512), onBack = !!(this.flags & 1024);
+    this.proneK += ((prone ? 1 : 0) - this.proneK) * Math.min(1, dt * 7);
+    this.backK += ((onBack ? 1 : 0) - this.backK) * Math.min(1, dt * 8);
+    this.bodyYaw = prone || this.proneK > 0.02 ? this.byaw : this.yaw;
     const g = this.group;
     g.position.copy(this.pos);
     // speed for walk cycle and footsteps
@@ -425,12 +439,28 @@ export class Avatar {
     }
     g.visible = alive;
     if (!alive) return;
-    g.rotation.set(0, this.yaw, 0);
+    const pk = this.proneK, bk = this.backK;
+    if (pk > 0.01) {
+      // lay the body down along its own direction, head where the player is,
+      // and roll it over when they look far enough behind them
+      QA.setFromAxisAngle(Y_AXIS, this.bodyYaw);
+      QB.setFromAxisAngle(X_AXIS, -Math.PI / 2 * pk);
+      QA.multiply(QB);
+      if (bk > 0.01) {
+        QB.setFromAxisAngle(Y_AXIS, Math.PI * bk);
+        QA.multiply(QB);
+      }
+      g.quaternion.copy(QA);
+      const fx = -Math.sin(this.bodyYaw), fz = -Math.cos(this.bodyYaw);
+      g.position.set(this.pos.x - fx * PRONE_LEN * pk, this.pos.y + 0.16 * pk, this.pos.z - fz * PRONE_LEN * pk);
+    } else g.rotation.set(0, this.yaw, 0);
+    // the name and the scope glint ride above the head whichever way the body lies
+    this.tag.position.set(0, 2.2 * (1 - pk) + 1.5 * pk, 1.0 * pk * (1 - 2 * bk));
     // walk
     const sp = Math.min(this.speed, 8);
-    if (sp > 0.4) this.walkT += dt * sp * 1.9;
-    const swing = Math.sin(this.walkT) * Math.min(1, sp / 4) * 0.7;
-    const c = this.crouchK;
+    if (sp > 0.4) this.walkT += dt * sp * 1.9 * (1 - pk * 0.6);
+    const swing = Math.sin(this.walkT) * Math.min(1, sp / 4) * 0.7 * (1 - pk * 0.5);
+    const c = this.crouchK * (1 - pk);
     this.legs[0].rotation.x = swing - c * 1.3;
     this.legs[1].rotation.x = -swing - c * 0.2;
     this.legs[0].userData.shin.rotation.x = Math.max(0, -swing) * 0.8 + c * 1.6;
@@ -438,8 +468,10 @@ export class Avatar {
     this.legs[0].position.y = this.legs[1].position.y = 0.95 - c * 0.38;
     this.upper.position.y = 0.97 - c * 0.42;
     this.upper.rotation.x = 0;
-    this.arms.rotation.x = this.pitch;
-    this.head.rotation.x = this.pitch * 0.6;
+    // prone: arms out ahead with the gun, head up, and the head turned the way they look
+    this.arms.rotation.x = this.pitch * (1 - pk) - 1.35 * pk;
+    this.head.rotation.x = this.pitch * 0.6 * (1 - pk) - 0.8 * pk;
+    this.head.rotation.y = pk ? wrapAngle(this.yaw - this.bodyYaw) * (1 - bk) * 0.6 : 0;
     this.upper.rotation.x = c * 0.15;
     this.showName = Math.max(0, this.showName - dt);
     this.revealT = Math.max(0, this.revealT - dt);
@@ -470,14 +502,17 @@ export class Avatar {
     this.glint.material.opacity = Math.min(1, this.glintK * flicker);
     const s = 0.35 + this.glintK * 0.5;
     this.glint.scale.set(s, s, 1);
-    this.glint.position.set(0, 1.62 - this.crouchK * 0.44, 0);
+    const pk = this.proneK;
+    this.glint.position.set(0, (1.62 - this.crouchK * 0.44) * (1 - pk) + 1.5 * pk, 0.5 * pk * (1 - 2 * this.backK));
   }
 
   headCenter(out) {
+    if (this.proneK > 0.5) return out.set(this.pos.x, this.pos.y + 0.3, this.pos.z);
     return out.set(this.pos.x, this.pos.y + 1.73 - this.crouchK * 0.44, this.pos.z);
   }
 
   bodyTop() {
+    if (this.proneK > 0.5) return 0.55;
     return 1.5 - this.crouchK * 0.44;
   }
 
@@ -569,7 +604,7 @@ export class Avatars {
 
   sync(list, myId, t) {
     for (const p of list) {
-      const [id, x, y, z, yaw, pitch, flags, ld, slot] = p;
+      const [id, x, y, z, yaw, pitch, flags, ld, slot, , byaw] = p;
       if (id === myId) continue;
       let a = this.map.get(id);
       if (!a) {
@@ -588,7 +623,7 @@ export class Avatars {
       }
       a.slot = slot;
       a.setGun(slot === 2 ? 'knife' : slot === 1 ? 'pistol' : ['smg', 'lmg', 'shotgun', 'sniper'][ld] || 'smg');
-      a.push(t, x, y, z, yaw, pitch, flags);
+      a.push(t, x, y, z, yaw, pitch, flags, typeof byaw === 'number' ? byaw : yaw);
     }
   }
 
@@ -615,6 +650,20 @@ export class Avatars {
     const h = this._h;
     for (const a of this.map.values()) {
       if (!a.alive || (skip && skip(a))) continue;
+      if (a.proneK > 0.5) {
+        // lying down: a head at the front and a row of spheres along the body
+        const fx = -Math.sin(a.bodyYaw), fz = -Math.cos(a.bodyYaw);
+        h.set(a.pos.x, a.pos.y + 0.3, a.pos.z);
+        let t = raySphere(o, d, h, 0.2);
+        let part = 'h';
+        for (const back of [0.4, 0.75, 1.1, 1.4]) {
+          h.set(a.pos.x - fx * back, a.pos.y + 0.25, a.pos.z - fz * back);
+          const tb = raySphere(o, d, h, 0.3);
+          if (tb >= 0 && (t < 0 || tb < t - 0.05)) { t = tb; part = 'b'; }
+        }
+        if (t >= 0 && t < maxT && (!best || t < best.t)) best = { id: a.id, t, part, avatar: a };
+        continue;
+      }
       a.headCenter(h);
       let t = raySphere(o, d, h, 0.2);
       let part = 'h';

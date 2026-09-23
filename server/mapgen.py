@@ -490,12 +490,22 @@ class Town:
             tint = rng.randrange(tints)
             H = self.building(x, z, w, d, yaw, floors, tint)
             if i in dome_ids:
+                r = round(min(w, d) * 0.36, 2)
                 self.deco.append({'k': 'dome', 'x': round(x, 2), 'y': round(H, 2), 'z': round(z, 2),
-                                  'r': round(min(w, d) * 0.36, 2), 't': tint})
+                                  'r': r, 't': tint})
+                # solid: three boxes turned 60 degrees apart make a twelve-sided drum
+                # up to where the dome curves in too far to stand against
+                dh = (0.9 + r * 1.15 * 0.8) / 2
+                for k in range(3):
+                    self.box(x, H + dh, z, r * 0.97, dh, r * 0.5, k * math.pi / 3, 'inv')
                 if i == order[0]:
                     mx, mz = rot(hw - 1.4, -hd + 1.4, yaw)
                     self.deco.append({'k': 'minaret', 'x': round(x + mx, 2), 'y': round(H, 2),
                                       'z': round(z + mz, 2), 'h': 13.0, 't': tint})
+                    # the minaret's shaft, right up to its cap
+                    th = (13.0 + 2.2) / 2
+                    for k in range(2):
+                        self.box(x + mx, H + th, z + mz, 0.98, th, 0.98, k * math.pi / 4, 'inv')
                     self.areas.append({'n': 'Grand Mosque', 'x': round(x, 1), 'z': round(z, 1), 'r': round(max(hw, hd) + 5, 1)})
 
         # the town wall
