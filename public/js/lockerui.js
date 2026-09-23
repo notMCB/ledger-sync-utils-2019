@@ -7,6 +7,7 @@ import { WEAPONS, LOADOUTS, PERKS } from './weapons.js';
 import { buildPreviewGun } from './viewmodel.js';
 import { Avatar } from './avatars.js';
 import { settings, saveSettings, keyName } from './settings.js';
+import { ATTACHMENTS, slotsFor, slotList, nextUnlock } from './attachments.js';
 import { beep, uiBlip, unlockAudio } from './audio.js';
 import { esc } from './hud.js';
 
@@ -45,7 +46,7 @@ function setupPreview() {
 
 function showModel(sel) {
   const p = setupPreview();
-  const key = sel ? JSON.stringify(sel) + (settings.lastLoadout || 0) : '';
+  const key = sel ? JSON.stringify(sel) + (settings.lastLoadout || 0) + (sel.kind === 'gun' ? JSON.stringify(locker.attachFor(sel.weapon)) : '') : '';
   if (key === p.key) return;
   p.key = key;
   if (p.model) {
@@ -54,7 +55,7 @@ function showModel(sel) {
   }
   if (!sel) return;
   if (sel.kind === 'gun') {
-    const g = buildPreviewGun(sel.weapon, sel.finish);
+    const g = buildPreviewGun(sel.weapon, sel.finish, locker.attachFor(sel.weapon));
     const box = new THREE.Box3().setFromObject(g.group);
     g.group.position.sub(box.getCenter(new THREE.Vector3()));
     const wrap = new THREE.Group();
@@ -149,7 +150,9 @@ function finishRow(weapon, current, onPick) {
   if (!owned.length) {
     const hint = document.createElement('div');
     hint.className = 'lk-hint';
-    hint.textContent = weapon === 'pistol' ? 'Open Armory Crates or the Bazaar Case to find pistol finishes.' : `Open crates to find ${WEAPONS[weapon].short} finishes.`;
+    hint.textContent = weapon === 'knife' ? 'Open Blade Crates to find knife finishes.'
+      : weapon === 'pistol' ? 'Open Armory Crates or the Bazaar Case to find pistol finishes.'
+        : `Open crates to find ${WEAPONS[weapon].short} finishes.`;
     wrap.appendChild(hint);
   }
   return wrap;
@@ -207,9 +210,17 @@ function renderLoadouts(host) {
   prim.appendChild(finishRow(L.weapon, locker.equippedGun(L.weapon), (f) => locker.equipGun(L.weapon, f)));
   detail.appendChild(prim);
 
+  attachSection(detail, L.weapon);
+
   const sec = section('Secondary · Nimr 9mm', 'Pistol skin for this loadout');
   sec.appendChild(finishRow('pistol', locker.equippedPistol(ldSel), (f) => locker.equipPistol(ldSel, f)));
   detail.appendChild(sec);
+  // the pistol is the same gun for every class, so its attachments follow you
+  attachSection(detail, 'pistol', 'The same pistol for every class — these follow you.');
+
+  const kn = section(`Melee · ${WEAPONS.knife.name}`, `Two hits up close · draw it with ${keyName(settings.binds.melee)}`);
+  kn.appendChild(finishRow('knife', locker.equippedGun('knife'), (f) => locker.equipGun('knife', f)));
+  detail.appendChild(kn);
 
   const perk = PERKS[L.perk];
   const pk = section(`Perk · ${perk.name}`, `${perk.uses} per life · use with ${keyName(settings.binds.perk)}`);
@@ -248,6 +259,50 @@ function renderLoadouts(host) {
   host.appendChild(detail);
 }
 
+// attachments for one gun, with everything you haven't unlocked yet greyed out
+function attachSection(detail, weapon, note) {
+  if (!ATTACHMENTS[weapon]) return;
+  const kills = locker.killsWith(weapon);
+  const next = nextUnlock(weapon, kills);
+  const line = next ? `${kills} kills · ${next.left} more to unlock ${listOf(next.items.map((i) => i.name))}`
+    : `${kills} kills · everything unlocked`;
+  const at = section(`Attachments · ${WEAPONS[weapon].short}`, note ? `${line} · ${note}` : line);
+  const fitted = locker.attachFor(weapon);
+  for (const slot of slotsFor(weapon)) {
+    const row = document.createElement('div');
+    row.className = 'at-row';
+    const label = document.createElement('div');
+    label.className = 'at-slot';
+    label.textContent = slot.name;
+    row.appendChild(label);
+    const items = document.createElement('div');
+    items.className = 'at-items';
+    row.appendChild(items);
+    for (const a of slotList(weapon, slot.id)) {
+      const locked = kills < a.unlock;
+      const on = fitted[slot.id] === a.id;
+      const b = document.createElement('button');
+      b.className = 'at' + (on ? ' on' : '') + (locked ? ' locked' : '');
+      b.innerHTML = `<div class="at-name">${esc(a.name)}</div><div class="at-sub">${esc(a.blurb)}</div>` +
+        (locked ? `<div class="at-lock">${a.unlock} kills</div>` : on ? '<div class="at-on">Fitted</div>' : '');
+      b.disabled = locked;
+      if (!locked) {
+        b.addEventListener('click', () => {
+          locker.setAttach(weapon, slot.id, a.id);
+          selected = { kind: 'gun', weapon, finish: locker.equippedGun(weapon) };
+          preview.key = '';
+          showModel(selected);
+          uiBlip();
+          render();
+        });
+      }
+      items.appendChild(b);
+    }
+    at.appendChild(row);
+  }
+  detail.appendChild(at);
+}
+
 function renderOutfits(host) {
   const grid = document.createElement('div');
   grid.className = 'lk-grid';
@@ -274,6 +329,12 @@ function renderOutfits(host) {
   c.className = 'lk-count';
   c.textContent = `${owned.length} of ${OUTFITS.length} outfits collected`;
   host.appendChild(c);
+}
+
+// 'a', 'a and b', 'a, b and c'
+function listOf(names) {
+  if (names.length < 2) return names[0] || '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 // keep every scroll position when the locker redraws
@@ -317,7 +378,7 @@ function render() {
   host.className = 'lk-content ' + tab;
   if (tab === 'loadouts') renderLoadouts(host);
   else renderOutfits(host);
-  const all = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol'].reduce((a, w) => a + locker.gunSkins(w).length, 0);
+  const all = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife'].reduce((a, w) => a + locker.gunSkins(w).length, 0);
   $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${OUTFITS.length} outfits`;
   const accountsOn = !$('account-strip').classList.contains('no-accounts');
   $('lk-account').textContent = locker.signedIn ? 'Saved to your account' : accountsOn ? 'Saved in this browser — sign in to keep it everywhere' : 'Saved in this browser';

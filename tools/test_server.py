@@ -67,6 +67,8 @@ class P:
                 self.snap_players = m['p']
             elif t == 'ev':
                 self.events.append(m)
+            elif t in ('assist', 'earn'):
+                self.events.append({'e': t, **m})
 
     def move(self, p):
         self.pos = p
@@ -186,4 +188,5 @@ async def main():
     print('all passed')
 
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

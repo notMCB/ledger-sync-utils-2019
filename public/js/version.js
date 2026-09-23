@@ -2,9 +2,58 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.0.0';
+export const VERSION = '2.3.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.3.0',
+    date: '23 September 2026',
+    title: 'Scope glare, kill assists and a fix for lost hits',
+    notes: [
+      'Bullets that plainly hit but did nothing: fixed. The server was throwing away shots that arrived bunched together over a slow connection, so the last bullets of a burst could go missing. It now forgives the network and keeps the hits.',
+      'Someone who just spawned is shielded for a moment and shows a faint blue shell. Hits on them spark instead of bleeding, and the hit marker turns blue, so you can tell that from a miss.',
+      'Kill assists: do 50 or more damage to someone and a teammate finishes them, and you get an assist — 10 dinars and a name in the kill feed. Assists show on the scoreboard.',
+      'A sniper looking through a scope now catches the light. If you see a glint on a rooftop, you are being watched.',
+      'The knife is a proper tactical knife now: a straight clipped blade with a guard and a grooved grip, not a sickle.',
+      'The ground is back — it had been drawn facing down, so the streets looked like empty sky and you could fall through the hatches from anywhere.',
+      'The shaft between a building floor and the tunnel below is walled all the way down.',
+      'The pistol’s drum mag now sits as a drum should: a disc facing forward under the grip.',
+      'The 3× ACOG and the 6× scope are hollow with glass at both ends, so they look right from the hip.',
+    ],
+  },
+  {
+    version: '2.2.0',
+    date: '23 September 2026',
+    title: 'Tunnels, knives and attachments for everything',
+    notes: [
+      'Servers hold 20 players now, 10 a side in team modes.',
+      'Attachments for every gun, unlocked by kills with that gun. Fit them in the Locker.',
+      'The LMG takes the same set as the SMG at the same kill counts: Red Dot and Flash Hider at 10, Holographic, Muzzle Brake and Fast Box at 25, 3× ACOG and Suppressor at 50, 6× Scope, Large Box and Long Muzzle Brake at 100. It starts on irons.',
+      'Pistol attachments follow you between classes, because it is the same pistol: Red Dot and Muzzle Brake at 10, Fast Mag and Suppressor at 25, Long Muzzle Brake at 50, and at 100 a Drum Mag (24 rounds, slower reload, no sprint bonus) and Full Auto (hold the trigger, much less accurate).',
+      'Shotgun: Slugs at 10 — one heavy round that carries across the street; Red Dot and a Short Tube (four shells, quicker to fill, lighter to run with) at 25; Suppressor and the Holographic sight at 50.',
+      'Sniper: 3× ACOG and Suppressor at 10, Fast Mag and Muzzle Brake at 25, an eight-round Extended Mag at 50, and a Red Dot and Long Muzzle Brake at 100.',
+      'The 3× sight is now a short ACOG with a chevron, not a long scope. The shotgun aims through a ghost ring.',
+      'Nothing is suppressed out of the box any more — the Marksman’s rifle and the Breacher’s pistol both take a suppressor as an attachment instead.',
+      'A knife. Press 3 (or V) to draw it: two hits up close. It has its own Blade Crate, separate from everything else.',
+      'Tunnels run under the town, linking a few buildings. Drop through a hatch in the floor, and climb the ladder to get back out.',
+      'Press M for the whole map, with the tunnels and hatches marked.',
+    ],
+  },
+  {
+    version: '2.1.0',
+    date: '23 September 2026',
+    title: 'SMG attachments',
+    notes: [
+      'Kills with the SMG now unlock attachments for it. Fit them in the Locker, under the Assault loadout.',
+      'The SMG starts plain: iron sights, no muzzle device, a standard 30-round magazine.',
+      '10 kills: Red Dot, and the Flash Hider, which hides most of your muzzle flash.',
+      '25 kills: the Holographic sight (the LMG’s 2× ring and dot), the Fast Mag (same 30 rounds, 10% quicker to reload) and the Muzzle Brake (a little less spread and recoil).',
+      '50 kills: an Old 3× Scope, and a Suppressor — quiet, barely any flash, and you stay off enemy minimaps.',
+      '100 kills: the 6× Scope off the Marksman’s rifle, the Large Mag (45 rounds, same spare ammo) and the Long Muzzle Brake, which tames the SMG more than the short one.',
+      'The Locker shows how many kills you have with the SMG and what the next unlock needs.',
+      'The other three guns keep their fixed sights for now.',
+    ],
+  },
   {
     version: '2.0.0',
     date: '22 September 2026',

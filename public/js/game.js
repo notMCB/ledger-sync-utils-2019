@@ -8,7 +8,8 @@ import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
 import { Hud, MODE_INFO } from './hud.js';
 import { input } from './input.js';
 import { settings, keyName } from './settings.js';
-import { WEAPONS, LOADOUTS, PERKS, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor, isSuppressed } from './weapons.js';
+import { WEAPONS, LOADOUTS, PERKS, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor } from './weapons.js';
+import { serverFlags } from './attachments.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
 import { tickSkins, OUTFIT } from './skins.js';
@@ -66,6 +67,7 @@ export class Game {
     this.roster = new Map();
     this.paused = false;
     this.showScores = false;
+    this.mapOpen = false;
     this.previewT = 0;
     this.hasMap = false;
 
@@ -255,7 +257,19 @@ export class Game {
     this.hud.buildMinimap(this.world, map);
     this.fx.clear();
     this.clearDevices();
+    this.addHatchLadders(map);
     this.hasMap = true;
+  }
+
+  // a fixed ladder in every hatch, so you can climb back out of the tunnels
+  addHatchLadders(map) {
+    const t = map.tunnels;
+    if (!t || !t.hatches) return;
+    const r = t.r || 0.8;
+    t.hatches.forEach(([x, z], i) => {
+      // bolted to the -x wall of the shaft, facing across it
+      this.ladders.set(`hatch${i}`, { x: x - r + 0.08, y: t.floor, z, nx: 1, nz: 0, top: -0.2, mesh: null, fixed: true });
+    });
   }
 
   onJoined(m) {
@@ -340,12 +354,23 @@ export class Game {
     me.perkLeft = PERKS[LOADOUTS[ld].perk].uses;
     me.nades = Math.min(me.nades, nadesFor(ld));
     const primary = LOADOUTS[ld].weapon;
-    me.weapons = { primary: makeWeaponState(primary), pistol: makeWeaponState('pistol') };
+    const fitted = locker.attachFor(primary);
+    const pistolFit = locker.attachFor('pistol');
+    me.weapons = {
+      primary: makeWeaponState(primary, fitted),
+      pistol: makeWeaponState('pistol', pistolFit),
+      knife: makeWeaponState('knife'),
+    };
+    this.vm.setAttachments(primary, fitted);
+    this.vm.setAttachments('pistol', pistolFit);
     me.slot = 'primary';
     this.vm.setSkins(locker.cosmetics(ld).g);
-    this.vm.setPistolSuppressor(isSuppressed('pistol', ld));
     this.vm.setWeapon(primary);
-    if (this.inRoom && this.net) this.send({ t: 'cos', cos: locker.cosmetics(ld) });
+    if (this.inRoom && this.net) {
+      this.send({ t: 'cos', cos: locker.cosmetics(ld) });
+      // the server needs to know about anything that changes damage
+      this.send({ t: 'atch', a: serverFlags(primary, fitted) });
+    }
     this.hud.lastAmmo = '';
   }
 
@@ -457,12 +482,14 @@ export class Game {
     const myTeam = this.me.team;
     switch (m.e) {
       case 'kill': {
+        if (m.k === this.myId && m.v !== this.myId && WEAPONS[m.w]) locker.addKill(m.w);
         m.kc = this.colorOf(m.k);
         m.vc = this.colorOf(m.v);
         this.hud.feedKill(m, this.myId);
         if (m.k === this.myId && m.v !== this.myId) this.hud.center(`Killed ${m.vn}`, m.hs ? 'Headshot' : '', '', 1.6, 1);
         break;
       }
+      case 'assist': this.hud.center('Assist', `Helped kill ${m.v}`, '', 1.4, 1); break;
       case 'join': if (m.id !== this.myId) this.hud.feedText(`${m.n} joined`); break;
       case 'leave': this.hud.feedText(`${m.n} left`); break;
       case 'swap': if (m.id === this.myId) this.hud.center(`Moved to ${TEAM_NAMES[m.tm]}`, 'Teams were rebalanced', TEAM_NAMES[m.tm].toLowerCase(), 3, 3); break;
@@ -528,8 +555,10 @@ export class Game {
     const a = this.avatars.get(m.id);
     const w = WEAPONS[m.w] || WEAPONS.smg;
     const from = a && a.alive ? a.muzzle(V()) : new THREE.Vector3(m.o[0], m.o[1] - 0.2, m.o[2]);
-    const quiet = isSuppressed(m.w, a ? a.loadout : -1);
-    this.fx.muzzleFlash(from, quiet ? 0.18 : m.w === 'shotgun' || m.w === 'lmg' ? 0.8 : 0.55, quiet);
+    const quiet = !!m.q;
+    // a flash hider or brake makes their flash smaller too
+    const flashMul = typeof m.f === 'number' ? m.f : 1;
+    this.fx.muzzleFlash(from, (quiet ? 0.18 : m.w === 'shotgun' || m.w === 'lmg' ? 0.8 : 0.55) * (quiet ? 1 : flashMul), quiet || flashMul < 0.6);
     sfx.gunshot(m.w, from, false, quiet);
     // loud guns show up on the minimap; suppressed ones don't
     if (a && !quiet) a.revealT = 2;
@@ -738,7 +767,7 @@ export class Game {
   }
 
   clearDevices() {
-    for (const L of this.ladders.values()) this.scene.remove(L.mesh);
+    for (const L of this.ladders.values()) if (L.mesh) this.scene.remove(L.mesh);
     for (const B of this.beacons.values()) this.scene.remove(B.mesh);
     for (const C of this.crates.values()) this.scene.remove(C.mesh);
     this.ladders.clear();
@@ -762,6 +791,10 @@ export class Game {
   }
 
   onHitOk(m) {
+    if (m.sh) {
+      this.hud.hit(false, false, true);
+      return;
+    }
     this.hud.hit(m.k, m.hs);
     sfx.hitMarker(m.k, m.hs);
   }
@@ -850,8 +883,10 @@ export class Game {
       if (me.adsK > 0.5) f |= 8;
       if (ws && ws.reloading) f |= 16;
       if (me.sprinting) f |= 32;
+      // a scoped optic catches the sun: other players get a chance to spot it
+      if (this.vm.scoped || (ws && ws.def.sight === 'scope' && me.adsK > 0.6)) f |= 64;
       this.send({ t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +me.yaw.toFixed(4),
-        pi: +me.pitch.toFixed(4), f, sl: me.slot === 'pistol' ? 1 : 0, sc: me.sc });
+        pi: +me.pitch.toFixed(4), f, sl: me.slot === 'knife' ? 2 : me.slot === 'pistol' ? 1 : 0, sc: me.sc });
     }
   }
 
@@ -1010,7 +1045,7 @@ export class Game {
     const [bx, bz] = this.map.bounds;
     me.pos.x = Math.max(-bx + 0.4, Math.min(bx - 0.4, me.pos.x));
     me.pos.z = Math.max(-bz + 0.4, Math.min(bz - 0.4, me.pos.z));
-    if (me.pos.y < -5) me.pos.y = 0;
+    if (me.pos.y < -12) me.pos.y = 0;
   }
 
   // -- vaulting: over windowsills, crates and low walls --
@@ -1096,6 +1131,7 @@ export class Game {
     let want = null;
     if (input.pressed('primary')) want = 'primary';
     if (input.pressed('secondary')) want = 'pistol';
+    if (input.pressed('melee')) want = 'knife';
     // the mouse wheel also switches, unless it has been bound to something else
     const bound = [...Object.values(settings.binds), ...Object.values(settings.alt)];
     const wheel = (input.pressedCode('WheelUp') && !bound.includes('WheelUp')) || (input.pressedCode('WheelDown') && !bound.includes('WheelDown'));
@@ -1126,6 +1162,9 @@ export class Game {
       me.recoilDebt -= r;
     }
     me.punch = Math.max(0, me.punch - dt * me.punch * 14 - dt * 0.002);
+
+    // the whole map
+    if (input.pressed('map')) this.mapOpen = !this.mapOpen;
 
     // perk
     if (input.pressed('perk') && !this.frozen()) this.usePerk();
@@ -1185,6 +1224,14 @@ export class Game {
 
     // firing
     const trigger = d.auto ? input.down('fire') : input.pressed('fire');
+    if (d.melee) {
+      if ((input.down('fire') || this.aimWant) && now >= ws.nextFire && !vm.busySwitching && me.nadeBusy <= 0 && !this.frozen()) {
+        ws.nextFire = now + 60 / d.rpm;
+        me.sprinting = false;
+        this.swing(ws);
+      }
+      return;
+    }
     if (trigger && !ws.reloading && !vm.busySwitching && me.nadeBusy <= 0 && !this.frozen()) {
       if (me.sprinting) {
         me.sprinting = false;
@@ -1259,6 +1306,44 @@ export class Game {
     this.send({ t: 'nade', n: nid, k: kind, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(3)), v: [vel.x, vel.y, vel.z].map((v) => +v.toFixed(3)) });
   }
 
+  // a knife swing: one short reach in front of you, no bullet and no noise
+  swing(ws) {
+    const me = this.me;
+    const d = ws.def;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    me.lastFire = this.clock;
+    this.vm.swing();
+    sfx.knifeSwing();
+    const origin = cam.position.clone();
+    const fwd = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const teamMode = this.isTeamMode() && !this.warmup();
+    const skip = (a) => teamMode && a.team === me.team;
+    const wall = this.world.physics.raycast(origin, fwd, d.range);
+    const reach = wall ? wall.t : d.range;
+    const hits = [];
+    // a little forgiveness sideways, so a swing past someone's shoulder lands
+    for (const off of [0, -0.12, 0.12, 0.06]) {
+      const dir = fwd.clone();
+      if (off) dir.addScaledVector(V().set(1, 0, 0).applyQuaternion(cam.quaternion), off).normalize();
+      const ph = this.avatars.raycast(origin, dir, reach, skip);
+      if (ph && !hits.some((h) => h[0] === ph.id)) {
+        hits.push([ph.id, 'b']);
+        const end = origin.clone().addScaledVector(dir, ph.t);
+        this.fx.blood(end, dir);
+        ph.avatar.showName = 1.5;
+        this.hud.hit(false, false);
+        sfx.knifeHit(end);
+        break;
+      }
+    }
+    if (!hits.length && this.range) {
+      const rh = this.range.raycast(origin, fwd, reach);
+      if (rh) this.range.hit(rh, rh.t);
+    }
+    if (hits.length && this.inRoom) this.send({ t: 'shot', w: 'knife', q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: [], h: hits });
+  }
+
   fire(ws) {
     const me = this.me;
     const d = ws.def;
@@ -1302,7 +1387,9 @@ export class Game {
       } else if (ph) {
         end = origin.clone().addScaledVector(dir, ph.t);
         hits.push([ph.id, ph.part]);
-        this.fx.blood(end, dir);
+        // a freshly spawned player is shielded for a moment: sparks, not blood
+        if (ph.avatar.flags & 128) this.fx.impact(end, dir.clone().negate(), 'car');
+        else this.fx.blood(end, dir);
         ph.avatar.showName = 1.5;
       } else if (wh) {
         end = wh.point.clone();
@@ -1313,10 +1400,11 @@ export class Game {
       ends.push(end);
       if (d.pellets === 1 || i < 6) this.fx.tracer(muzzle, end, d.tracer, d.id === 'sniper' ? 1.6 : 1);
     }
+    const quiet = !!d.quiet;
+    const flashMul = d.flash !== undefined ? d.flash : quiet ? 0.25 : 1;
     // muzzle flash lights the street around you
-    if (!isSuppressed(d.id, me.loadout)) this.fx.light(muzzle, d.id === 'shotgun' ? 8 : 5);
-    const quiet = isSuppressed(d.id, me.loadout);
-    this.vm.fire(d.kick * (me.adsK > 0.5 ? 0.6 : 1), quiet);
+    if (!quiet && flashMul > 0.5) this.fx.light(muzzle, d.id === 'shotgun' ? 8 : 5);
+    this.vm.fire(d.kick * (me.adsK > 0.5 ? 0.6 : 1), flashMul < 0.6);
     sfx.gunshot(d.id, null, true, quiet);
     // recoil climbs; spread blooms
     const recoilMul = (1 - 0.25 * me.adsK) * (me.crouch ? 0.85 : 1);
@@ -1328,7 +1416,7 @@ export class Game {
     ws.bloom = Math.min(d.bloomMax, ws.bloom + d.bloomShot);
     if (this.range && !rangeHit) this.range.miss();
     this.send({
-      t: 'shot', w: d.id, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)),
+      t: 'shot', w: d.id, q: quiet ? 1 : 0, f: flashMul, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)),
       e: ends.map((e) => [+e.x.toFixed(2), +e.y.toFixed(2), +e.z.toFixed(2)]), h: hits,
     });
   }
@@ -1591,6 +1679,7 @@ export class Game {
     const objs = this.updateObjectives(dt);
     const view = me.alive ? { x: me.pos.x, z: me.pos.z, yaw: me.yaw } : { x: this.camera.position.x, z: this.camera.position.z, yaw: this.camera.rotation.y };
     hud.minimap(view, others, objs);
+    hud.fullmap(this.mapOpen, view, others, objs, keyName(settings.binds.map));
     hud.area(view.x, view.z);
     hud.scoreboard(this.showScoresHeld || this.showScores, this.roster, g, this.myId,
       (id) => (id === this.myId ? me.alive : !!(this.avatars.get(id) && this.avatars.get(id).alive)), this.room && this.room.name);

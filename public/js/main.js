@@ -8,6 +8,7 @@ import { VERSION, PATCH_NOTES } from './version.js';
 import { LOADOUTS, WEAPONS } from './weapons.js';
 import { MODE_INFO, esc } from './hud.js';
 import { unlockAudio, uiBlip } from './audio.js';
+import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
 import { openLocker, lockerOpen } from './lockerui.js';
 import { Chat } from './chat.js';
@@ -560,6 +561,45 @@ if (location.hostname === 'localhost' && params.get('demo') === 'stability') {
 }
 // testing on this Mac only: ?dinars=500 tops up the locker
 if (location.hostname === 'localhost' && params.get('dinars')) locker.earn(Number(params.get('dinars')) || 0);
+// ?kills=120 and ?fit=optic:scope6,mag:large set up an SMG for a look
+if (LOCAL && params.has('kills')) locker.setKills('smg', Number(params.get('kills')) || 0);
+if (LOCAL && params.has('fit')) {
+  for (const part of params.get('fit').split(',')) {
+    const [slot, id] = part.split(':');
+    if (slot && id) locker.setAttach('smg', slot.trim(), id.trim());
+  }
+}
+// ?killtest feeds a kill event through, to check kills with a gun are counted
+if (LOCAL && params.has('killtest')) {
+  setTimeout(() => {
+    const before = locker.killsWith('smg');
+    game.onEvent({ e: 'kill', k: game.myId, v: game.myId + 1, w: 'smg', hs: 0, vn: 'Bot' });
+    game.onEvent({ e: 'kill', k: game.myId, v: game.myId + 1, w: 'sniper', hs: 0, vn: 'Bot' });
+    game.onEvent({ e: 'kill', k: game.myId + 1, v: game.myId, w: 'smg', hs: 0, vn: 'Me' });
+    fetch('/__log?m=' + encodeURIComponent(`[killtest] smg kills ${before} -> ${locker.killsWith('smg')} (one SMG kill of mine, one sniper kill, one death)`));
+  }, 3000);
+}
+// ?attachui clicks through the attachment tiles and reports what happened
+if (LOCAL && params.has('attachui')) {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[attachui] ' + s));
+  $('notes').hidden = true;
+  showLocker();
+  setTimeout(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const pane = document.querySelector('.locker-panel');
+    const tiles = () => [...document.querySelectorAll('.at')];
+    log(`tiles ${tiles().length}, locked ${tiles().filter((b) => b.disabled).length}`);
+    const target = tiles().find((b) => !b.disabled && !b.classList.contains('on'));
+    pane.scrollTop = pane.scrollHeight;
+    const before = pane.scrollTop;
+    target.click();
+    await sleep(250);
+    log(`clicked ${target.querySelector('.at-name').textContent}: fitted now ${JSON.stringify(locker.attachFor('smg'))}, scroll ${before} -> ${pane.scrollTop}`);
+    const locked = tiles().find((b) => b.disabled);
+    if (locked) { locked.click(); await sleep(150); log(`locked tile click changed nothing: ${JSON.stringify(locker.attachFor('smg'))}`); }
+    log('done');
+  }, 700);
+}
 // ?locker opens the locker straight away (for checking a build); ?crate=gun|outfit also spins one
 if (LOCAL && (params.has('locker') || params.has('crate'))) {
   $('notes').hidden = true;
@@ -662,7 +702,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = params.get('script') === 'v2' ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -695,14 +735,198 @@ if (AUTOTEST) {
   tick();
   setInterval(() => {
     const g = game.g;
-    log(`phase ${g && g.ph} n ${g && g.n} pos ${game.me.pos.x.toFixed(1)},${game.me.pos.y.toFixed(2)},${game.me.pos.z.toFixed(1)} hp ${game.me.hp} alive ${game.me.alive} others ${game.avatars.map.size} vm ${game.vm.curId} root ${game.vm.root.visible} vis ${game.vm.visible} scoped ${game.vm.scoped} gpos ${game.vm.cur && game.vm.cur.group.position.toArray().map((v) => v.toFixed(2))} pend ${game.vm.pending} sw ${game.vm.switchT.toFixed(2)} nade ${game.vm.nadeAnim.toFixed(2)}`);
+    log(`smgkills ${locker.killsWith('smg')} phase ${g && g.ph} n ${g && g.n} pos ${game.me.pos.x.toFixed(1)},${game.me.pos.y.toFixed(2)},${game.me.pos.z.toFixed(1)} hp ${game.me.hp} alive ${game.me.alive} others ${game.avatars.map.size} vm ${game.vm.curId} root ${game.vm.root.visible} vis ${game.vm.visible} scoped ${game.vm.scoped} gpos ${game.vm.cur && game.vm.cur.group.position.toArray().map((v) => v.toFixed(2))} pend ${game.vm.pending} sw ${game.vm.switchT.toFixed(2)} nade ${game.vm.nadeAnim.toFixed(2)}`);
   }, 4000);
   window.__souk = game;
   if (params.get('script') === 'v2') runV2();
+  if (params.get('script') === 'attach') runAttach();
+  if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
     const [w, f] = params.get('equip').split(':');
     locker.equipGun(w, f);
   }
+}
+
+// -- the 2.2 run: tunnels, the knife, the map and every gun's attachments -----------
+async function runV22() {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[v22] ' + s));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  while (!me.alive || !game.map) await sleep(200);
+  await sleep(900);
+  const tun = game.map.tunnels;
+  log(`tunnels: ${tun ? tun.hatches.length : 0} hatches, ${tun ? tun.pits.length : 0} pits, floor ${tun && tun.floor}`);
+
+  // 1. drop through a hatch, walk the tunnel, climb back out
+  if (tun && tun.hatches.length) {
+    const [hx, hz] = tun.hatches[0];
+    me.pos.set(hx, 0.2, hz);
+    me.vel.set(0, 0, 0);
+    me.yaw = 0;
+    me.pitch = 0;
+    await sleep(2400);
+    log(`dropped in: y ${me.pos.y.toFixed(2)} grounded ${me.grounded} floorAt ${game.world.physics.floorAt(me.pos.x, me.pos.z)}`);
+    log('CAPTURE tunnel-floor');
+    await sleep(900);
+    // walk along the longest corridor, well clear of the ladder
+    const long = tun.pits.slice().sort((a, b) => ((b[2] - b[0]) * (b[3] - b[1])) - ((a[2] - a[0]) * (a[3] - a[1])))[0];
+    const alongX = (long[2] - long[0]) > (long[3] - long[1]);
+    const cx = alongX ? long[0] + 2 : (long[0] + long[2]) / 2;
+    const cz = alongX ? (long[1] + long[3]) / 2 : long[1] + 2;
+    me.pos.set(cx, tun.floor + 0.1, cz);
+    me.vel.set(0, 0, 0);
+    me.yaw = alongX ? -Math.PI / 2 : Math.PI;     // -z is forward at yaw 0
+    await sleep(400);
+    const before = { x: me.pos.x, z: me.pos.z };
+    input.hold('KeyW', true);
+    await sleep(1600);
+    input.hold('KeyW', false);
+    await sleep(200);
+    log(`walked ${Math.hypot(me.pos.x - before.x, me.pos.z - before.z).toFixed(1)} m along the tunnel to ${me.pos.x.toFixed(1)},${me.pos.y.toFixed(2)},${me.pos.z.toFixed(1)} (still under: ${me.pos.y < -3})`);
+    // and into the end wall: it should stop us, not push us up
+    me.yaw += Math.PI;
+    input.hold('KeyW', true);
+    await sleep(2200);
+    input.hold('KeyW', false);
+    await sleep(200);
+    log(`after walking into the far wall: y ${me.pos.y.toFixed(2)} at ${me.pos.x.toFixed(1)},${me.pos.z.toFixed(1)}`);
+    log('CAPTURE tunnel-walk');
+    // back to the ladder and up
+    me.pos.set(hx - 0.55, tun.floor + 0.1, hz);
+    me.vel.set(0, 0, 0);
+    me.yaw = -Math.PI / 2;
+    await sleep(300);
+    input.hold('KeyW', true);
+    await sleep(2600);
+    input.hold('KeyW', false);
+    log(`climbed out: y ${me.pos.y.toFixed(2)} climbing ${me.climbing}`);
+    log('CAPTURE tunnel-climb');
+  }
+
+  // 2. the knife
+  input.tap('Digit3');
+  await sleep(700);
+  if (game.weapon().id !== 'knife') { input.tap('KeyV'); await sleep(700); }
+  log(`knife out: ${game.weapon().id}, mag ${game.weapon().mag}, vm ${game.vm.curId}, bind ${settings.binds.melee}/${settings.alt.melee}, slot ${game.me.slot}, have ${Object.keys(game.me.weapons)}`);
+  log('CAPTURE knife');
+  await sleep(1200);
+  input.hold('Mouse0', true);
+  await sleep(500);
+  input.hold('Mouse0', false);
+  log('CAPTURE knife-swing');
+  input.tap('Digit1');
+  await sleep(500);
+
+  // 3. the whole map
+  input.tap('KeyM');
+  await sleep(600);
+  {
+    const fm = document.getElementById('fullmap');
+    const cs = getComputedStyle(fm);
+    const c = document.getElementById('fullmap-canvas');
+    const r = c.getBoundingClientRect();
+    const px = c.getContext('2d').getImageData(450, 450, 1, 1).data;
+    const px2 = c.getContext('2d').getImageData(60, 60, 1, 1).data;
+    log(`map open: hidden ${fm.hidden} display ${cs.display} rect ${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)} centrePx ${[...px]} cornerPx ${[...px2]} hudDisp ${getComputedStyle(document.getElementById('hud')).display}`);
+  }
+  log('CAPTURE fullmap');
+  await sleep(1500);
+  input.tap('KeyM');
+  await sleep(300);
+
+  // 4. every gun's attachments
+  for (const w of ['lmg', 'shotgun', 'sniper', 'pistol']) locker.setKills(w, 500);
+  const shots = [
+    [1, 'lmg', { optic: 'acog', muzzle: 'longbrake', mag: 'large' }],
+    [2, 'shotgun', { optic: 'holo', ammo: 'slug', mag: 'small', muzzle: 'suppressor' }],
+    [3, 'sniper', { optic: 'acog', muzzle: 'suppressor', mag: 'ext' }],
+  ];
+  for (const [ld, w, fit] of shots) {
+    for (const slot in fit) locker.setAttach(w, slot, fit[slot]);
+    pickLoadout(ld);
+    game.applyLoadout(ld);
+    await sleep(700);
+    const d = game.weapon().def;
+    log(`${w}: sight ${d.sight} zoom ${d.zoom} mag ${d.mag} reload ${d.reload} quiet ${!!d.quiet} slug ${!!d.slug} pellets ${d.pellets} dmg ${d.dmg} move ${d.moveMul}`);
+    input.hold('KeyF', true);
+    await sleep(800);
+    log(`CAPTURE ${w}-ads`);
+    input.hold('KeyF', false);
+    await sleep(300);
+  }
+  // the pistol, with the lot
+  for (const [slot, id] of Object.entries({ optic: 'reddot', muzzle: 'suppressor', mag: 'drum', trigger: 'auto' })) locker.setAttach('pistol', slot, id);
+  game.applyLoadout(0);
+  await sleep(500);
+  input.tap('Digit2');
+  await sleep(700);
+  const pd = game.weapon().def;
+  log(`pistol: sight ${pd.sight} mag ${pd.mag} reload ${pd.reload} auto ${!!pd.auto} quiet ${!!pd.quiet} move ${pd.moveMul} spread ${pd.base}`);
+  input.hold('KeyF', true);
+  await sleep(800);
+  log('CAPTURE pistol-ads');
+  await sleep(900);
+  input.hold('KeyF', false);
+  log('v22 done');
+}
+
+// -- the SMG attachment run: every optic, muzzle and magazine ----------------------------
+// Only with ?autotest=<mode>&script=attach.
+async function runAttach() {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[attach] ' + s));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  const fit = (slot, id) => { locker.setAttach('smg', slot, id); game.applyLoadout(0); };
+  const def = () => me.weapons.primary.def;
+  while (!me.alive) await sleep(200);
+  await sleep(900);
+  locker.setKills('smg', 500);
+  log(`kills ${locker.killsWith('smg')}, next unlock ${JSON.stringify(nextUnlock('smg', locker.killsWith('smg')))}`);
+
+  // optics: the sight picture at full aim
+  for (const o of ['irons', 'reddot', 'holo', 'scope3', 'scope6']) {
+    fit('optic', o);
+    const d = def();
+    input.hold('KeyF', true);
+    await sleep(900);
+    log(`optic ${o}: sight ${d.sight} zoom ${d.zoom} adsTime ${d.adsTime} aim ${me.adsK.toFixed(2)} fov ${game.camera.fov.toFixed(1)} scoped ${game.vm.scoped}`);
+    log(`CAPTURE optic-${o}`);
+    await sleep(700);
+    input.hold('KeyF', false);
+    await sleep(400);
+  }
+  fit('optic', 'irons');
+
+  // muzzles: flash, sound and the spread/recoil numbers
+  for (const mz of ['none', 'hider', 'brake', 'suppressor', 'longbrake']) {
+    fit('muzzle', mz);
+    const d = def();
+    log(`muzzle ${mz}: flash ${d.flash === undefined ? 1 : d.flash} quiet ${!!d.quiet} base ${d.base} bloomMax ${d.bloomMax} recoilUp ${d.recoilUp} kick ${d.kick}`);
+    me.weapons.primary.mag = d.mag;
+    input.hold('Mouse0', true);
+    await sleep(250);
+    log(`CAPTURE muzzle-${mz}`);
+    await sleep(120);
+    input.hold('Mouse0', false);
+    await sleep(600);
+  }
+  fit('muzzle', 'none');
+
+  // magazines: capacity and how long a reload takes
+  for (const mg of ['normal', 'fast', 'large']) {
+    fit('mag', mg);
+    const ws = me.weapons.primary;
+    ws.mag = 1;
+    ws.reserve = ws.def.reserve;
+    const t0 = performance.now();
+    input.tap('KeyR');
+    await sleep(60);
+    while (ws.reloading) await sleep(30);
+    log(`mag ${mg}: capacity ${ws.def.mag} reload ${ws.def.reload}s measured ${((performance.now() - t0) / 1000).toFixed(2)}s -> ${ws.mag}/${ws.reserve}`);
+    await sleep(300);
+  }
+  fit('mag', 'normal');
+  log('done');
 }
 
 // -- the 2.0 feature run: slide, vault, ladder, perks, flash, chat, sights ----------------

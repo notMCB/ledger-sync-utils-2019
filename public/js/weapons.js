@@ -1,3 +1,5 @@
+import { apply as applyAttachments } from './attachments.js';
+
 // Weapon handling. Damage lives on the server (server/server.py WEAPONS);
 // the numbers repeated here are for display and for the client's feel.
 // Spreads are cone half-angles in degrees.
@@ -7,7 +9,7 @@ export const WEAPONS = {
     id: 'smg', name: 'Qadir SMG', short: 'SMG', auto: true, rpm: 800, mag: 30, reserve: 75,
     reload: 2.1, pellets: 1, dmg: 24, range: 120,
     base: 1.5, bloomShot: 0.32, bloomMax: 5.0, recover: 9, move: 1.6, air: 5,
-    adsMul: 0.32, sight: 'reddot', zoom: 1.1, adsTime: 0.16, moveMul: 1.05,
+    adsMul: 0.32, sight: 'irons', zoom: 1.2, adsTime: 0.16, moveMul: 1.05,
     recoilUp: 0.0105, recoilSide: 0.004, kick: 0.035,
     tracer: 0xffd27a, sound: 'smg',
   },
@@ -33,7 +35,15 @@ export const WEAPONS = {
     base: 7.0, bloomShot: 4, bloomMax: 6, recover: 5, move: 5, air: 9,
     adsMul: 0.004, sight: 'scope', zoom: 6.0, adsTime: 0.3, moveMul: 0.92,
     recoilUp: 0.06, recoilSide: 0.01, kick: 0.14,
-    tracer: 0xfff2c0, sound: 'sniper', suppressed: true,
+    tracer: 0xfff2c0, sound: 'sniper',
+  },
+  knife: {
+    id: 'knife', name: 'Jambiya', short: 'Knife', melee: true, auto: false, rpm: 110, mag: 0, reserve: 0,
+    reload: 0, pellets: 1, dmg: 55, range: 2.4,
+    base: 0, bloomShot: 0, bloomMax: 0, recover: 9, move: 0, air: 0,
+    adsMul: 1, sight: 'none', zoom: 1, adsTime: 0.12, moveMul: 1.12,
+    recoilUp: 0, recoilSide: 0, kick: 0.02,
+    tracer: 0xffffff, sound: 'knife',
   },
   pistol: {
     id: 'pistol', name: 'Nimr 9mm', short: 'Pistol', auto: false, rpm: 380, mag: 12, reserve: 30,
@@ -54,26 +64,26 @@ export const PERKS = {
 };
 
 export const LOADOUTS = [
-  { id: 0, weapon: 'smg', perk: 'ammo', nades: 3, title: 'Assault', blurb: 'Fast-firing SMG with a red dot and three grenades. Quick to aim, strong up close.' },
-  { id: 1, weapon: 'lmg', perk: 'med', nades: 2, title: 'Medic', blurb: '100-round LMG with a 2× holographic sight. Heavy, slow to reload.' },
-  { id: 2, weapon: 'shotgun', perk: 'ladder', nades: 2, suppressedPistol: true, title: 'Breacher', blurb: 'Pump shotgun and a suppressed pistol. Devastating in rooms and doorways. Frag or flash grenades.' },
-  { id: 3, weapon: 'sniper', perk: 'beacon', nades: 2, suppressedPistol: true, title: 'Marksman', blurb: 'Suppressed bolt-action rifle with a 6× scope, and a suppressed pistol. One headshot kills.' },
+  { id: 0, weapon: 'smg', perk: 'ammo', nades: 3, title: 'Assault', blurb: 'Fast-firing SMG and three grenades. Quick to aim, strong up close. Kills with it unlock attachments.' },
+  { id: 1, weapon: 'lmg', perk: 'med', nades: 2, title: 'Medic', blurb: '100-round LMG. Heavy, slow to reload. Kills with it unlock attachments.' },
+  { id: 2, weapon: 'shotgun', perk: 'ladder', nades: 2, title: 'Breacher', blurb: 'Pump shotgun, devastating in rooms and doorways. Frag or flash grenades.' },
+  { id: 3, weapon: 'sniper', perk: 'beacon', nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope. One headshot kills.' },
 ];
 
 export const NADES_PER_LIFE = 2;
 export const nadesFor = (ld) => (LOADOUTS[ld] ? LOADOUTS[ld].nades : 2);
 
-// suppressed guns are quieter, flash less and don't show you on enemy minimaps
-export function isSuppressed(weapon, ld) {
-  if (weapon === 'sniper') return true;
-  return weapon === 'pistol' && !!(LOADOUTS[ld] && LOADOUTS[ld].suppressedPistol);
+// nothing is suppressed out of the box any more: fit a suppressor to a gun
+// in the Locker and it turns quiet, flashes less and keeps you off enemy minimaps
+export function isSuppressed() {
+  return false;
 }
 export const NADE_FUSE = 2.2;
 export const NADE_RADIUS = 7;
 export const FLASH_RANGE = 22;
 
-export function makeWeaponState(id) {
-  const d = WEAPONS[id];
+export function makeWeaponState(id, fitted) {
+  const d = applyAttachments(WEAPONS[id], fitted);
   return { id, def: d, mag: d.mag, reserve: d.reserve, bloom: 0, nextFire: 0, lastShot: -9, reloading: false,
     reloadT: 0, boltT: 0, shellT: 0, pumping: 0 };
 }

@@ -12,7 +12,7 @@ export const RARITIES = [
 ];
 export const RARITY = Object.fromEntries(RARITIES.map((r) => [r.id, r]));
 
-export const GUN_IDS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol'];
+export const GUN_IDS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife'];
 
 // Gun finishes. Each colours three roles: body (receiver, barrel), dark
 // (small parts, magazine) and furn (grip, stock, handguard).
@@ -45,6 +45,15 @@ export const FINISHES = [
   { id: 'galaxy', name: 'Galaxy', rarity: 'epic', crate: 'bazaar', pattern: 'galaxy', colors: ['#0b0620', '#5b2a9e', '#ff4fd8', '#3fd0ff'], dark: '#07041a', anim: 'hue' },
   { id: 'holofoil', name: 'Holo Foil', rarity: 'legendary', crate: 'bazaar', pattern: 'gradient', colors: ['#ff4f79', '#ffd23f', '#2ec27e', '#3fc1ff', '#b061ff', '#ff4f79'], dark: '#20222b', metal: 0.7, rough: 0.2, anim: 'hue' },
   { id: 'lavalamp', name: 'Lava Lamp', rarity: 'legendary', crate: 'bazaar', pattern: 'camo', colors: ['#ff2d55', '#ff5a1f', '#ffb03a', '#ffd166'], dark: '#2a0f14', glow: '#ff5a1f', anim: 'hue' },
+  // Blade Crate — knife finishes only
+  { id: 'polishedsteel', name: 'Polished Steel', rarity: 'common', crate: 'blade', body: '#b9c0c8', dark: '#6b7179', furn: '#3a2f26', rough: 0.3, metal: 0.8 },
+  { id: 'ebony', name: 'Ebony & Silver', rarity: 'common', crate: 'blade', body: '#cdd3d9', dark: '#17151a', furn: '#17151a', rough: 0.35, metal: 0.7 },
+  { id: 'camelbone', name: 'Camel Bone', rarity: 'uncommon', crate: 'blade', body: '#ded3b4', dark: '#8a7a55', furn: '#efe6cc', rough: 0.6, metal: 0.2 },
+  { id: 'turquoise', name: 'Turquoise Inlay', rarity: 'uncommon', crate: 'blade', pattern: 'zellige', colors: ['#cfd6dc', '#2fb2a8', '#1f5d66', '#c9a13b'], dark: '#1d2b2e' },
+  { id: 'gildedhilt', name: 'Gilded Hilt', rarity: 'rare', crate: 'blade', body: '#d9dee3', dark: '#8a6a22', furn: '#d8ac3f', rough: 0.25, metal: 0.9 },
+  { id: 'obsidian', name: 'Obsidian Edge', rarity: 'rare', crate: 'blade', body: '#2a2630', dark: '#0d0b10', furn: '#4a4356', rough: 0.2, metal: 0.6, glow: '#7a5cff' },
+  { id: 'bloodsteel', name: 'Blood Steel', rarity: 'epic', crate: 'blade', pattern: 'damascus', colors: ['#9b2b28', '#3a1b1b'], dark: '#1b0f10', metal: 0.85, rough: 0.28, furn: '#2b1a16', glow: '#d0302a' },
+  { id: 'mirageblade', name: 'Mirage Steel', rarity: 'legendary', crate: 'blade', pattern: 'mirage', colors: ['#ff7a3c', '#ffd24a', '#3fd0c9', '#7a5cff'], dark: '#1b1d24', anim: 'hue', metal: 0.8 },
 ];
 for (const f of FINISHES) f.crate = f.crate || 'armory';
 export const FINISH = Object.fromEntries(FINISHES.map((f) => [f.id, f]));

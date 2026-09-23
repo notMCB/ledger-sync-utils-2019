@@ -242,7 +242,7 @@ export class World {
   build(map) {
     this.dispose();
     this.map = map;
-    this.physics = new Physics(map.boxes, map.bounds);
+    this.physics = new Physics(map.boxes, map.bounds, map.tunnels);
     const tx = textures();
     const root = new THREE.Group();
     this.root = root;
@@ -288,12 +288,39 @@ export class World {
       root.add(mesh);
     }
 
-    // ground
+    // ground, with a hole cut wherever a hatch drops into the tunnels
     const [bx, bz] = map.bounds;
-    const gg = new THREE.PlaneGeometry(bx * 2 + 300, bz * 2 + 300);
-    gg.rotateX(-Math.PI / 2);
-    const guv = gg.attributes.uv;
-    for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * (bx * 2 + 300) / 9, guv.getY(i) * (bz * 2 + 300) / 9);
+    const W = bx * 2 + 300, D = bz * 2 + 300;
+    const holes = ((map.tunnels && map.tunnels.hatches) || []).map((h) => ({ x: h[0], z: h[1], r: (map.tunnels.r || 0.8) + 0.02 }));
+    let gg;
+    if (holes.length) {
+      // the shape is drawn in x/y and then laid flat, so its y stands for -z
+      const shape = new THREE.Shape();
+      shape.moveTo(-W / 2, -D / 2);
+      shape.lineTo(W / 2, -D / 2);
+      shape.lineTo(W / 2, D / 2);
+      shape.lineTo(-W / 2, D / 2);
+      shape.closePath();
+      for (const h of holes) {
+        const p = new THREE.Path();
+        p.moveTo(h.x - h.r, -h.z - h.r);
+        p.lineTo(h.x - h.r, -h.z + h.r);
+        p.lineTo(h.x + h.r, -h.z + h.r);
+        p.lineTo(h.x + h.r, -h.z - h.r);
+        p.closePath();
+        shape.holes.push(p);
+      }
+      gg = new THREE.ShapeGeometry(shape);
+      gg.rotateX(-Math.PI / 2);      // lay it flat, facing up
+      const pos = gg.attributes.position;
+      const uv = gg.attributes.uv;
+      for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 9, pos.getZ(i) / 9);
+    } else {
+      gg = new THREE.PlaneGeometry(W, D);
+      gg.rotateX(-Math.PI / 2);
+      const guv = gg.attributes.uv;
+      for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * W / 9, guv.getY(i) * D / 9);
+    }
     const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: tx.ground }));
     ground.receiveShadow = true;
     root.add(ground);
@@ -383,6 +410,28 @@ export class World {
           const gx = -1.0 + (i % 3) * 1.0, gz = i < 3 ? -0.22 : 0.22;
           const sg = new THREE.SphereGeometry(0.22, 8, 6);
           goods.push({ geo: sg, matrix: mtx(d.x + c * gx + s * gz, 0.98, d.z - s * gx + c * gz, 0, 0, 0, 1, 0.55, 1), color: colorOf(gcol[i % 3]) });
+        }
+      } else if (d.k === 'hatch') {
+        // a timber rim round the hole, and a ladder down the shaft
+        const wood = new THREE.MeshLambertMaterial({ map: tx.wood });
+        const r = d.r, lip = 0.12;
+        for (const [ox, oz, sx, sz] of [[0, -r, r + lip, lip], [0, r, r + lip, lip], [-r, 0, lip, r], [r, 0, lip, r]]) {
+          const rim = new THREE.Mesh(new THREE.BoxGeometry(sx * 2, 0.12, sz * 2), wood);
+          rim.position.set(d.x + ox, 0.06, d.z + oz);
+          rim.castShadow = true;
+          root.add(rim);
+        }
+        const steel = new THREE.MeshLambertMaterial({ color: '#6a6f75' });
+        const h = -d.d;
+        for (const ox of [-0.22, 0.22]) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), steel);
+          rail.position.set(d.x - r + 0.16, d.d + h / 2, d.z + ox);
+          root.add(rail);
+        }
+        for (let y = d.d + 0.3; y < -0.1; y += 0.34) {
+          const rung = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.5), steel);
+          rung.position.set(d.x - r + 0.16, y, d.z);
+          root.add(rung);
         }
       } else if (d.k === 'lamp') {
         const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffdc9a' }));

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Souk Siege</title>
-<meta name="description" content="A free multiplayer shooter set in a walled desert town. Team Deathmatch, Free for All, King of the Hill and Bomb Defusal, up to 8 players.">
+<meta name="description" content="A free multiplayer shooter set in a walled desert town. Team Deathmatch, Free for All, King of the Hill and Bomb Defusal, up to 20 players.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%2312151c'/%3E%3Cpath d='M12 50V30q20-22 40 0v20z' fill='%23e6a23c'/%3E%3Ccircle cx='32' cy='38' r='5' fill='%2312151c'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -29,6 +29,7 @@
   <div id="killfeed"></div>
   <canvas id="minimap" width="200" height="200"></canvas>
   <div id="area"></div>
+  <div id="fullmap" hidden><canvas id="fullmap-canvas" width="900" height="900"></canvas><div id="fullmap-hint"></div></div>
   <div id="markers"></div>
   <div id="crosshair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="dot"></i></div>
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
@@ -200,7 +201,7 @@
         <div class="crate-art" aria-hidden="true"></div>
         <div class="crate-text">
           <div class="crate-name">Armory Crate</div>
-          <div class="crate-desc">A random gun finish for one of your five guns.</div>
+          <div class="crate-desc">A random finish for one of your five guns.</div>
         </div>
         <button class="btn crate-open" id="crate-gun">Open · <span id="price-gun">100</span></button>
       </div>
@@ -219,6 +220,14 @@
           <div class="crate-desc">Bright and loud. No commons, better odds — finishes and outfits.</div>
         </div>
         <button class="btn crate-open" id="crate-bazaar">Open · <span id="price-bazaar">500</span></button>
+      </div>
+      <div class="crate-card blade">
+        <div class="crate-art" aria-hidden="true"></div>
+        <div class="crate-text">
+          <div class="crate-name">Blade Crate</div>
+          <div class="crate-desc">Finishes for your knife, and nothing else.</div>
+        </div>
+        <button class="btn crate-open" id="crate-blade">Open · <span id="price-blade">150</span></button>
       </div>
     </div>
     <p class="panel-sub lk-earn">Earn dinars by playing: <b>50 a kill</b> (+10 for a headshot), 20 for a plant, 25 for a defuse, 15 a round win, 25 for finishing a match and 50 more for winning it. Duplicates give some dinars back.</p>

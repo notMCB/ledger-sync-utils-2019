@@ -84,6 +84,14 @@ def catmull(p0, p1, p2, p3, t):
                         (-p0[i] + 3 * p1[i] - 3 * p2[i] + p3[i]) * t3) for i in (0, 1))
 
 
+# underground: a network of tunnels below the town, reached by a ladder
+# through the floor of a few buildings
+TUN_FLOOR = -3.8        # the floor of a tunnel
+TUN_CEIL = -1.5         # the underside of its ceiling
+TUN_HALF = 1.3          # half the width of a corridor
+HATCH_HALF = 0.8        # half the width of a hatch, and of its shaft
+TUN_CELL = 0.65         # the grid the tunnel walls are built on
+
 LANDMARKS = {
     # kind: (name, clear radius)
     'oasis': ('The Oasis', 11),
@@ -110,6 +118,9 @@ class Town:
         self.areas = []      # named places: {'n', 'x', 'z', 'r'}
         self.landmarks = []  # (kind, x, z, r)
         self.balconies = 0
+        self.pits = []       # [x0, z0, x1, z1] the whole tunnel network, in plan
+        self.shafts = []     # the hatch shafts: the only places the ground opens up
+        self.hatches = []    # [x, z, yaw] a ladder down through a building floor
 
     # -- primitives -------------------------------------------------------
 
@@ -503,7 +514,191 @@ class Town:
         self.areas.append({'n': 'East End', 'x': self.spawn_e[0], 'z': round(self.spawn_e[1], 1), 'r': 12})
 
         self.place_props()
+        self.dig_tunnels()
         self.pick_spawns()
+
+    # -- tunnels ---------------------------------------------------------------
+
+    def clear_here(self, x, z, r, y0, y1):
+        """Is this patch of floor free of walls, stairs and furniture?"""
+        for (cx, cy, cz, hx, hy, hz, yaw, mat, tint) in self.boxes:
+            if cy - hy > y1 or cy + hy < y0:
+                continue
+            if abs(cx - x) > hx + r + 1 or abs(cz - z) > hz + r + 1:
+                continue
+            if circle_rect_dist(x, z, (cx, cz, hx, hz, yaw)) < r:
+                return False
+        for (px, pz, pr) in self.props:
+            if math.hypot(px - x, pz - z) < pr + r:
+                return False
+        return True
+
+    def hatch_spot(self, x, z, hw, hd, yaw):
+        """A clear square inside a building for a hatch, or None."""
+        for (fx, fz) in ((0.45, 0.45), (-0.45, 0.45), (0.45, -0.45), (-0.45, -0.45),
+                         (0.0, 0.5), (0.5, 0.0), (0.0, -0.5), (-0.5, 0.0), (0.0, 0.0)):
+            ox, oz = rot(fx * hw, fz * hd, yaw)
+            px, pz = x + ox, z + oz
+            if self.clear_here(px, pz, HATCH_HALF + 0.45, 0.06, 1.7):
+                return (px, pz)
+        return None
+
+    def punch_floor(self, x, z, half):
+        """Cut a square hole in any floor slab over a hatch."""
+        keep = []
+        for b in self.boxes:
+            (cx, cy, cz, hx, hy, hz, yaw, mat, tint) = b
+            top = cy + hy
+            if mat != 'tile' or top > 0.4 or top < -0.2 or abs(cx - x) > hx + hz + 2 or abs(cz - z) > hx + hz + 2:
+                keep.append(b)
+                continue
+            c, s = math.cos(yaw), math.sin(yaw)
+            dx, dz = x - cx, z - cz
+            lx, lz = c * dx - s * dz, s * dx + c * dz          # the hatch, in the slab's own frame
+            r = half * (abs(c) + abs(s)) + 0.02
+            if abs(lx) > hx + r or abs(lz) > hz + r:
+                keep.append(b)
+                continue
+            x0, x1 = max(-hx, lx - r), min(hx, lx + r)
+            z0, z1 = max(-hz, lz - r), min(hz, lz + r)
+            pieces = [(-hx, x0, -hz, hz), (x1, hx, -hz, hz), (x0, x1, -hz, z0), (x0, x1, z1, hz)]
+            for (a0, a1, b0, b1) in pieces:
+                if a1 - a0 < 0.02 or b1 - b0 < 0.02:
+                    continue
+                pcx, pcz = (a0 + a1) / 2, (b0 + b1) / 2
+                wx, wz = rot(pcx, pcz, yaw)
+                keep.append([round(cx + wx, 3), cy, round(cz + wz, 3),
+                             round((a1 - a0) / 2, 3), hy, round((b1 - b0) / 2, 3), yaw, mat, tint])
+        self.boxes = keep
+
+    def dig_tunnels(self):
+        rng = self.rng
+        cands = [r for r in self.rects if min(r[2], r[3]) >= 3.4]
+        rng.shuffle(cands)
+        spots = []
+        for (x, z, hw, hd, yaw) in cands:
+            if len(spots) >= 5:
+                break
+            if any(math.hypot(x - sx, z - sz) < 26 for (sx, sz) in spots):
+                continue
+            s = self.hatch_spot(x, z, hw, hd, yaw)
+            if s:
+                spots.append(s)
+        if len(spots) < 2:
+            return
+        spots.sort()
+        rects = []
+
+        def leg(x0, z0, x1, z1):
+            if abs(x1 - x0) < 0.01 and abs(z1 - z0) < 0.01:
+                return
+            rects.append([min(x0, x1) - TUN_HALF, min(z0, z1) - TUN_HALF,
+                          max(x0, x1) + TUN_HALF, max(z0, z1) + TUN_HALF])
+
+        # a dog-leg between each pair, plus one more so the network loops back
+        links = [(i, i + 1) for i in range(len(spots) - 1)]
+        if len(spots) > 2:
+            links.append((0, len(spots) - 1))
+        for (a, b) in links:
+            (ax, az), (bx, bz) = spots[a], spots[b]
+            # bend at a point off to one side, so the tunnels weave rather than run straight
+            mx = ax + (bx - ax) * rng.uniform(0.3, 0.7)
+            leg(ax, az, mx, az)
+            leg(mx, az, mx, bz)
+            leg(mx, bz, bx, bz)
+        shafts = [[x - HATCH_HALF, z - HATCH_HALF, x + HATCH_HALF, z + HATCH_HALF] for (x, z) in spots]
+
+        def snap(r):
+            return [math.floor(r[0] / TUN_CELL) * TUN_CELL, math.floor(r[1] / TUN_CELL) * TUN_CELL,
+                    math.ceil(r[2] / TUN_CELL) * TUN_CELL, math.ceil(r[3] / TUN_CELL) * TUN_CELL]
+
+        rects = [snap(r) for r in rects]
+        shafts = [snap(r) for r in shafts]
+        self.pits = [[round(v, 2) for v in r] for r in rects + shafts]
+        self.shafts = [[round(v, 2) for v in r] for r in shafts]
+        self.hatches = [[round(x, 2), round(z, 2), 0.0] for (x, z) in spots]
+
+        # open the floor of each building above its hatch
+        for (x, z) in spots:
+            self.punch_floor(x, z, HATCH_HALF)
+
+        # the floor runs under everything, shafts included
+        for (x0, z0, x1, z1) in rects + shafts:
+            self.box((x0 + x1) / 2, TUN_FLOOR - 0.15, (z0 + z1) / 2, (x1 - x0) / 2, 0.15, (z1 - z0) / 2, 0, 'tile')
+
+        # walls and ceiling: rasterise the whole network, then wall off every open edge
+        # the rects sit on the cell grid already, so round rather than ceil:
+        # 8.45 / 0.65 comes out a hair over 13 and ceil would add a spare cell
+        cells = set()
+        deep = set()
+        for (x0, z0, x1, z1) in rects + shafts:
+            for ix in range(int(round(x0 / TUN_CELL)), int(round(x1 / TUN_CELL))):
+                for iz in range(int(round(z0 / TUN_CELL)), int(round(z1 / TUN_CELL))):
+                    cells.add((ix, iz))
+        for (x0, z0, x1, z1) in shafts:
+            for ix in range(int(round(x0 / TUN_CELL)), int(round(x1 / TUN_CELL))):
+                for iz in range(int(round(z0 / TUN_CELL)), int(round(z1 / TUN_CELL))):
+                    deep.add((ix, iz))
+        # the ceiling, in strips, with the shafts left open to the room above
+        rows = {}
+        for (ix, iz) in cells:
+            if (ix, iz) in deep:
+                continue
+            rows.setdefault(iz, []).append(ix)
+        for (iz, xs) in rows.items():
+            xs.sort()
+            start = prev = xs[0]
+            for x in xs[1:] + [None]:
+                if x is not None and x == prev + 1:
+                    prev = x
+                    continue
+                x0, x1 = start * TUN_CELL, (prev + 1) * TUN_CELL
+                self.box((x0 + x1) / 2, TUN_CEIL + 0.18, (iz + 0.5) * TUN_CELL,
+                         (x1 - x0) / 2, 0.18, TUN_CELL / 2, 0, 'stone')
+                if x is not None:
+                    start = prev = x
+
+        # walls, in two layers: the tunnel itself from its floor to its ceiling,
+        # then the shafts alone from that ceiling up to the street
+        for (group, base, top) in ((cells, TUN_FLOOR, TUN_CEIL), (deep, TUN_CEIL, 0.0)):
+            for (dx, dz) in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                runs = {}
+                for (ix, iz) in group:
+                    if (ix + dx, iz + dz) in group:
+                        continue
+                    key = ((ix if dx else iz), dx, dz, base, top)
+                    runs.setdefault(key, []).append(iz if dx else ix)
+                # merged runs, one box each
+                for ((line, sdx, sdz, lo_y, hi_y), others) in runs.items():
+                    others.sort()
+                    start = prev = others[0]
+                    for o in others[1:] + [None]:
+                        if o is not None and o == prev + 1:
+                            prev = o
+                            continue
+                        lo, hi = start * TUN_CELL, (prev + 1) * TUN_CELL
+                        at = (line + (1 if sdx > 0 or sdz > 0 else 0)) * TUN_CELL
+                        cy = (lo_y + hi_y) / 2
+                        hy = (hi_y - lo_y) / 2
+                        if sdx:
+                            self.box(at + sdx * 0.12, cy, (lo + hi) / 2, 0.12, hy, (hi - lo) / 2, 0, 'stone')
+                        else:
+                            self.box((lo + hi) / 2, cy, at + sdz * 0.12, (hi - lo) / 2, hy, 0.12, 0, 'stone')
+                        if o is not None:
+                            start = prev = o
+
+        # lamps along the corridors, and a rim and ladder at each hatch
+        for (x0, z0, x1, z1) in rects:
+            L = max(x1 - x0, z1 - z0)
+            n = max(1, int(L / 9))
+            for i in range(n):
+                t = (i + 0.5) / n
+                lx = x0 + (x1 - x0) * (t if x1 - x0 > z1 - z0 else 0.5)
+                lz = z0 + (z1 - z0) * (0.5 if x1 - x0 > z1 - z0 else t)
+                self.deco.append({'k': 'lamp', 'x': round(lx, 2), 'y': round(TUN_CEIL - 0.35, 2), 'z': round(lz, 2)})
+        for (x, z) in spots:
+            self.deco.append({'k': 'hatch', 'x': round(x, 2), 'z': round(z, 2), 'r': HATCH_HALF, 'd': TUN_FLOOR})
+            self.areas.append({'n': 'Tunnels', 'x': round(x, 1), 'z': round(z, 1), 'r': 3})
 
     # -- roads -----------------------------------------------------------------
 
@@ -884,6 +1079,11 @@ class Town:
                 chosen.append(best)
         self.ffa_spawns = [[round(x, 2), round(z, 2)] for (x, z) in chosen]
 
+        # never spawn on a hatch: you'd drop straight into the tunnels
+        self.ffa_spawns = [s for s in self.ffa_spawns
+                           if all(abs(s[0] - hx) > HATCH_HALF + 0.8 or abs(s[1] - hz) > HATCH_HALF + 0.8
+                                  for (hx, hz, _) in self.hatches)]
+
         def zone(cx, cz):
             out = []
             for _ in range(400):
@@ -893,6 +1093,9 @@ class Town:
                 z = cz + rng.uniform(-7, 7)
                 if self.free(x, z, 0.5, 0.9, 0.4) and all(math.hypot(x - a, z - b) > 1.6 for a, b in out):
                     out.append((x, z))
+            out = [s for s in out
+                   if all(abs(s[0] - hx) > HATCH_HALF + 0.8 or abs(s[1] - hz) > HATCH_HALF + 0.8
+                          for (hx, hz, _) in self.hatches)]
             while len(out) < 8:
                 out.append((cx + rng.uniform(-1, 1), cz + rng.uniform(-1, 1)))
             return [[round(x, 2), round(z, 2)] for (x, z) in out]
@@ -911,6 +1114,8 @@ class Town:
             'teamSpawns': self.team_spawns,
             'ffaSpawns': self.ffa_spawns,
             'areas': self.areas,
+            'tunnels': {'pits': self.pits, 'shafts': self.shafts, 'hatches': self.hatches,
+                        'r': HATCH_HALF, 'floor': TUN_FLOOR, 'ceil': TUN_CEIL},
         }
 
 

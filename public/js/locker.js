@@ -6,22 +6,27 @@
 //    and this module just mirrors what it sends.
 
 import { RARITIES, FINISHES, OUTFITS, GUN_IDS, FINISH, OUTFIT } from './skins.js';
+import { clean as cleanAttach, HAS_ATTACHMENTS } from './attachments.js';
 
 export const CRATES = {
   gun: { id: 'gun', name: 'Armory Crate', price: 100, blurb: 'One random gun finish for one of your five guns.' },
   outfit: { id: 'outfit', name: 'Wardrobe Crate', price: 100, blurb: 'One random outfit for your soldier.' },
   bazaar: { id: 'bazaar', name: 'Bazaar Case', price: 500, blurb: 'Bright, loud, not remotely military. Better odds, no commons — gun finishes and outfits.' },
+  blade: { id: 'blade', name: 'Blade Crate', price: 150, blurb: 'Finishes for your knife, and nothing else.' },
 };
 export const CRATE_COST = CRATES.gun.price;
 export const STARTING_DINARS = 300;
 const REFUND = { common: 20, uncommon: 30, rare: 50, epic: 80, legendary: 150 };
 const BAZAAR_WEIGHTS = { uncommon: 42, rare: 33, epic: 18, legendary: 7 };
 const PRIMARY = ['smg', 'lmg', 'shotgun', 'sniper'];
+// the knife has its own crate, so the others never roll its finishes
+const SHOOTERS = GUN_IDS.filter((g) => g !== 'knife');
 
 const KEY = 'souk-siege-locker-v1';
 
 function blank() {
-  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {} }, opened: 0 };
+  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], kills: {},
+    equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {} }, opened: 0 };
 }
 
 function normalise(s) {
@@ -34,6 +39,8 @@ function normalise(s) {
   s.equip.guns = s.equip.guns || {};
   s.equip.pistol = s.equip.pistol || {};
   s.equip.nade = s.equip.nade || {};
+  s.equip.attach = s.equip.attach || {};
+  s.kills = s.kills && typeof s.kills === 'object' ? s.kills : {};
   // older guest lockers kept one pistol finish for every loadout
   if (s.equip.guns.pistol) {
     for (const ld of ['0', '1', '2', '3']) if (!s.equip.pistol[ld]) s.equip.pistol[ld] = s.equip.guns.pistol;
@@ -90,18 +97,23 @@ export function roll(kind) {
   if (kind === 'gun') {
     const rarity = pickRarity();
     const f = pick(FINISHES.filter((x) => x.rarity === rarity && x.crate === 'armory'));
-    return { kind: 'gun', weapon: pick(GUN_IDS), finish: f.id, rarity };
+    return { kind: 'gun', weapon: pick(SHOOTERS), finish: f.id, rarity };
   }
   if (kind === 'outfit') {
     const rarity = pickRarity();
     const o = pick(OUTFITS.filter((x) => x.rarity === rarity && x.crate === 'wardrobe'));
     return { kind: 'outfit', outfit: o.id, rarity };
   }
+  if (kind === 'blade') {
+    const rarity = pickRarity();
+    const f = pick(FINISHES.filter((x) => x.rarity === rarity && x.crate === 'blade'));
+    return { kind: 'gun', weapon: 'knife', finish: f.id, rarity };
+  }
   const rarity = pickRarity(BAZAAR_WEIGHTS);
   const guns = FINISHES.filter((x) => x.rarity === rarity && x.crate === 'bazaar');
   const outfits = OUTFITS.filter((x) => x.rarity === rarity && x.crate === 'bazaar');
   if (outfits.length && (!guns.length || Math.random() < 0.4)) return { kind: 'outfit', outfit: pick(outfits).id, rarity };
-  return { kind: 'gun', weapon: pick(GUN_IDS), finish: pick(guns).id, rarity };
+  return { kind: 'gun', weapon: pick(SHOOTERS), finish: pick(guns).id, rarity };
 }
 
 export const locker = {
@@ -172,7 +184,9 @@ export const locker = {
   },
 
   totalGunSkins() {
-    return FINISHES.length * GUN_IDS.length;
+    // knife finishes only go on the knife, and gun finishes never do
+    const blades = FINISHES.filter((f) => f.crate === 'blade').length;
+    return (FINISHES.length - blades) * (GUN_IDS.length - 1) + blades;
   },
 
   // -- crates --
@@ -242,6 +256,37 @@ export const locker = {
     return OUTFIT[o] && this.ownsOutfit(o) ? o : 'standard';
   },
 
+  // -- kills and attachments --
+
+  killsWith(weapon) {
+    return Math.max(0, Math.floor(state().kills[weapon] || 0));
+  },
+
+  addKill(weapon) {
+    if (!HAS_ATTACHMENTS.includes(weapon)) return;
+    const s = state();
+    s.kills[weapon] = this.killsWith(weapon) + 1;
+    this.saved();
+  },
+
+  // only used by the localhost test links
+  setKills(weapon, n) {
+    state().kills[weapon] = Math.max(0, Math.floor(n) || 0);
+    this.saved();
+  },
+
+  // what's fitted to a gun, with anything not yet unlocked dropped
+  attachFor(weapon) {
+    return cleanAttach(weapon, state().equip.attach[weapon], this.killsWith(weapon));
+  },
+
+  setAttach(weapon, slot, id) {
+    const s = state();
+    const fitted = { ...this.attachFor(weapon), [slot]: id };
+    s.equip.attach[weapon] = cleanAttach(weapon, fitted, this.killsWith(weapon));
+    this.saved();
+  },
+
   nadeFor(ld) {
     return String(ld) === '2' && state().equip.nade['2'] === 'flash' ? 'flash' : 'frag';
   },
@@ -287,6 +332,8 @@ export const locker = {
     if (f) g[primary] = f;
     const p = this.equippedPistol(ld);
     if (p) g.pistol = p;
+    const k = this.equippedGun('knife');
+    if (k) g.knife = k;
     return { o: this.equippedOutfit(), g };
   },
 };

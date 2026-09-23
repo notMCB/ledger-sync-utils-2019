@@ -6,13 +6,37 @@ import * as THREE from 'three';
 const CELL = 4;
 
 export class Physics {
-  constructor(boxes, bounds) {
+  constructor(boxes, bounds, tunnels) {
     this.boxes = [];
     this.cells = new Map();
     this.stamp = 1;
     this.bx = bounds[0] + 4;
     this.bz = bounds[1] + 4;
+    // the tunnels below the town. Only a hatch shaft actually opens the ground;
+    // the corridors are sealed under it, so the street above stays solid.
+    this.pits = (tunnels && tunnels.pits) || [];
+    this.shafts = (tunnels && tunnels.shafts) || [];
+    this.pitFloor = (tunnels && tunnels.floor) || 0;
     for (const b of boxes) this.add(b);
+  }
+
+  static inRects(rects, x, z, m = 0) {
+    for (const p of rects) {
+      if (x > p[0] - m && x < p[2] + m && z > p[1] - m && z < p[3] + m) return true;
+    }
+    return false;
+  }
+
+  // the level the ground sits at here: 0 everywhere except down an open hatch
+  floorAt(x, z, y = 1) {
+    if (this.shafts.length && Physics.inRects(this.shafts, x, z)) return this.pitFloor;
+    // already below the street: you're in the tunnels, so the tunnel floor holds you
+    if (y < -0.6 && Physics.inRects(this.pits, x, z)) return this.pitFloor;
+    return 0;
+  }
+
+  inPit(x, z, m = 0) {
+    return Physics.inRects(this.shafts.length ? this.shafts : this.pits, x, z, m);
   }
 
   add([cx, cy, cz, hx, hy, hz, yaw, mat]) {
@@ -110,7 +134,9 @@ export class Physics {
   raycast(o, d, maxT = 400, res = null) {
     const n = new THREE.Vector3();
     const tg = d.y < -1e-6 ? -o.y / d.y : Infinity;
-    const groundT = tg >= 0 && tg < maxT ? tg : Infinity;
+    let groundT = tg >= 0 && tg < maxT ? tg : Infinity;
+    // a ray that crosses ground level inside a hatch keeps going down the shaft
+    if (groundT < Infinity && this.pits.length && this.inPit(o.x + d.x * groundT, o.z + d.z * groundT)) groundT = Infinity;
     let best = Math.min(maxT, groundT), bestBox = null;
     const bn = new THREE.Vector3();
     const st = ++this.stamp;
@@ -242,7 +268,7 @@ export class Physics {
     this.query(p.x - r, p.z - r, p.x + r, p.z + r, tmp);
     const fr = r * 0.8;
     // ground under us: highest top at or below feet + step
-    let ground = 0;
+    let ground = this.pits.length ? this.floorAt(p.x, p.z, p.y) : 0;
     const reach = body.grounded ? step : Math.max(0.05, -v.y * dt + 0.05);
     for (const b of tmp) {
       if (b.maxY > p.y + reach || b.maxY <= ground) continue;

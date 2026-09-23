@@ -2,7 +2,7 @@
 // hit volumes for our own shots.
 
 import * as THREE from 'three';
-import { nameTag } from './textures.js';
+import { nameTag, softDot } from './textures.js';
 import { outfitMaterials, gunMaterials } from './skins.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
@@ -120,7 +120,22 @@ function ghillieGeometry() {
 
 const GUN_SIZES = {
   smg: [0.06, 0.1, 0.5], lmg: [0.09, 0.13, 0.85], shotgun: [0.06, 0.08, 0.85], sniper: [0.06, 0.09, 1.05], pistol: [0.04, 0.08, 0.2],
+  knife: [0.03, 0.04, 0.28],
 };
+
+// the flash of sun off a scope lens, shared by every avatar
+let GLINT = null;
+// spawn protection: a faint blue shell around a player who can't be hurt yet
+const SHIELD_GEO = new THREE.CapsuleGeometry(0.45, 0.95, 4, 14);
+const SHIELD_MAT = new THREE.MeshBasicMaterial({ color: 0x7fc8ff, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+
+function glintMat() {
+  if (!GLINT) {
+    GLINT = new THREE.SpriteMaterial({ map: softDot('rgba(255,255,255,1)', 'rgba(150,220,255,0)'),
+      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 });
+  }
+  return GLINT.clone();
+}
 
 export class Avatar {
   constructor(id, scene) {
@@ -230,6 +245,16 @@ export class Avatar {
     this.buildGear(upper, head);
 
     this.tagMat = new THREE.SpriteMaterial({ transparent: true, depthTest: true, depthWrite: false });
+    // scope glare: sits where their eye is, and only shines when they face you
+    this.glint = new THREE.Sprite(glintMat());
+    this.glint.scale.set(0.5, 0.5, 1);
+    this.glint.visible = false;
+    g.add(this.glint);
+    this.glintK = 0;
+    this.shield = new THREE.Mesh(SHIELD_GEO, SHIELD_MAT);
+    this.shield.position.y = 0.95;
+    this.shield.visible = false;
+    g.add(this.shield);
     this.tag = new THREE.Sprite(this.tagMat);
     this.tag.scale.set(1.2, 0.3, 1);
     this.tag.position.y = 2.2;
@@ -421,6 +446,33 @@ export class Avatar {
     this.pingT = Math.max(0, (this.pingT || 0) - dt);
   }
 
+  // A scoped player's lens catches the light. It is brightest when they are
+  // looking straight at you, and fades off within a few degrees.
+  updateGlint(dt, camera, friendly) {
+    this.shield.visible = this.alive && !!(this.flags & 128);
+    if (this.shield.visible) this.shield.scale.y = 1 - this.crouchK * 0.3;
+    const scoped = this.alive && !!(this.flags & 64) && !friendly;
+    let want = 0;
+    if (scoped) {
+      const dx = camera.position.x - this.pos.x, dz = camera.position.z - this.pos.z;
+      const dist = Math.hypot(dx, dz) || 1e-6;
+      // which way they are facing, in the same terms
+      const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+      const dot = (dx / dist) * fx + (dz / dist) * fz;
+      // within about 12 degrees, and only far enough away to be a sniper
+      want = dist > 12 ? Math.max(0, (dot - 0.978) / 0.022) : 0;
+    }
+    this.glintK += (want - this.glintK) * Math.min(1, dt * 6);
+    const on = this.glintK > 0.02;
+    this.glint.visible = on;
+    if (!on) return;
+    const flicker = 0.75 + 0.25 * Math.sin(performance.now() / 90 + this.id);
+    this.glint.material.opacity = Math.min(1, this.glintK * flicker);
+    const s = 0.35 + this.glintK * 0.5;
+    this.glint.scale.set(s, s, 1);
+    this.glint.position.set(0, 1.62 - this.crouchK * 0.44, 0);
+  }
+
   headCenter(out) {
     return out.set(this.pos.x, this.pos.y + 1.73 - this.crouchK * 0.44, this.pos.z);
   }
@@ -435,6 +487,7 @@ export class Avatar {
   }
 
   dispose() {
+    if (this.glint.material.map) this.glint.material.dispose();
     this.scene.remove(this.group);
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
@@ -534,7 +587,7 @@ export class Avatars {
         a.gunId = null;
       }
       a.slot = slot;
-      a.setGun(slot === 1 ? 'pistol' : ['smg', 'lmg', 'shotgun', 'sniper'][ld] || 'smg');
+      a.setGun(slot === 2 ? 'knife' : slot === 1 ? 'pistol' : ['smg', 'lmg', 'shotgun', 'sniper'][ld] || 'smg');
       a.push(t, x, y, z, yaw, pitch, flags);
     }
   }
@@ -547,6 +600,7 @@ export class Avatars {
       a.tag.visible = a.alive && (friendly || a.showName > 0);
       a.tagMat.depthTest = !friendly;
       a.tag.renderOrder = friendly ? 5 : 0;
+      a.updateGlint(dt, camera, friendly);
       // keep the tag readable at range
       const d = camera.position.distanceTo(a.pos);
       const s = Math.max(1, d / 14);

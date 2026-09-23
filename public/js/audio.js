@@ -137,6 +137,25 @@ function suppressedShot(weapon, pos, local) {
   click(sp.input, t + 0.015, 3200, 0.18, 0.02);
 }
 
+// the knife: a short whoosh, and a wet thud when it lands
+export function knifeSwing(pos) {
+  if (!ensure()) return;
+  const sp = spatial(pos || null, 20);
+  if (!sp) return;
+  sp.output.connect(master);
+  noiseBurst(sp.input, ctx.currentTime, 0.14, 1800, 300, 0.5, 0.22, 'bandpass');
+}
+
+export function knifeHit(pos) {
+  if (!ensure()) return;
+  const sp = spatial(pos || null, 25);
+  if (!sp) return;
+  sp.output.connect(master);
+  const t = ctx.currentTime;
+  thump(sp.input, t, 220, 70, 0.09, 0.5);
+  noiseBurst(sp.input, t, 0.07, 900, 200, 0.6, 0.3, 'lowpass');
+}
+
 export function dryFire() {
   if (!ensure()) return;
   const sp = spatial(null);

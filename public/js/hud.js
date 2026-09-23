@@ -34,6 +34,9 @@ export class Hud {
     this.dirs = [];
     this.mm = $('minimap');
     this.mmg = this.mm.getContext('2d');
+    this.fm = $('fullmap');
+    this.fmc = $('fullmap-canvas');
+    this.fmg = this.fmc.getContext('2d');
     this.mmBase = null;
     this.markerEls = new Map();
     this.lastTop = '';
@@ -62,12 +65,14 @@ export class Hud {
     if (key === this.lastAmmo) return;
     this.lastAmmo = key;
     const m = $('ammo-mag');
-    m.textContent = ws.mag;
-    m.classList.toggle('low', ws.mag <= Math.ceil(ws.def.mag * 0.25));
-    $('ammo-res').textContent = ws.reserve;
+    const melee = !!ws.def.melee;
+    m.textContent = melee ? '—' : ws.mag;
+    document.querySelector('.ammo .sep').style.visibility = melee ? 'hidden' : '';
+    m.classList.toggle('low', !melee && ws.mag <= Math.ceil(ws.def.mag * 0.25));
+    $('ammo-res').textContent = melee ? '' : ws.reserve;
     $('weapon-name').textContent = ws.reloading ? 'Reloading…' : ws.def.name;
     $('nades').innerHTML = Array.from({ length: maxNades }, (_, i) => `<i class="${i < nades ? '' : 'used'}"></i>`).join('');
-    $('reload-hint').hidden = !(ws.mag === 0 && !ws.reloading && ws.reserve > 0);
+    $('reload-hint').hidden = !(!ws.def.melee && ws.mag === 0 && !ws.reloading && ws.reserve > 0);
     $('reload-key').textContent = reloadKey;
   }
 
@@ -91,9 +96,10 @@ export class Hud {
     this.ch.classList.toggle('enemy', enemy);
   }
 
-  hit(kill, head) {
-    this.hm.classList.remove('kill', 'head');
-    if (kill) this.hm.classList.add('kill');
+  hit(kill, head, blocked) {
+    this.hm.classList.remove('kill', 'head', 'blocked');
+    if (blocked) this.hm.classList.add('blocked');
+    else if (kill) this.hm.classList.add('kill');
     else if (head) this.hm.classList.add('head');
     this.hm.classList.add('show');
     this.hmT = kill ? 0.35 : 0.14;
@@ -115,7 +121,8 @@ export class Hud {
     const wname = ev.w === 'nade' ? 'grenade' : ev.w === 'bomb' ? 'bomb' : (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {
-      row.innerHTML = `<span style="color:${kc}">${esc(ev.kn)}</span><span class="w">${esc(wname)}</span>${ev.hs ? '<span class="hs">HEAD</span>' : ''}<span style="color:${vc}">${esc(ev.vn)}</span>`;
+      const helpers = ev.as && ev.as.length ? `<span class="as" style="color:${kc}">+ ${esc(ev.as.join(', '))}</span>` : '';
+      row.innerHTML = `<span style="color:${kc}">${esc(ev.kn)}</span>${helpers}<span class="w">${esc(wname)}</span>${ev.hs ? '<span class="hs">HEAD</span>' : ''}<span style="color:${vc}">${esc(ev.vn)}</span>`;
     } else {
       row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : 'self')}</span>`;
     }
@@ -299,6 +306,14 @@ export class Hud {
         g.fill();
       }
     }
+    // the tunnels, faint, under everything else
+    const tun = map.tunnels;
+    if (tun && tun.pits) {
+      g.fillStyle = 'rgba(70, 58, 44, 0.55)';
+      for (const [x0, z0, x1, z1] of tun.pits) {
+        g.fillRect(S / 2 + x0 * scale, S / 2 + z0 * scale, (x1 - x0) * scale, (z1 - z0) * scale);
+      }
+    }
     const fp = world.footprints();
     draw(fp.filter((f) => f.h < 4), 'rgba(239, 228, 207, 0.75)');
     draw(fp.filter((f) => f.h >= 4), 'rgba(255, 246, 228, 0.95)');
@@ -306,6 +321,19 @@ export class Hud {
     g.strokeStyle = 'rgba(239,228,207,0.5)';
     g.lineWidth = 2;
     g.strokeRect(S / 2 - bx * scale, S / 2 - bz * scale, bx * 2 * scale, bz * 2 * scale);
+    // hatches on top, so you can find the way down
+    if (tun && tun.hatches) {
+      for (const [x, z] of tun.hatches) {
+        const px = S / 2 + x * scale, pz = S / 2 + z * scale;
+        g.beginPath();
+        g.arc(px, pz, 4, 0, Math.PI * 2);
+        g.fillStyle = '#2a2018';
+        g.fill();
+        g.strokeStyle = '#d8b56a';
+        g.lineWidth = 1.5;
+        g.stroke();
+      }
+    }
     this.mmBase = c;
     this.areas = map.areas || [];
     this.areaName = '';
@@ -411,6 +439,84 @@ export class Hud {
     g.restore();
   }
 
+  // -- the whole map, opened with M --
+
+  fullmap(show, me, others, objectives, mapKey) {
+    if (this.fm.hidden === !show && !show) return;
+    this.fm.hidden = !show;
+    if (!show || !this.mmBase || !me) return;
+    const g = this.fmg;
+    const W = this.fmc.width;
+    g.clearRect(0, 0, W, W);
+    const S = this.mmS;
+    const k = W / S;                       // the whole town, north up, filling the canvas
+    g.drawImage(this.mmBase, 0, 0, S, S, 0, 0, W, W);
+    const toMap = (x, z) => [W / 2 + x * this.mmScale * k, W / 2 + z * this.mmScale * k];
+    for (const o of objectives) {
+      const [x, y] = toMap(o.x, o.z);
+      if (o.r) {
+        g.beginPath();
+        g.arc(x, y, Math.max(6, o.r * this.mmScale * k), 0, Math.PI * 2);
+        g.fillStyle = o.fill || 'rgba(255,255,255,0.14)';
+        g.fill();
+        g.strokeStyle = o.color;
+        g.lineWidth = 2;
+        g.stroke();
+      }
+      if (o.label) {
+        g.fillStyle = o.color;
+        g.font = '700 22px "Reem Kufi", sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(o.label, x, y);
+      }
+      if (o.dot) {
+        g.beginPath();
+        g.arc(x, y, 7, 0, Math.PI * 2);
+        g.fillStyle = o.color;
+        g.fill();
+      }
+    }
+    // where everything is called
+    g.font = '600 15px "Reem Kufi", sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    for (const a of this.areas) {
+      const [x, y] = toMap(a.x, a.z);
+      g.fillStyle = 'rgba(20, 24, 32, 0.55)';
+      g.fillText(a.n, x + 1, y + 1);
+      g.fillStyle = 'rgba(239, 228, 207, 0.85)';
+      g.fillText(a.n, x, y);
+    }
+    for (const o of others) {
+      const [x, y] = toMap(o.x, o.z);
+      g.beginPath();
+      g.arc(x, y, 6, 0, Math.PI * 2);
+      g.fillStyle = o.color;
+      g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.6)';
+      g.lineWidth = 1.5;
+      g.stroke();
+    }
+    const [mx, my] = toMap(me.x, me.z);
+    g.save();
+    g.translate(mx, my);
+    g.rotate(-me.yaw + Math.PI);
+    g.fillStyle = '#fff';
+    g.strokeStyle = 'rgba(0,0,0,0.6)';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(0, -12); g.lineTo(8, 8); g.lineTo(0, 3); g.lineTo(-8, 8);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.restore();
+    if (mapKey !== this.mapKeyShown) {
+      this.mapKeyShown = mapKey;
+      $('fullmap-hint').textContent = `${mapKey} to close`;
+    }
+  }
+
   // -- scoreboard --
 
   scoreboard(show, roster, g, myId, alive, roomName) {
@@ -420,8 +526,8 @@ export class Hud {
     const mode = g.mode;
     const rows = (list) => list.map((p) => `<tr class="${p.id === myId ? 'me' : ''} ${alive(p.id) ? '' : 'dead'}">` +
       `<td><span class="swatch" style="background:${playerColor(p.id, p.tm)}"></span>${esc(p.n)}</td>` +
-      `<td>${p.k}</td><td>${p.d}</td><td>${p.s}</td><td>${p.ping}</td></tr>`).join('');
-    const head = '<tr><th>Player</th><th>Kills</th><th>Deaths</th><th>Score</th><th>Ping</th></tr>';
+      `<td>${p.k}</td><td>${p.a || 0}</td><td>${p.d}</td><td>${p.s}</td><td>${p.ping}</td></tr>`).join('');
+    const head = '<tr><th>Player</th><th>Kills</th><th>Assists</th><th>Deaths</th><th>Score</th><th>Ping</th></tr>';
     const all = [...roster.values()];
     let body = '';
     if (mode === 'ffa') {
@@ -436,12 +542,12 @@ export class Hud {
           `<table class="sb-table">${head}${rows(list)}</table>`;
       }
     }
-    el.innerHTML = `<div class="sb-head"><h3>${esc(roomName || MODE_INFO[mode].name)}</h3><span>${all.length}/8 players</span></div>${body}`;
+    el.innerHTML = `<div class="sb-head"><h3>${esc(roomName || MODE_INFO[mode].name)}</h3><span>${all.length}/${(g && g.max) || 20} players</span></div>${body}`;
   }
 
   // dinars earned, floating up by the ammo counter
   earn(n, why) {
-    const labels = { kill: 'Kill', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
+    const labels = { kill: 'Kill', assist: 'Kill assist', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
     const el = document.createElement('div');
     el.className = 'earn-pop';
     el.innerHTML = `<b>+${n}</b> dinars <span>${esc(labels[why] || '')}</span>`;

@@ -6,7 +6,7 @@ tools/test_catalog.py checks the two lists agree.
 
 import random
 
-GUNS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol']
+GUNS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife']
 
 RARITY_WEIGHTS = {'common': 55, 'uncommon': 25, 'rare': 13, 'epic': 5.5, 'legendary': 1.5}
 # the Bazaar Case has no commons and better odds at the top
@@ -18,6 +18,7 @@ CRATES = {
     'gun': {'name': 'Armory Crate', 'price': 100},
     'outfit': {'name': 'Wardrobe Crate', 'price': 100},
     'bazaar': {'name': 'Bazaar Case', 'price': 500},
+    'blade': {'name': 'Blade Crate', 'price': 150},
 }
 
 # (id, rarity, crate)
@@ -33,6 +34,11 @@ FINISHES = [
     ('toyblocks', 'rare', 'bazaar'), ('sunsetfade', 'rare', 'bazaar'), ('oceanwave', 'rare', 'bazaar'),
     ('graffiti', 'epic', 'bazaar'), ('galaxy', 'epic', 'bazaar'),
     ('holofoil', 'legendary', 'bazaar'), ('lavalamp', 'legendary', 'bazaar'),
+    # Blade Case — knife finishes only
+    ('polishedsteel', 'common', 'blade'), ('ebony', 'common', 'blade'),
+    ('camelbone', 'uncommon', 'blade'), ('turquoise', 'uncommon', 'blade'),
+    ('gildedhilt', 'rare', 'blade'), ('obsidian', 'rare', 'blade'),
+    ('bloodsteel', 'epic', 'blade'), ('mirageblade', 'legendary', 'blade'),
 ]
 
 OUTFITS = [
@@ -49,6 +55,7 @@ OUTFITS = [
     ('stargazer', 'legendary', 'bazaar'),
 ]
 
+SHOOTERS = [g for g in GUNS if g != 'knife']
 FINISH_IDS = {f[0] for f in FINISHES}
 OUTFIT_IDS = {o[0] for o in OUTFITS}
 RARITY_OF_FINISH = {f[0]: f[1] for f in FINISHES}
@@ -71,7 +78,12 @@ def roll(kind, rng=random):
         r = _pick_rarity(RARITY_WEIGHTS, rng)
         pool = [f for f in FINISHES if f[1] == r and f[2] == 'armory']
         f = rng.choice(pool)
-        return {'kind': 'gun', 'weapon': rng.choice(GUNS), 'finish': f[0], 'rarity': r}
+        return {'kind': 'gun', 'weapon': rng.choice(SHOOTERS), 'finish': f[0], 'rarity': r}
+    if kind == 'blade':
+        r = _pick_rarity(RARITY_WEIGHTS, rng)
+        pool = [f for f in FINISHES if f[1] == r and f[2] == 'blade']
+        f = rng.choice(pool)
+        return {'kind': 'gun', 'weapon': 'knife', 'finish': f[0], 'rarity': r}
     if kind == 'outfit':
         r = _pick_rarity(RARITY_WEIGHTS, rng)
         pool = [o for o in OUTFITS if o[1] == r and o[2] == 'wardrobe']
@@ -85,7 +97,7 @@ def roll(kind, rng=random):
         o = rng.choice(outfits)
         return {'kind': 'outfit', 'outfit': o[0], 'rarity': r}
     f = rng.choice(guns)
-    return {'kind': 'gun', 'weapon': rng.choice(GUNS), 'finish': f[0], 'rarity': r}
+    return {'kind': 'gun', 'weapon': rng.choice(SHOOTERS), 'finish': f[0], 'rarity': r}
 
 
 # -- lockers ------------------------------------------------------------------
@@ -93,9 +105,12 @@ def roll(kind, rng=random):
 STARTING_DINARS = 300
 
 
+GUN_ATTACH_SLOTS = ('optic', 'muzzle', 'mag', 'ammo', 'trigger')
+
+
 def new_locker():
-    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'],
-            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}}, 'opened': 0}
+    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {},
+            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}}, 'opened': 0}
 
 
 def clean_locker(d, dinar_cap=None):
@@ -120,6 +135,14 @@ def clean_locker(d, dinar_cap=None):
     for o in outfits:
         if isinstance(o, str) and o in OUTFIT_IDS and o not in out['outfits']:
             out['outfits'].append(o)
+    kills = d.get('kills')
+    if isinstance(kills, dict):
+        for wpn, n in kills.items():
+            if wpn in GUNS:
+                try:
+                    out['kills'][wpn] = max(0, min(10 ** 7, int(n)))
+                except (TypeError, ValueError):
+                    pass
     out['equip'] = clean_equip(d.get('equip'), out)
     try:
         out['opened'] = max(0, int(d.get('opened', 0)))
@@ -130,13 +153,13 @@ def clean_locker(d, dinar_cap=None):
 
 def clean_equip(e, locker):
     """Equipped items, dropping anything the locker doesn't own."""
-    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}}
+    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}}
     if not isinstance(e, dict):
         return res
     if e.get('outfit') in locker['outfits']:
         res['outfit'] = e['outfit']
     g = e.get('guns') if isinstance(e.get('guns'), dict) else {}
-    for w in ('smg', 'lmg', 'shotgun', 'sniper'):
+    for w in ('smg', 'lmg', 'shotgun', 'sniper', 'knife'):
         f = g.get(w)
         if isinstance(f, str) and '%s:%s' % (w, f) in locker['guns']:
             res['guns'][w] = f
@@ -148,6 +171,18 @@ def clean_equip(e, locker):
     n = e.get('nade') if isinstance(e.get('nade'), dict) else {}
     if n.get('2') in ('frag', 'flash'):
         res['nade']['2'] = n['2']
+    # fitted attachments: ids are checked against the kills the player has in the game
+    at = e.get('attach') if isinstance(e.get('attach'), dict) else {}
+    for wpn, fitted in at.items():
+        if wpn not in GUNS or not isinstance(fitted, dict):
+            continue
+        keep = {}
+        for slot in GUN_ATTACH_SLOTS:
+            v = fitted.get(slot)
+            if isinstance(v, str) and 0 < len(v) <= 24 and v.isalnum():
+                keep[slot] = v
+        if keep:
+            res['attach'][wpn] = keep
     return res
 
 

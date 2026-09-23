@@ -35,13 +35,13 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.0.0'
+VERSION = '2.3.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
 TICK = 1 / 20
-MAX_PLAYERS = 8
-TEAM_MAX = 4
+MAX_PLAYERS = 20
+TEAM_MAX = 10
 GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 MODES = {
@@ -59,12 +59,16 @@ WEAPONS = {
     'shotgun': {'dmg': 16, 'head': 1.5, 'near': 8,  'far': 30, 'min': 0.2,  'rpm': 70,  'pellets': 9, 'range': 60},
     'sniper':  {'dmg': 95, 'head': 2.5, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 45, 'pellets': 1, 'range': 300},
     'pistol':  {'dmg': 34, 'head': 2.0, 'near': 20, 'far': 50, 'min': 0.7,  'rpm': 380, 'pellets': 1, 'range': 120},
+    'knife':   {'dmg': 55, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 110, 'pellets': 1, 'range': 2.6},
 }
+# the shotgun firing slugs is a different gun as far as damage goes
+SLUG = {'dmg': 85, 'head': 1.5, 'near': 30, 'far': 90, 'min': 0.55, 'rpm': 70, 'pellets': 1, 'range': 200}
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 # each loadout's perk and how many uses it has per life
 PERKS = ['ammo', 'med', 'ladder', 'beacon']
 PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1}
 MED_HEAL = 50
+ASSIST_DAMAGE = 50       # hurt someone this much and someone else finishes them: that's an assist
 LADDER_LIFE = 60.0
 BEACON_LIFE = 30.0
 BEACON_RANGE = 35.0
@@ -114,7 +118,7 @@ def clean_cos(c):
         out['o'] = c['o']
     g = c.get('g')
     if isinstance(g, dict):
-        for w in ('smg', 'lmg', 'shotgun', 'sniper', 'pistol'):
+        for w in ('smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife'):
             if ok(g.get(w)):
                 out['g'][w] = g[w]
     return out
@@ -185,7 +189,12 @@ class Player:
         self.kills = 0
         self.deaths = 0
         self.score = 0
-        self.last_fire = {}
+        self.last_fire = {}      # weapon -> the virtual clock its rate limit runs on
+        self.rejects = {}        # why shots were dropped, counted (for the log)
+        self.reject_log_at = 0.0
+        self.slug = False        # shotgun loaded with slugs (an attachment)
+        self.hurt_by = {}        # attacker id -> damage done to me this life (for assists)
+        self.assists = 0
         self.protect_until = 0.0
         self.nades = NADE_MAX
         self.nade_ids = {}
@@ -203,7 +212,7 @@ class Player:
         self.conn.send(obj)
 
     def reset_stats(self):
-        self.kills = self.deaths = self.score = 0
+        self.kills = self.deaths = self.score = self.assists = 0
 
     @property
     def locker(self):
@@ -398,6 +407,7 @@ class Room:
         p.yaw = yaw
         p.hp = 100
         p.alive = True
+        p.hurt_by = {}
         p.nades = NADES[p.loadout]
         p.perk_left = PERK_USES[PERKS[p.loadout]]
         p.sc += 1
@@ -618,22 +628,36 @@ class Room:
         if not p.alive or self.phase in ('freeze', 'post', 'ended'):
             return
         w = m.get('w')
-        if w not in WEAPONS or w not in (LOADOUTS[p.loadout], 'pistol'):
+        if w not in WEAPONS or w not in (LOADOUTS[p.loadout], 'pistol', 'knife'):
             return
-        spec = WEAPONS[w]
+        spec = SLUG if (w == 'shotgun' and p.slug) else WEAPONS[w]
         t = now()
         gap = 60.0 / spec['rpm']
-        ok = t - p.last_fire.get(w, 0) >= gap * 0.6
-        p.last_fire[w] = t
+        # Rate limit that forgives the network bunching a burst of shots
+        # together: a virtual clock that may lag real time by a few shots'
+        # worth, so long-run fire rate is still capped at the gun's rpm.
+        vt = max(p.last_fire.get(w, 0.0), t - gap * 4)
+        ok = vt <= t + 1e-6
+        if ok:
+            p.last_fire[w] = vt + gap
         o = vec3(m.get('o'))
         ends = m.get('e') if isinstance(m.get('e'), list) else []
         ends = [vec3(e) for e in ends[:spec['pellets']]]
-        self.broadcast({'t': 'shot', 'id': p.id, 'w': w, 'o': [round(v, 2) for v in o],
+        try:
+            flash = min(1.0, max(0.0, float(m.get('f', 1))))
+        except (TypeError, ValueError):
+            flash = 1.0
+        self.broadcast({'t': 'shot', 'id': p.id, 'w': w, 'q': 1 if m.get('q') else 0, 'f': round(flash, 2), 'o': [round(v, 2) for v in o],
                         'e': [[round(v, 2) for v in e] for e in ends]}, skip=p)
-        if not ok or dist3(o, [p.pos[0], p.pos[1] + 1.5, p.pos[2]]) > 4.0:
+        if not ok:
+            self.reject_shot(p, 'rate')
+            return
+        if dist3(o, [p.pos[0], p.pos[1] + 1.5, p.pos[2]]) > 6.0:
+            self.reject_shot(p, 'origin')
             return
         hits = m.get('h') if isinstance(m.get('h'), list) else []
         per_target = {}
+        shielded = False
         for h in hits[:spec['pellets']]:
             if not isinstance(h, list) or len(h) < 2:
                 continue
@@ -643,9 +667,11 @@ class Room:
             if not q or not q.alive or not self.enemies(p, q):
                 continue
             if t < q.protect_until:
+                shielded = True
                 continue
             d = dist3(p.pos, q.pos)
             if d > spec['range'] + 5:
+                self.reject_shot(p, 'range')
                 continue
             if d <= spec['near']:
                 f = 1.0
@@ -661,11 +687,24 @@ class Room:
             q = self.players.get(tid)
             if q and q.alive:
                 self.damage(q, p, int(round(dmg)), w, head)
+        if shielded and not per_target:
+            # tell the shooter their bullets bounced off spawn protection
+            p.send({'t': 'hitok', 'd': 0, 'k': False, 'hs': False, 'sh': 1})
+
+    def reject_shot(self, p, why):
+        """A shot's damage was thrown away; say so in the log now and then."""
+        p.rejects[why] = p.rejects.get(why, 0) + 1
+        t = now()
+        if t - p.reject_log_at > 10:
+            p.reject_log_at = t
+            print('room %s: dropped %s shot from %s (%s)' % (self.name, why, p.name, ', '.join('%s=%d' % kv for kv in sorted(p.rejects.items()))), flush=True)
 
     def damage(self, q, attacker, dmg, w, head):
         if not q.alive or dmg <= 0:
             return
         q.hp -= dmg
+        if attacker and attacker is not q:
+            q.hurt_by[attacker.id] = q.hurt_by.get(attacker.id, 0) + dmg
         src = attacker.pos if attacker else None
         q.send({'t': 'hurt', 'd': dmg, 'hp': max(0, q.hp), 'from': src})
         if attacker and attacker is not q:
@@ -685,6 +724,21 @@ class Room:
             if self.bomb.get('defuser') == q.id:
                 self.bomb['defuser'] = None
         counting = self.phase in ('live', 'freeze')
+        # anyone who did ASSIST_DAMAGE or more, and didn't land the kill, assisted
+        assisted = []
+        for pid, dealt in q.hurt_by.items():
+            if dealt < ASSIST_DAMAGE or (attacker and pid == attacker.id):
+                continue
+            helper = self.players.get(pid)
+            if not helper:
+                continue
+            helper.assists += 1
+            helper.score += 30
+            assisted.append(helper.name)
+            helper.send({'t': 'assist', 'v': q.name})
+            if counting:
+                self.earn(helper, 'assist')
+        q.hurt_by = {}
         if attacker and attacker is not q:
             attacker.kills += 1
             attacker.score += 100
@@ -698,7 +752,8 @@ class Room:
             delay = 1.5 if self.phase in ('waiting', 'countdown') else self.cfg['respawn']
             q.respawn_at = now() + delay
         self.event({'e': 'kill', 'k': attacker.id if attacker else 0, 'v': q.id, 'w': w, 'hs': head,
-                    'kn': attacker.name if attacker else '', 'vn': q.name, 'p': [round(v, 2) for v in q.pos]})
+                    'kn': attacker.name if attacker else '', 'vn': q.name, 'as': assisted,
+                    'p': [round(v, 2) for v in q.pos]})
         q.send({'t': 'dead', 'by': attacker.id if attacker else 0, 'byn': attacker.name if attacker else '',
                 'w': w, 'rs': max(0.0, q.respawn_at - now()) if self.mode != 'bomb' or self.phase in ('waiting', 'countdown') else -1})
         self.roster_dirty = True
@@ -1033,17 +1088,17 @@ class Room:
     def snapshot(self, t):
         pl = []
         for p in self.players.values():
-            f = p.flags & ~1
+            f = p.flags & ~(1 | 128)
             if p.alive:
                 f |= 1
             if t < p.protect_until:
-                f |= 64
+                f |= 128
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
                        round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp)])
         return {'t': 'snap', 'g': self.game_state(t), 'p': pl}
 
     def roster(self):
-        return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths,
+        return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths, 'a': p.assists,
                                        's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': p.cos}
                                       for p in self.players.values()]}
 
@@ -1324,7 +1379,7 @@ class Conn:
             bx, bz = r.map['bounds']
             p.pos[0] = max(-bx, min(bx, p.pos[0]))
             p.pos[2] = max(-bz, min(bz, p.pos[2]))
-            p.pos[1] = max(-1.0, min(30.0, p.pos[1]))
+            p.pos[1] = max(-8.0, min(30.0, p.pos[1]))   # the tunnels run below the town
             p.yaw = num(m.get('y'))
             p.pitch = num(m.get('pi'), -1.6, 1.6)
             p.flags = int(num(m.get('f'), 0, 1023))
@@ -1349,6 +1404,10 @@ class Conn:
         elif t == 'cos':
             p.cos = owned_cos(p, clean_cos(m.get('cos')))
             p.room.roster_dirty = True
+        elif t == 'atch':
+            # only the attachments that change what a shot does reach the server
+            a = m.get('a') if isinstance(m.get('a'), dict) else {}
+            p.slug = bool(a.get('slug'))
         elif t == 'chat':
             p.room.handle_chat(p, m)
         elif t == 'perk':
