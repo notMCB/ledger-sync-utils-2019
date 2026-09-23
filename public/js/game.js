@@ -1,7 +1,7 @@
 // The match: local player, weapons, network glue, and the render loop.
 
 import * as THREE from 'three';
-import { World } from './world.js';
+import { World, makeForkliftGroup } from './world.js';
 import { ViewModel } from './viewmodel.js';
 import { Effects } from './effects.js';
 import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
@@ -38,6 +38,8 @@ const SEND_HZ = 20;
 const WALL_W = 0.8, WALL_H = 1.25, WALL_T = 0.08;
 const DRONE_SPEED = 14;      // keep in step with DRONE_SPEED in server/server.py
 const DRONE_R = 0.5;         // how big a target it is
+// forklifts: a slow drive about the yard, nothing more
+const FK_SPEED = 5.5, FK_REVERSE = 2.8, FK_TURN = 1.5, FK_R = 1.0, FK_H = 2.1;
 const SITE_R = 4.8;
 const HILL_R = 6.0;
 
@@ -98,6 +100,8 @@ export class Game {
     this.walls = new Map();     // wall id -> cover wall (mesh + collision box)
     this.drones = new Map();    // player id -> their drone in the air
     this.drone = null;          // my own drone while I'm flying it
+    this.forklifts = new Map(); // forklift id -> { mesh, box, pos, yaw, driver }
+    this.driving = null;        // the forklift I'm driving, if any
     this.flashT = 0;
     this.flashMax = 1;
     this.chat = null;
@@ -249,6 +253,14 @@ export class Game {
       case 'supply': return this.onCrate(m);
       case 'wall': return this.onWall(m);
       case 'drone': return this.onDrone(m);
+      case 'fk': {
+        const wasMine = this.driving === m.id;
+        this.onForklift(m);
+        const F = this.forklifts.get(m.id);
+        if (F && m.driver === this.myId && !wasMine) this.startDriving(F);
+        else if (F && wasMine && m.driver !== this.myId && this.driving === null) this.stopDriving(false);
+        return;
+      }
       case 'perkleft':
         this.me.perkLeft = m.n;
         return;
@@ -278,8 +290,149 @@ export class Game {
     this.fx.clear();
     this.clearDevices();
     this.addHatchLadders(map);
+    this.addForklifts(map);
     this.hasMap = true;
     if (this.inRoom && map.name) this.hud.center(map.name, 'Next map', '', 3, 2);
+  }
+
+  // -- forklifts: objects that can be driven, so they get their own meshes and moving collision --
+
+  addForklifts(map) {
+    for (const F of this.forklifts.values()) {
+      this.scene.remove(F.mesh);
+      if (F.box) this.world.physics.remove(F.box);
+    }
+    this.forklifts.clear();
+    this.driving = null;
+    for (const d of map.deco) {
+      if (d.k !== 'forklift' || d.id === undefined) continue;
+      const mesh = makeForkliftGroup();
+      this.scene.add(mesh);
+      const F = { id: d.id, mesh, box: null, pos: new THREE.Vector3(d.x, d.y || 0, d.z), target: new THREE.Vector3(d.x, d.y || 0, d.z), yaw: d.yaw || 0, tyaw: d.yaw || 0, driver: 0 };
+      this.forklifts.set(d.id, F);
+      this.placeForklift(F);
+    }
+  }
+
+  // put the mesh and the collision box where the forklift is
+  placeForklift(F) {
+    F.mesh.position.copy(F.pos);
+    F.mesh.rotation.y = F.yaw;
+    const phys = this.world.physics;
+    if (F.box) phys.remove(F.box);
+    F.box = null;
+    if (this.driving === F.id) return;      // my own truck moves with me, no box to bump into
+    F.box = phys.add([F.pos.x, F.pos.y + 0.6, F.pos.z, 1.15, 0.6, 0.6, F.yaw, 'car']);
+    F.box.prop = 'fk' + F.id;
+  }
+
+  onForklift(m) {
+    const F = this.forklifts.get(m.id);
+    if (!F) return;
+    F.driver = m.driver || 0;
+    if (m.p) { F.target.set(...m.p); F.pos.copy(F.target); }
+    if (typeof m.y === 'number') { F.tyaw = m.y; F.yaw = m.y; }
+    if (F.driver !== this.myId && this.driving === F.id) this.driving = null;
+    this.placeForklift(F);
+  }
+
+  syncForklifts(list) {
+    for (const [fid, x, y, z, yaw, driver] of list) {
+      const F = this.forklifts.get(fid);
+      if (!F || fid === this.driving) continue;
+      F.target.set(x, y, z);
+      F.tyaw = yaw;
+      F.driver = driver;
+    }
+  }
+
+  // the nearest forklift with a free seat, within reach
+  forkliftNear() {
+    const me = this.me;
+    let best = null, bd = 3.2;
+    for (const F of this.forklifts.values()) {
+      if (F.driver) continue;
+      const d = Math.hypot(F.pos.x - me.pos.x, F.pos.z - me.pos.z);
+      if (d < bd && Math.abs(F.pos.y - me.pos.y) < 1.5) { best = F; bd = d; }
+    }
+    return best;
+  }
+
+  enterForklift(F) {
+    if (this.offline) return;
+    this.send({ t: 'fkin', id: F.id });
+  }
+
+  startDriving(F) {
+    const me = this.me;
+    this.driving = F.id;
+    me.prone = false;
+    me.crouch = false;
+    me.crouchToggled = false;
+    me.sprinting = false;
+    me.adsK = 0;
+    me.vel.set(0, 0, 0);
+    me.pos.copy(F.pos);
+    this.placeForklift(F);
+    this.hud.center('Driving', `${keyName(settings.binds.forward)} ${keyName(settings.binds.back)} drive · ${keyName(settings.binds.left)} ${keyName(settings.binds.right)} steer · ${keyName(settings.binds.interact)} to get off`, '', 3, 2);
+  }
+
+  stopDriving(sendIt = true) {
+    const F = this.forklifts.get(this.driving);
+    this.driving = null;
+    if (F) {
+      // step off beside it
+      const me = this.me;
+      const sx = Math.cos(F.yaw) * 1.6, sz = -Math.sin(F.yaw) * 1.6;
+      const spot = new THREE.Vector3(F.pos.x + sx, F.pos.y, F.pos.z + sz);
+      if (this.world.physics.fits(spot, RADIUS, STAND_H)) me.pos.copy(spot);
+      else me.pos.set(F.pos.x - sx, F.pos.y, F.pos.z - sz);
+      me.vel.set(0, 0, 0);
+      this.placeForklift(F);
+      if (sendIt && !this.offline) this.send({ t: 'fkout', id: F.id });
+    }
+  }
+
+  updateDriving(dt) {
+    const F = this.forklifts.get(this.driving);
+    const me = this.me;
+    if (!F) { this.driving = null; return; }
+    me.adsK = Math.max(0, me.adsK - dt * 8);
+    if (input.pressed('interact')) { this.stopDriving(); return; }
+    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
+    const r = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    // steer only while rolling, like a real truck
+    F.speed = F.speed || 0;
+    const want = f > 0 ? FK_SPEED : f < 0 ? -FK_REVERSE : 0;
+    F.speed += (want - F.speed) * Math.min(1, dt * 3);
+    if (Math.abs(F.speed) > 0.3) F.yaw -= r * FK_TURN * dt * Math.sign(F.speed) * Math.min(1, Math.abs(F.speed) / 2.5);
+    // forward is local +x
+    const fx = Math.cos(F.yaw), fz = -Math.sin(F.yaw);
+    const body = { pos: F.pos, vel: F.vel || (F.vel = new THREE.Vector3()), grounded: F.grounded !== false, radius: FK_R, height: FK_H, landed: 0 };
+    body.vel.x = fx * F.speed;
+    body.vel.z = fz * F.speed;
+    let rem = dt;
+    while (rem > 1e-5) {
+      const h = Math.min(rem, 1 / 90);
+      this.world.physics.move(body, h, GRAVITY, 0.3);
+      rem -= h;
+    }
+    F.grounded = body.grounded;
+    // a bump kills the speed
+    const moved = Math.hypot(body.vel.x, body.vel.z);
+    if (moved < Math.abs(F.speed) * 0.5) F.speed *= 0.3;
+    this.clampToTown();
+    F.pos.x = Math.max(-this.map.bounds[0] + 1.2, Math.min(this.map.bounds[0] - 1.2, F.pos.x));
+    F.pos.z = Math.max(-this.map.bounds[1] + 1.2, Math.min(this.map.bounds[1] - 1.2, F.pos.z));
+    me.pos.copy(F.pos);
+    me.grounded = true;
+    F.mesh.position.copy(F.pos);
+    F.mesh.rotation.y = F.yaw;
+    F.sendT = (F.sendT || 0) - dt;
+    if (F.sendT <= 0 && !this.offline) {
+      F.sendT = 1 / SEND_HZ;
+      this.send({ t: 'fk', id: F.id, p: [+F.pos.x.toFixed(3), +F.pos.y.toFixed(3), +F.pos.z.toFixed(3)], y: +F.yaw.toFixed(4) });
+    }
   }
 
   // a fixed ladder in every hatch, so you can climb back out of the tunnels
@@ -437,6 +590,7 @@ export class Game {
     const me = this.me;
     me.alive = false;
     this.endDrone('');
+    if (this.driving) this.stopDriving(false);
     me.deathPos.copy(me.pos);
     me.killerId = m.by;
     me.respawnAt = m.rs >= 0 ? this.clock + m.rs : -1;
@@ -464,6 +618,7 @@ export class Game {
     }
     this.avatars.sync(m.p, this.myId, t);
     if (m.dr) this.syncDrones(m.dr);
+    if (m.fk) this.syncForklifts(m.fk);
     if (prevPhase !== this.g.ph) this.onPhase(prevPhase, this.g.ph);
   }
 
@@ -1010,6 +1165,17 @@ export class Game {
         W.mesh.userData.plate.emissive.setScalar(W.hitT > 0 ? 0.25 : 0);
       }
     }
+    for (const F of this.forklifts.values()) {
+      if (F.id === this.driving || !F.driver) continue;
+      if (F.pos.distanceTo(F.target) > 0.01 || Math.abs(F.yaw - F.tyaw) > 0.001) {
+        F.pos.lerp(F.target, Math.min(1, dt * 10));
+        let dy = F.tyaw - F.yaw;
+        while (dy > Math.PI) dy -= Math.PI * 2;
+        while (dy < -Math.PI) dy += Math.PI * 2;
+        F.yaw += dy * Math.min(1, dt * 10);
+        this.placeForklift(F);
+      }
+    }
     for (const D of this.drones.values()) {
       D.t += dt;
       if (!(this.drone && D.owner === this.myId)) D.pos.lerp(D.target, Math.min(1, dt * 10));
@@ -1123,6 +1289,8 @@ export class Game {
     this.aimWant = act && !this.drone && this.readAim();
     if (act && this.drone) {
       this.updateDrone(dt);
+    } else if (act && this.driving) {
+      this.updateDriving(dt);
     } else if (act) {
       this.updateMovement(dt);
       this.updateWeapons(dt);
@@ -1157,6 +1325,7 @@ export class Game {
       if (me.crouch) f |= 2;
       if (me.prone) f |= 512;
       if (me.onBack) f |= 1024;
+      if (this.driving) f |= 16384;
       // a laser on the gun in hand: everyone sees the beam
       if (ws && ws.def.laser === 'red') f |= 4096;
       else if (ws && ws.def.laser === 'green') f |= 8192;
@@ -1347,13 +1516,13 @@ export class Game {
   updateLaser() {
     const me = this.me;
     const ws = this.weapon();
-    const on = this.inRoom && me.alive && !this.drone && ws && ws.def.laser && !this.vm.scoped;
+    const on = this.inRoom && me.alive && !this.drone && !this.driving && ws && ws.def.laser && !this.vm.scoped;
     if (!this.laser) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
       this.laser = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.85, depthWrite: false }));
       this.laser.frustumCulled = false;
-      this.laserDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: T_softDot(), color: 0xff2020, transparent: true, depthWrite: false, depthTest: false }));
+      this.laserDot = new THREE.Sprite(new THREE.SpriteMaterial({ map: T_softDot(), color: 0xff2020, transparent: true, depthWrite: false }));
       this.laserDot.scale.set(0.09, 0.09, 1);
       this.scene.add(this.laser);
       this.scene.add(this.laserDot);
@@ -1365,19 +1534,17 @@ export class Game {
     const col = ws.def.laser === 'green' ? 0x30ff40 : 0xff2020;
     this.laser.material.color.setHex(col);
     this.laserDot.material.color.setHex(col);
+    // straight out of the barrel, wherever the gun is pointing right now
     const origin = this.vm.muzzleWorld(cam, V());
-    const dir = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
-    // aim the beam where the shot would go: from the muzzle towards the crosshair's point
-    const far = this.world.physics.raycast(cam.position, dir, 120);
-    const target = far ? far.point : cam.position.clone().addScaledVector(dir, 120);
-    const bdir = target.clone().sub(origin).normalize();
+    const bdir = this.vm.muzzleDirWorld(cam, V());
     const hit = this.world.physics.raycast(origin, bdir, 120);
     const end = hit ? hit.point : origin.clone().addScaledVector(bdir, 120);
     const p = this.laser.geometry.attributes.position;
     p.setXYZ(0, origin.x, origin.y, origin.z);
     p.setXYZ(1, end.x, end.y, end.z);
     p.needsUpdate = true;
-    this.laserDot.position.copy(end).addScaledVector(bdir, -0.03);
+    // the dot sits a touch in front of the surface it lands on, never through it
+    this.laserDot.position.copy(end).addScaledVector(hit ? hit.normal : bdir.clone().negate(), 0.02);
     const dist = end.distanceTo(cam.position);
     const sd = 0.04 + dist * 0.004;
     this.laserDot.scale.set(sd, sd, 1);
@@ -1875,6 +2042,10 @@ export class Game {
   updateInteract() {
     const opt = this.interactOption();
     const held = input.down('interact');
+    if (!opt && input.pressed('interact') && !this.drone) {
+      const fk = this.forkliftNear();
+      if (fk) { this.enterForklift(fk); return; }
+    }
     if (opt && held) {
       if (!this.me.interacting) {
         this.me.interacting = true;
@@ -1902,6 +2073,7 @@ export class Game {
     } else if (this.inRoom && me.alive) {
       let eye = EYE_STAND + (EYE_CROUCH - EYE_STAND) * me.crouchK;
       eye += (EYE_PRONE - eye) * me.proneK;
+      if (this.driving) eye = 1.75;   // up on the seat
       cam.position.set(me.pos.x, me.pos.y + eye, me.pos.z);
       const sh = this.fx.shake;
       this.slideRoll = (this.slideRoll || 0) + ((me.slide ? 0.06 : 0) - (this.slideRoll || 0)) * Math.min(1, dt * 10);
@@ -2102,7 +2274,9 @@ export class Game {
       hud.prompt(planting ? 'Planting the bomb…' : 'Defusing…', prog || 0);
     } else {
       const opt = this.interactOption();
+      const fk = !opt && !this.driving && me.alive && !this.drone ? this.forkliftNear() : null;
       if (opt) hud.prompt(opt.kind === 'plant' ? `Hold ${keyName(settings.binds.interact)} to plant at ${opt.site}` : `Hold ${keyName(settings.binds.interact)} to defuse`, undefined);
+      else if (fk) hud.prompt(`${keyName(settings.binds.interact)} to drive the forklift`, undefined);
       else if (b && b.dt !== undefined && b.df !== this.myId && g.att !== me.team) hud.prompt(`${this.nameOf(b.df)} is defusing`, b.dt);
       else if (b && b.pt !== undefined && b.pl !== this.myId && g.att === me.team) hud.prompt(`${this.nameOf(b.pl)} is planting`, b.pt);
       else hud.prompt(null);
@@ -2173,7 +2347,7 @@ export class Game {
           this.indoorT = 0.25;
           this.indoor = this.world.physics.covered(this.camera.position);
         }
-        this.vm.visible = !this.drone;
+        this.vm.visible = !this.drone && !this.driving;
         this.vm.update(dt, {
           ads: me.adsK, speed: Math.hypot(me.vel.x, me.vel.z), grounded: me.grounded, sprint: me.sprinting,
           crouch: me.crouch, look: this.lookDelta || [0, 0], landed: me.landed, indoor: this.indoor,

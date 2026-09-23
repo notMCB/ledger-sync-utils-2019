@@ -59,9 +59,13 @@ class Alpine(Town):
         h += 2.6 * bump(math.hypot(x - 52, z - 16) / 18)    # the east rise
         h += 1.6 * bump(math.hypot(x + 4, z - 34) / 14)     # a swell south of the helipad
         h -= 1.0 * bump(math.hypot(x - 14, z - 4) / 12)     # a hollow on the road east of the pad
-        if z < self.z_face:
+        if z < self.face_z(x):
             h = BASE + 1.4 + RIDGE                          # the ridge shelf
         return h
+
+    def face_z(self, x):
+        """Where the cliff stands at this x: it wanders in and out a few metres."""
+        return self.z_face + 1.8 * math.sin(x * 0.23) + 1.3 * math.sin(x * 0.61 + 1.2) + 0.7 * math.sin(x * 1.7)
 
     def cell(self, x, z):
         return (max(0, min(self.nx - 1, int((x + self.bx) / CELL))), max(0, min(self.nz - 1, int((z + self.bz) / CELL))))
@@ -128,20 +132,38 @@ class Alpine(Town):
         top = self.ridge_top()
         self.ramp_pts = []
         self.base_y = 0.0
+        rng = self.rng
         for rx in (-40.0, 40.0):
-            foot = self.ground(rx, self.z_face + 18)
+            # the cliff is flat and the shelf level for the ramp's width, so the steps meet it cleanly
+            fz = self.z_face
+            for ix in range(*[self.cell(rx - 6, 0)[0], self.cell(rx + 6, 0)[0] + 1]):
+                for iz in range(self.nz):
+                    z = -self.bz + (iz + 0.5) * CELL
+                    if z < fz:
+                        self.h[ix][iz] = top
+                    elif z < fz + 2.5:
+                        self.h[ix][iz] = round(self.smooth_height(rx, fz + 3) / QUANT) * QUANT
+            foot = self.ground(rx, fz + 20)
             n = int((top - foot) / TERRACE)
+            depth = 0.0
             for i in range(n):
                 hgt = top - (i + 1) * TERRACE
+                depth += rng.uniform(1.0, 1.6)
+                wobble = rng.uniform(-0.5, 0.5)
+                half = rng.uniform(2.2, 3.4)
                 # each terrace runs from the face out to its own edge, so every
-                # step lands on the one behind it and the top one meets the shelf
-                depth = 1.25 * (i + 1)
-                self.rock(rx, hgt / 2, self.z_face + depth / 2, 3.0, hgt / 2, depth / 2 + 0.02)
+                # step lands on the one behind it; widths and offsets wander like rock
+                self.rock(rx + wobble, hgt / 2, fz + depth / 2, half, hgt / 2, depth / 2 + 0.02, rng.uniform(-0.04, 0.04))
+                # loose rock either side instead of a flat wall
+                if i % 2 == 0:
+                    for side in (-1, 1):
+                        s = rng.uniform(0.5, 1.1)
+                        self.rock(rx + side * (half + s * 0.6 + 0.2), hgt + s * 0.3, fz + depth - 0.6, s, s * 0.55, s * 0.7, rng.uniform(0, 3))
             # a level pad at the foot so the last step lands on the ground
-            self.flatten(rx, self.z_face + 1.25 * n + 2.0, 3.5, 2.5, round(foot / QUANT) * QUANT)
-            self.ramp_pts.append((rx, self.z_face + 1.25 * n + 1.5))
-            self.rects.append((rx, self.z_face + 0.62 * (n + 1), 3.2, 0.62 * (n + 1) + 0.6, 0.0))
-            self.areas.append({'n': 'Ridge Ramp', 'x': rx, 'z': self.z_face + 5, 'r': 5})
+            self.flatten(rx, fz + depth + 2.0, 4.0, 2.5, round(foot / QUANT) * QUANT)
+            self.ramp_pts.append((rx, fz + depth + 1.5))
+            self.rects.append((rx, fz + depth / 2, 4.6, depth / 2 + 1.0, 0.0))
+            self.areas.append({'n': 'Ridge Ramp', 'x': rx, 'z': fz + 5, 'r': 5})
 
     def parapet(self):
         """Boulders along the shelf edge with gaps to shoot through, and a few below."""
@@ -154,14 +176,24 @@ class Alpine(Town):
             if rng.random() < 0.7 and all(abs(x + L / 2 - rx) > 5 for rx, _ in self.ramp_pts):
                 self.rock(x + L / 2, 0.45, self.z_face - 0.9, L / 2, 0.45, 0.6, rng.uniform(-0.1, 0.1))
             x += L + rng.uniform(1.6, 3.2)
-        for _ in range(14):
+        for _ in range(40):
             x = rng.uniform(-self.bx + 6, self.bx - 6)
-            if any(abs(x - rx) < 6 for rx, _ in self.ramp_pts):
+            if any(abs(x - rx) < 7 for rx, _ in self.ramp_pts):
                 continue
-            z = self.z_face + rng.uniform(2.0, 7.0)
-            s = rng.uniform(0.6, 1.3)
+            z = self.face_z(x) + rng.uniform(0.6, 6.0)
+            s = rng.uniform(0.5, 1.6)
             self.at(x, z)
             self.rock(x, s * 0.5, z, s, s * 0.5, s * 0.7, rng.uniform(0, 3))
+            self.props.append((x, z, s + 0.3))
+        # outcrops on the shelf edge and boulders back from it, so the top is not a flat lip either
+        for _ in range(18):
+            x = rng.uniform(-self.bx + 6, self.bx - 6)
+            if any(abs(x - rx) < 7 for rx, _ in self.ramp_pts):
+                continue
+            z = self.face_z(x) - rng.uniform(1.5, 9.0)
+            s = rng.uniform(0.6, 1.4)
+            self.base_y = top
+            self.rock(x, s * 0.45, z, s, s * 0.45, s * 0.8, rng.uniform(0, 3))
             self.props.append((x, z, s + 0.3))
 
     def bunker(self, x, z, w, d, yaw, roof_stairs=True):
@@ -296,21 +328,26 @@ class Alpine(Town):
         """A channel dug 1.6 m into the slope, 4 m wide, with a ramp down at each
         end and roofed stretches over the middle."""
         rng = self.rng
-        hw = CELL          # half the width: two cells
-        floor = self.dig(x0 + 8, x1 - 8, z - hw + 0.1, z + hw - 0.1, 1.6)
-        # ramps: four cells stepping down to the floor at each end
-        rim_w = self.ground(x0 + 6, z)
-        rim_e = self.ground(x1 - 6, z)
-        for k in range(4):
-            hw_ = round((rim_w - (rim_w - floor) * (k + 1) / 4) / QUANT) * QUANT
-            he_ = round((rim_e - (rim_e - floor) * (k + 1) / 4) / QUANT) * QUANT
-            self.flatten(x0 + 8 - (4 - k) * CELL + CELL / 2, z, CELL / 2 - 0.1, hw - 0.1, hw_)
-            self.flatten(x1 - 8 + (4 - k) * CELL - CELL / 2, z, CELL / 2 - 0.1, hw - 0.1, he_)
-        # roofs at the rim's height over some stretches: a lid you can walk over
+        hw = CELL          # half the width of the cut: two cells
+        DEPTH = 2.0
+        INNER = 1.3        # half the walkway between the revetments
+        floor = self.dig(x0 + 10, x1 - 10, z - hw + 0.1, z + hw - 0.1, DEPTH)
+        # ramps: five cells stepping down to the floor at each end
+        rim_w = self.ground(x0 + 8, z)
+        rim_e = self.ground(x1 - 8, z)
+        for k in range(5):
+            hw_ = round((rim_w - (rim_w - floor) * (k + 1) / 5) / QUANT) * QUANT
+            he_ = round((rim_e - (rim_e - floor) * (k + 1) / 5) / QUANT) * QUANT
+            self.flatten(x0 + 10 - (5 - k) * CELL + CELL / 2, z, CELL / 2 - 0.1, hw - 0.1, hw_)
+            self.flatten(x1 - 10 + (5 - k) * CELL - CELL / 2, z, CELL / 2 - 0.1, hw - 0.1, he_)
+        # timber revetments line the cut, narrowing it to a walkway
         self.base_y = 0.0
-        x = x0 + 12
-        while x < x1 - 14:
-            L = min(rng.uniform(6, 10), x1 - 14 - x)
+        for side in (-1, 1):
+            self.box((x0 + x1) / 2, floor + DEPTH / 2, z + side * (INNER + (hw - INNER) / 2), (x1 - x0) / 2 - 10, DEPTH / 2, (hw - INNER) / 2, 0, 'wood', 0)
+        # lids at the rim's height over some stretches: a roof you walk over
+        x = x0 + 14
+        while x < x1 - 16:
+            L = min(rng.uniform(6, 10), x1 - 16 - x)
             if rng.random() < 0.7:
                 rim = self.ground(x + L / 2, z + hw + 1.0)
                 self.box(x + L / 2, rim + 0.06, z, L / 2, 0.08, hw + 0.15, 0, 'flatroof', 2)
@@ -410,13 +447,16 @@ class Alpine(Town):
             self.jersey(math.cos(a) * 9.5, 8.0 + math.sin(a) * 9.5, a + math.pi / 2, 2)
 
         # pine woods on the open slopes
-        self.wood(-52.0, -12.0, 12, 8, 16)
-        self.wood(30.0, -24.0, 9, 6, 12)
-        self.wood(-10.0, 24.0, 12, 8, 14)
-        self.wood(58.0, 24.0, 9, 8, 12)
-        self.wood(-66.0, 34.0, 8, 8, 8)
-        for _ in range(60):
-            if len(self.tree_pts) >= 74:
+        self.wood(-52.0, -12.0, 12, 8, 24)
+        self.wood(30.0, -24.0, 10, 6, 18)
+        self.wood(-10.0, 24.0, 12, 8, 20)
+        self.wood(58.0, 24.0, 10, 8, 18)
+        self.wood(-66.0, 34.0, 8, 8, 12)
+        self.wood(14.0, -30.0, 8, 5, 10)
+        self.wood(-30.0, 40.0, 10, 5, 12)
+        self.wood(50.0, 42.0, 9, 5, 10)
+        for _ in range(140):
+            if len(self.tree_pts) >= 150:
                 break
             x = rng.uniform(-bx + 4, bx - 4)
             z = rng.uniform(self.z_face + 4, bz - 4)
@@ -443,6 +483,10 @@ class Alpine(Town):
         road([(-24.0, 6.0), (-24.0, bz)], 5.0)
         road([(38.0, 6.0), (38.0, bz)], 5.0)
 
+        for (px, pz, yaw) in ((-bx + 0.02, 6.0, math.pi / 2), (bx - 0.02, 6.0, -math.pi / 2), (-24.0, bz - 0.02, math.pi), (38.0, bz - 0.02, math.pi)):
+            self.base_y = self.ground(px, pz)
+            self.portal(px, pz, yaw, 6.0 if abs(pz - 6.0) < 0.1 else 4.4, 4.2)
+        self.base_y = 0.0
         for label, (sx, sz) in (('A', self.site_a), ('B', self.site_b)):
             self.deco.append({'k': 'site', 'x': round(sx, 2), 'y': round(self.ground(sx, sz), 2), 'z': round(sz, 2), 'r': 4.5, 'l': label})
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': round(self.spawn_w[1], 1), 'r': 10})

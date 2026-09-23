@@ -31,6 +31,7 @@ class P:
         self.alive = False
         self.snap_players = []
         self.msgs = []        # every message, for tests that look at more than events
+        self.snap_fk = None
 
     async def start(self, mode, ld=0, **picks):
         self.ws = await WS.connect(URL)
@@ -69,6 +70,7 @@ class P:
             elif t == 'snap':
                 self.g = m['g']
                 self.snap_players = m['p']
+                self.snap_fk = m.get('fk')
             elif t == 'ev':
                 self.events.append(m)
             elif t in ('assist', 'earn'):

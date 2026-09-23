@@ -834,6 +834,17 @@ export class ViewModel {
     return out.copy(p).applyMatrix4(camera.matrixWorld);
   }
 
+  // where the barrel points, in world space (the laser follows this, not the crosshair)
+  muzzleDirWorld(camera, out) {
+    if (!this.cur) return out.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    const a = this.cur.muzzle.clone();
+    const b = this.cur.muzzle.clone().add(new THREE.Vector3(0, 0, -1));
+    this.cur.group.updateMatrixWorld(true);
+    a.applyMatrix4(this.cur.group.matrixWorld).applyMatrix4(camera.matrixWorld);
+    b.applyMatrix4(this.cur.group.matrixWorld).applyMatrix4(camera.matrixWorld);
+    return out.copy(b).sub(a).normalize();
+  }
+
   update(dt, st) {
     const g = this.cur;
     if (!g) return;

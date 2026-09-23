@@ -204,6 +204,7 @@ class Player:
         self.deaths = 0
         self.score = 0
         self.perk = 'ammo'       # the perk this loadout uses (some loadouts choose)
+        self.vehicle = None      # the forklift being driven, if any
         self.nade_kind = 'frag'
         self.last_fire = {}      # weapon -> the virtual clock its rate limit runs on
         self.rejects = {}        # why shots were dropped, counted (for the log)
@@ -318,6 +319,11 @@ class Room:
             town = mapgen.generate(self.seed, self.map_kind)
         self.map = town.to_json()
         self.solid = mapgen.Solid(self.map['boxes'])
+        # forklifts: driveable, so the server keeps their pose and who is at the wheel
+        self.forklifts = {}
+        for d in self.map['deco']:
+            if d.get('k') == 'forklift' and 'id' in d:
+                self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None}
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
         self.ladders = {}
         self.beacons = {}
@@ -362,6 +368,8 @@ class Room:
             p.send({'t': 'wall', 'id': wid, 'p': W['p'], 'y': W['y'], 'hp': int(W['hp']), 'tm': W['team'], 'owner': W['owner']})
         for oid, D in self.drones.items():
             p.send({'t': 'drone', 'id': oid, 'p': D['p'], 'tm': D['team'], 'life': round(D['until'] - now(), 1), 'hp': D['hp']})
+        for fid in self.forklifts:
+            p.send(self.fk_msg(fid))
         self.roster_dirty = True
         self.event({'e': 'join', 'id': p.id, 'n': p.name})
         if self.phase in ('waiting', 'countdown'):
@@ -371,6 +379,7 @@ class Room:
         # bomb mode: joins as a spectator until the next round
 
     def remove(self, p):
+        self.leave_vehicle(p)
         if p.id not in self.players:
             return
         del self.players[p.id]
@@ -803,6 +812,7 @@ class Room:
         q.deaths += 1
         if q.id in self.drones:
             self.drone_off(q.id, 'pilot')
+        self.leave_vehicle(q)
         if self.bomb:
             if self.bomb.get('carrier') == q.id:
                 self.drop_bomb(q)
@@ -987,6 +997,55 @@ class Room:
             return
         self.broadcast({'t': 'drone', 'id': p.id, 'boom': 1, 'p': D['p']})
         self.explode(p, D['p'])
+
+    # -- forklifts --
+
+    def fk_msg(self, fid):
+        F = self.forklifts[fid]
+        return {'t': 'fk', 'id': fid, 'p': [round(v, 3) for v in F['p']], 'y': round(F['y'], 4), 'driver': F['driver'] or 0}
+
+    def handle_forklift(self, p, m):
+        t = m.get('t')
+        fid = int(num(m.get('id'), 0, 1000))
+        F = self.forklifts.get(fid)
+        if not F:
+            return
+        if t == 'fkin':
+            if not p.alive or F['driver'] or p.id in self.drones or p.vehicle is not None:
+                return
+            if dist3(p.pos, F['p']) > 4.0:
+                return
+            F['driver'] = p.id
+            p.vehicle = fid
+            self.broadcast(self.fk_msg(fid))
+        elif t == 'fkout':
+            if F['driver'] != p.id:
+                return
+            F['driver'] = None
+            p.vehicle = None
+            self.broadcast(self.fk_msg(fid))
+        elif t == 'fk':
+            if F['driver'] != p.id or not p.alive:
+                return
+            pos = vec3(m.get('p'))
+            bx, bz = self.map['bounds']
+            pos[0] = max(-bx, min(bx, pos[0]))
+            pos[2] = max(-bz, min(bz, pos[2]))
+            pos[1] = max(-8.0, min(30.0, pos[1]))
+            if dist3(pos, F['p']) > 5.0:
+                return    # no teleporting the truck about
+            F['p'] = pos
+            F['y'] = num(m.get('y'))
+
+    def leave_vehicle(self, p):
+        """A driver who died or left: the forklift stays where it is."""
+        if p.vehicle is None:
+            return
+        F = self.forklifts.get(p.vehicle)
+        if F and F['driver'] == p.id:
+            F['driver'] = None
+            self.broadcast(self.fk_msg(p.vehicle))
+        p.vehicle = None
 
     def handle_drone_stop(self, p, m):
         self.drone_off(p.id, 'left')
@@ -1282,6 +1341,9 @@ class Room:
         if self.drones:
             snap['dr'] = [[oid, round(D['p'][0], 2), round(D['p'][1], 2), round(D['p'][2], 2), round(D['y'], 3), int(D['hp'])]
                           for oid, D in self.drones.items()]
+        moving = [(fid, F) for fid, F in self.forklifts.items() if F['driver']]
+        if moving:
+            snap['fk'] = [[fid, round(F['p'][0], 2), round(F['p'][1], 2), round(F['p'][2], 2), round(F['y'], 3), F['driver']] for fid, F in moving]
         return snap
 
     def roster(self):
@@ -1608,6 +1670,8 @@ class Conn:
             p.room.handle_drone_boom(p, m)
         elif t == 'drstop':
             p.room.handle_drone_stop(p, m)
+        elif t in ('fkin', 'fkout', 'fk'):
+            p.room.handle_forklift(p, m)
         elif t == 'cos':
             p.cos = owned_cos(p, clean_cos(m.get('cos')))
             p.room.roster_dirty = True

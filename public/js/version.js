@@ -12,8 +12,10 @@ export const PATCH_NOTES = [
     notes: [
       'The Dockyard: a container port. Stacked containers make short lanes and corners around an open loading bay, with one long sightline down the middle. Two warehouses (bomb site A is inside the west one), a fuel yard (site B), an office, gantry cranes and forklifts. Climb the crate steps onto the containers.',
       'Ridgeline: a snowbound radar station on stepped ground that rises and falls. A rock ridge along the north stands over the open snow road, climbed by stepped ramps at each end; the land climbs to the south into knolls east and west, with a trench dug into the slope and roofed in places; the radar dome, three bunkers with firing slits and roof steps (and one up on the ridge), comms towers, trucks, generators, and pine woods to move through.',
-      'The Dockyard keeps its roads clear, as a working yard would: the main lane and the two crossings run between the blocks, never through them.',
+      'The Dockyard keeps its roads clear, as a working yard would: the main lane and the two crossings run between the blocks, never through them. Its forklifts can be driven: walk up to one and press your interact key, then your move keys drive and steer, and the same key gets you off. You are as easy to shoot on one as off it.',
+      'Where a road meets the edge of the Dockyard or Ridgeline it runs on into a tunnel mouth rather than a blank wall.',
       'Maps rotate each match: the town, the dockyard, the ridge.',
+      'Laser sights follow the barrel, so the beam goes wherever the gun is pointing, lowered or not, and the dot sits on the surface it lands on.',
       'Laser sights for every gun, in the Locker. A red laser tightens your hip fire a little; a green one a lot. Both throw a beam everyone can see. Red: 15 kills on the SMG or LMG, 25 on the shotgun, sniper or pistol. Green: 50 on the SMG, LMG or shotgun, 75 on the sniper or pistol.',
     ],
   },

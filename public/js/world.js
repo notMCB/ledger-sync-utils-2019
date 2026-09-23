@@ -70,7 +70,12 @@ class GeoBuilder {
     const yb = cy - hy, yt = cy + hy;
     const skipBottom = opts.skipBottom;
     const side = opts.sideColor || color;
-    const f = (a, b, cc, d, n, uv) => this.quad(W(...a), W(...b), W(...cc), W(...d), Nv(...n), uv, n[1] === 0 ? side : color);
+    const only = opts.faces || 'all';   // 'top', 'sides' or 'all'
+    const f = (a, b, cc, d, n, uv) => {
+      if (only === 'top' && n[1] !== 1) return;
+      if (only === 'sides' && n[1] !== 0) return;
+      this.quad(W(...a), W(...b), W(...cc), W(...d), Nv(...n), uv, n[1] === 0 ? side : color);
+    };
     const UV = (u0, v0, u1, v1) => unit ? [[0, 0], [1, 0], [1, 1], [0, 1]] : [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
     // +x
     f([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [1, 0, 0], UV(u(-(oz + z1)), u(yb), u(-(oz + z0)), u(yt)));
@@ -293,6 +298,7 @@ export class World {
       flatroof: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
       rock: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
       terrain: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
+      terraintop: new THREE.MeshLambertMaterial({ map: map.theme === 'snow' ? tx.snow : tx.ground, vertexColors: true }),
     };
     const builders = {};
     const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
@@ -324,10 +330,9 @@ export class World {
       } else if (mat === 'container') {
         B('container').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CONTAINER_TINTS[tint % 6]), 3.4);
       } else if (mat === 'terrain') {
-        // stepped ground: snow on top, rock on the risers
-        const snowy = map.theme === 'snow';
-        B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(snowy ? '#f2f5f8' : '#c9b68f', 1.15), 4.0,
-          { skipBottom: true, sideColor: colorOf(snowy ? '#8d8f92' : '#a08a66') });
+        // stepped ground: snow on top (the snow texture), rock on the risers
+        B('terraintop').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 9.0, { faces: 'top' });
+        B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#9a9c9e'), 3.0, { faces: 'sides' });
       } else if (mat === 'flatroof') {
         B('flatroof').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#7d7b76'), 3.0);
       } else if (mat === 'rock') {
@@ -423,8 +428,10 @@ export class World {
         this.addTruck(cars, wheels, wheelGeo, d);
       } else if (d.k === 'cbox') {
         this.addContainerTrim(steel, paint, d);
+      } else if (d.k === 'portal') {
+        this.addPortal(steel, paint, root, d);
       } else if (d.k === 'forklift') {
-        this.addForklift(steel, paint, wheels, wheelGeo, d);
+        if (d.id === undefined) this.addForklift(steel, paint, wheels, wheelGeo, d);
       } else if (d.k === 'tank') {
         const ty = d.y || 0;
         tanks.push({ geo: unitCyl, matrix: mtx(d.x, ty + d.h / 2, d.z, 0, 0, 0, d.r, d.h, d.r), color: colorOf('#c9c4b8') });
@@ -843,6 +850,35 @@ export class World {
     }
   }
 
+  // a tunnel mouth in the boundary: a concrete frame round a black opening, so
+  // a road that reaches the edge looks as if it carries on underground
+  addPortal(steel, paint, root, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const y0 = d.y || 0;
+    const hw = d.w / 2, H = d.h;
+    const frame = colorOf('#77787a');
+    // posts and a header standing proud of the face (the face runs along local x, the opening faces -z... 
+    // i.e. towards where the road comes from, which is +z in local terms)
+    for (const lx of [-hw - 0.4, hw + 0.4]) {
+      const [x, z] = W(lx, 0.25);
+      steel.box(x, y0 + H / 2 + 0.3, z, 0.4, H / 2 + 0.3, 0.45, yaw, frame, 2.0);
+    }
+    const [hx, hz] = W(0, 0.25);
+    steel.box(hx, y0 + H + 0.35, hz, hw + 0.8, 0.35, 0.45, yaw, frame, 2.0);
+    // the black opening, flat against the wall face
+    const g = new THREE.PlaneGeometry(d.w, H);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x000000, fog: false }));
+    const [px, pz] = W(0, 0.02);
+    m.position.set(px, y0 + H / 2, pz);
+    m.rotation.y = yaw;
+    root.add(m);
+    // dark tarmac running in, so the road continues into the dark
+    const [rx, rz] = W(0, 0.7);
+    paint.box(rx, y0 + 0.015, rz, hw, 0.01, 0.7, yaw, colorOf('#2a2b2e'), 1);
+  }
+
   // the fittings that make a box read as a container: corner castings and
   // posts, top and bottom rails, and a pair of barred doors at each end
   addContainerTrim(steel, paint, d) {
@@ -1083,4 +1119,30 @@ export class World {
     }
     return out;
   }
+}
+
+
+// a forklift as its own object, for the ones that drive about: the same look as
+// the parked ones, built as a small group at the origin facing -z... (local +x is forward)
+export function makeForkliftGroup() {
+  const tx = textures();
+  const steel = new GeoBuilder(), paint = new GeoBuilder();
+  const wheels = [];
+  const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
+  World.prototype.addForklift.call({}, steel, paint, wheels, wheelGeo, { x: 0, z: 0, yaw: 0 });
+  const g = new THREE.Group();
+  for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, new THREE.MeshLambertMaterial({ vertexColors: true })]]) {
+    if (gb.empty) continue;
+    const mesh = new THREE.Mesh(gb.geometry(), mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  }
+  if (wheels.length) {
+    const mesh = new THREE.Mesh(mergeInto(wheels), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    mesh.castShadow = true;
+    g.add(mesh);
+  }
+  wheelGeo.dispose();
+  return g;
 }

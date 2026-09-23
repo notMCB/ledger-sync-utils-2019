@@ -472,17 +472,18 @@ export function roadStyle(style) {
   const [c, g] = canvas(S);
   const r = rng(style === 'snow' ? 61 : 59);
   if (style === 'snow') {
-    g.fillStyle = '#d6dce3';
+    // packed, dirty snow with tyre tracks: a road through the white
+    g.fillStyle = '#b9bcbf';
     g.fillRect(0, 0, S, S);
     for (const x of [0.3, 0.7]) {
       const grd = g.createLinearGradient((x - 0.12) * S, 0, (x + 0.12) * S, 0);
-      grd.addColorStop(0, 'rgba(120,130,140,0)');
-      grd.addColorStop(0.5, 'rgba(120,130,140,0.5)');
-      grd.addColorStop(1, 'rgba(120,130,140,0)');
+      grd.addColorStop(0, 'rgba(70,72,76,0)');
+      grd.addColorStop(0.5, 'rgba(70,72,76,0.55)');
+      grd.addColorStop(1, 'rgba(70,72,76,0)');
       g.fillStyle = grd;
       g.fillRect((x - 0.12) * S, 0, 0.24 * S, S);
     }
-    speckle(g, S, r, 2500, ['rgba(255,255,255,0.4)', 'rgba(110,120,130,0.2)'], 1, 2.5);
+    speckle(g, S, r, 3000, ['rgba(255,255,255,0.35)', 'rgba(80,84,90,0.3)', 'rgba(120,100,80,0.2)'], 1, 2.5);
     const e = g.createLinearGradient(0, 0, S, 0);
     e.addColorStop(0, 'rgba(233,237,241,0.95)');
     e.addColorStop(0.15, 'rgba(233,237,241,0)');

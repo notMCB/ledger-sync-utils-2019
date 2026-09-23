@@ -450,6 +450,7 @@ export class Avatar {
     }
     // flying a drone: the body stands where it was, head down over the controller
     this.piloting = !!(this.flags & 2048);
+    this.driving = !!(this.flags & 16384);
     g.visible = alive;
     if (!alive) return;
     const pk = this.proneK, bk = this.backK;
@@ -467,13 +468,14 @@ export class Avatar {
       const fx = -Math.sin(this.bodyYaw), fz = -Math.cos(this.bodyYaw);
       g.position.set(this.pos.x - fx * PRONE_LEN * pk, this.pos.y + 0.16 * pk, this.pos.z - fz * PRONE_LEN * pk);
     } else g.rotation.set(0, this.yaw, 0);
+    if (this.driving) g.position.y = this.pos.y + 0.55;   // up on the forklift's seat
     // the name and the scope glint ride above the head whichever way the body lies
     this.tag.position.set(0, 2.2 * (1 - pk) + 1.5 * pk, 1.0 * pk * (1 - 2 * bk));
     // walk
     const sp = Math.min(this.speed, 8);
     if (sp > 0.4) this.walkT += dt * sp * 1.9 * (1 - pk * 0.6);
     const swing = Math.sin(this.walkT) * Math.min(1, sp / 4) * 0.7 * (1 - pk * 0.5);
-    const c = this.crouchK * (1 - pk);
+    const c = this.driving ? 1 : this.crouchK * (1 - pk);   // sitting: knees up
     this.legs[0].rotation.x = swing - c * 1.3;
     this.legs[1].rotation.x = -swing - c * 0.2;
     this.legs[0].userData.shin.rotation.x = Math.max(0, -swing) * 0.8 + c * 1.6;
@@ -513,7 +515,7 @@ export class Avatar {
     p.setXYZ(0, origin.x, origin.y, origin.z);
     p.setXYZ(1, end.x, end.y, end.z);
     p.needsUpdate = true;
-    this.laserDot.position.copy(end).addScaledVector(dir, -0.03);
+    this.laserDot.position.copy(end).addScaledVector(hit ? hit.normal : dir.clone().negate(), 0.02);
   }
 
   updateGlint(dt, camera, friendly) {

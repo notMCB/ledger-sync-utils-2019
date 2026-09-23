@@ -1024,6 +1024,12 @@ class Town:
             return s * 1.3
         return s * 0.8
 
+    def portal(self, x, z, yaw, w=5.0, h=3.6):
+        """A fake tunnel mouth in the boundary where a road ends: black inside.
+        yaw is the direction the opening faces (the way you'd look into it)."""
+        self.deco.append({'k': 'portal', 'x': round(x, 2), 'y': round(self.base_y, 2), 'z': round(z, 2),
+                          'yaw': round(yaw, 4), 'w': w, 'h': h})
+
     def barrel(self, x, z):
         self.box(x, 0.5, z, 0.32, 0.5, 0.32, 0, 'inv')
         self.deco.append({'k': 'barrel', 'x': round(x, 2), 'y': round(self.base_y, 2), 'z': round(z, 2), 'c': self.rng.randrange(3)})

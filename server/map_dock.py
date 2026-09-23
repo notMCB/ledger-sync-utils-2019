@@ -24,6 +24,11 @@ CROSS_W = 6.0           # the crossing roads
 CROSS_X = 47.0          # where they cross, east and west
 
 
+def sx_end(hw, wt):
+    """Where a shed's mezzanine stairs end along the north wall (they start at the west end)."""
+    return -hw + wt + 0.6 + STEP_N * STEP_D
+
+
 class Dockyard(Town):
     kind = 'dock'
     name = 'The Dockyard'
@@ -66,8 +71,9 @@ class Dockyard(Town):
         self.props.append((x, z, 0.9))
 
     def forklift(self, x, z, yaw):
-        self.box(x, 0.6, z, 1.15, 0.6, 0.6, yaw, 'inv')
-        self.deco.append({'k': 'forklift', 'x': round(x, 2), 'z': round(z, 2), 'yaw': round(yaw, 4)})
+        # driveable: no fixed collision box; the game gives it one that moves with it
+        fid = sum(1 for d in self.deco if d['k'] == 'forklift') + 1
+        self.deco.append({'k': 'forklift', 'id': fid, 'x': round(x, 2), 'y': 0.0, 'z': round(z, 2), 'yaw': round(yaw, 4)})
         self.props.append((x, z, 1.4))
 
     def tank(self, x, z, r, h):
@@ -114,7 +120,7 @@ class Dockyard(Town):
         lb(-hw, du - dw, 0, H, -hd, -hd + WT)
         lb(du + dw, hw, 0, H, -hd, -hd + WT)
         lb(du - dw, du + dw, dh, H, -hd, -hd + WT)
-        pu = rng.uniform(-hw + 3, hw - 3)
+        pu = rng.uniform(sx_end(hw, WT) + 1.6, hw - 3)      # the person door clear of the stairs
         lb(-hw, pu - 0.8, 0, H, hd - WT, hd)
         lb(pu + 0.8, hw, 0, H, hd - WT, hd)
         lb(pu - 0.8, pu + 0.8, 2.4, H, hd - WT, hd)
@@ -309,6 +315,12 @@ class Dockyard(Town):
         for i in range(-3, 4):
             for sz in (-1, 1):
                 self.deco.append({'k': 'lines', 'x': i * 3.0, 'z': sz * 6.0, 'l': 5.0, 'yaw': 0.0})
+        # the roads run on into the dark: tunnel mouths in the perimeter
+        self.portal(-bx + 0.02, 0.0, math.pi / 2, LANE_W - 0.6, 3.3)
+        self.portal(bx - 0.02, 0.0, -math.pi / 2, LANE_W - 0.6, 3.3)
+        for cx in (-CROSS_X, CROSS_X):
+            self.portal(cx, -bz + 0.02, 0.0, CROSS_W - 0.6, 3.3)
+            self.portal(cx, bz - 0.02, math.pi, CROSS_W - 0.6, 3.3)
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': 0.0, 'r': 10})
         self.areas.append({'n': 'East Gate', 'x': self.spawn_e[0], 'z': 0.0, 'r': 10})
         self.pick_spawns()
