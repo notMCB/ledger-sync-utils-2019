@@ -522,7 +522,8 @@ export class Hud {
     const [mx, my] = toMap(me.x, me.z);
     g.save();
     g.translate(mx, my);
-    g.rotate(-me.yaw + Math.PI);
+    // north is up and forward is -z, so a yaw of zero points straight up
+    g.rotate(-me.yaw);
     g.fillStyle = '#fff';
     g.strokeStyle = 'rgba(0,0,0,0.6)';
     g.lineWidth = 1.5;

@@ -500,11 +500,11 @@ export class Avatar {
     const on = this.glintK > 0.02;
     this.glint.visible = on;
     if (!on) return;
-    const flicker = 0.85 + 0.15 * Math.sin(performance.now() / 70 + this.id);
+    const flicker = 0.8 + 0.2 * Math.sin(performance.now() / 70 + this.id);
     this.glint.material.opacity = Math.min(1, this.glintK * flicker * 1.2);
-    // grows with distance a little so it still reads across the town
+    // a small sharp lens flare at the eye, a touch bigger far away so it still reads
     const dist = camera.position.distanceTo(this.pos);
-    const s = (0.7 + this.glintK * 0.9) * (1 + Math.min(1.5, dist / 60));
+    const s = (0.2 + this.glintK * 0.25) * (1 + Math.min(1, dist / 80));
     this.glint.scale.set(s, s, 1);
     const pk = this.proneK;
     this.glint.position.set(0, (1.62 - this.crouchK * 0.44) * (1 - pk) + 1.5 * pk, 0.5 * pk * (1 - 2 * this.backK));

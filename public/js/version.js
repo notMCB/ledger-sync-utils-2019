@@ -2,9 +2,18 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.6.0';
+export const VERSION = '2.6.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.6.1',
+    date: '23 September 2026',
+    title: 'Glint and map arrow fixes',
+    notes: [
+      'The sniper’s scope glint is a small sharp flare at the lens again, not a floodlight behind them. It still shows from a wide angle and from close in.',
+      'Your arrow on the full-screen map (M) pointed backwards. It points the way you face now.',
+    ],
+  },
   {
     version: '2.6.0',
     date: '23 September 2026',
