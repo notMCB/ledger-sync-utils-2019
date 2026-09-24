@@ -35,7 +35,7 @@ const MAT = {
 };
 
 // which parts of a gun a finish recolours
-const ROLE = new Map([[MAT.steel, 'body'], [MAT.polymer, 'furn'], [MAT.tan, 'furn'], [MAT.wood, 'furn'], [MAT.dark, 'dark']]);
+const ROLE = new Map([[MAT.steel, 'body'], [MAT.chrome, 'body'], [MAT.polymer, 'furn'], [MAT.tan, 'furn'], [MAT.wood, 'furn'], [MAT.dark, 'dark']]);
 
 // put a finish on a gun (null = factory finish)
 export function skinGun(group, finishId) {

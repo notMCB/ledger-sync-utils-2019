@@ -137,7 +137,7 @@ export const auth = {
       return true;
     }
     if (m.t === 'locker') {
-      locker.updateAccount(m.locker);
+      if (locker.equipEcho(m.seq)) locker.updateAccount(m.locker);
       return true;
     }
     return false;

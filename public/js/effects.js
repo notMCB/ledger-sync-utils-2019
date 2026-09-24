@@ -46,13 +46,15 @@ export class Effects {
     this.bottleMat = new THREE.MeshStandardMaterial({ color: '#3f6b3a', roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
     this.ragMat = new THREE.MeshBasicMaterial({ color: '#ffb03a' });
     this.fires = [];       // burning patches: { pos, t, life }
+    this.poolAdd = [];     // spare sprites, additive and normal blending
+    this.poolNorm = [];
     this.nades = [];
     this.shake = 0;
   }
 
   clear() {
     for (const t of this.tracers) this.group.remove(t.mesh);
-    for (const p of this.particles) this.group.remove(p.s);
+    for (const p of this.particles) this.recycle(p);
     for (const h of this.holes) this.group.remove(h);
     for (const n of this.nades) this.group.remove(n.mesh);
     for (const f of this.flashes) this.group.remove(f.s);
@@ -95,16 +97,35 @@ export class Effects {
     if (!quiet) this.light(pos, 5);
   }
 
+  // Sprites and their materials are pooled: a flamethrower makes a hundred
+  // particles a second, and building and throwing away a material for each
+  // was the garbage collector's biggest customer. Two pools, one per blend.
   particle(tex, pos, vel, size, grow, life, gravity = 0, opacity = 1, additive = false, hold = 0) {
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity,
-      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
-    const s = new THREE.Sprite(mat);
+    const pool = additive ? this.poolAdd : this.poolNorm;
+    let s = pool.pop();
+    if (!s) {
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity,
+        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
+      s = new THREE.Sprite(mat);
+    } else if (s.material.map !== tex) {
+      s.material.map = tex;
+      s.material.needsUpdate = true;
+    }
+    s.material.opacity = opacity;
     s.position.copy(pos);
     s.scale.set(size, size, 1);
-    mat.rotation = Math.random() * Math.PI * 2;
+    s.material.rotation = Math.random() * Math.PI * 2;
     this.group.add(s);
     // hold: the fraction of its life a particle stays at full strength before fading
-    this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity, hold });
+    this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity, hold, additive });
+  }
+
+  // a spent particle goes back to its pool for the next one
+  recycle(p) {
+    this.group.remove(p.s);
+    const pool = p.additive ? this.poolAdd : this.poolNorm;
+    if (pool.length < 600) pool.push(p.s);
+    else p.s.material.dispose();
   }
 
   // a burning patch about four and a half metres across, fed with flame and smoke for `life` seconds
@@ -322,8 +343,7 @@ export class Effects {
       p.t += dt;
       const k = p.t / p.life;
       if (k >= 1) {
-        this.group.remove(p.s);
-        p.s.material.dispose();
+        this.recycle(p);
         this.particles.splice(i, 1);
         continue;
       }

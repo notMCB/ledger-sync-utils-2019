@@ -6,7 +6,7 @@ import { input } from './input.js';
 import { settings, saveSettings, resetBinds, ACTIONS, keyName } from './settings.js';
 import { VERSION, PATCH_NOTES } from './version.js';
 import { LOADOUTS, WEAPONS } from './weapons.js';
-import { MODE_INFO, esc } from './hud.js';
+import { MODE_INFO, NICHE_MODES, esc } from './hud.js';
 import { unlockAudio, uiBlip } from './audio.js';
 import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
@@ -171,6 +171,26 @@ function renderModes() {
       host.appendChild(b);
       modeButtons[id] = b;
     }
+    // the niche modes live in a folder of their own
+    const folder = document.createElement('button');
+    folder.className = 'mode';
+    folder.innerHTML = `<span class="m-name">${MODE_INFO.niche.name}</span><span class="m-desc">${MODE_INFO.niche.desc}</span>` +
+      `<span class="m-meta"><span><span class="m-count">0</span> playing</span><span class="m-play">Open →</span></span>`;
+    folder.addEventListener('click', () => { uiBlip(); $('modes').hidden = true; $('niche').hidden = false; });
+    host.appendChild(folder);
+    modeButtons.niche = folder;
+    const nh = $('niche-modes');
+    nh.innerHTML = '';
+    for (const id of NICHE_MODES) {
+      const info = MODE_INFO[id];
+      const b = document.createElement('button');
+      b.className = 'mode';
+      b.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
+        `<span class="m-meta"><span><span class="m-count">0</span> playing</span><span class="m-play">Play →</span></span>`;
+      b.addEventListener('click', () => pickMap(id));
+      nh.appendChild(b);
+      modeButtons[id] = b;
+    }
     // solo aim training: no server needed
     const info = MODE_INFO.range;
     const r = document.createElement('button');
@@ -187,9 +207,9 @@ function renderModes() {
     });
     host.appendChild(r);
   }
-  for (const id of MODE_ORDER) {
+  for (const id of [...MODE_ORDER, ...NICHE_MODES, 'niche']) {
     const b = modeButtons[id];
-    const n = rooms.filter((r) => r.mode === id).reduce((a, r) => a + r.n, 0);
+    const n = rooms.filter((r) => (id === 'niche' ? NICHE_MODES.includes(r.mode) : r.mode === id)).reduce((a, r) => a + r.n, 0);
     const c = b.querySelector('.m-count');
     if (c.textContent !== String(n)) c.textContent = n;
     const off = status !== 'online';
@@ -244,6 +264,7 @@ function pickMap(mode) {
     return;
   }
   $('modes').hidden = true;
+  $('niche').hidden = true;
   const box = $('maps');
   box.hidden = false;
   $('maps-title').textContent = `${MODE_INFO[mode].name} · pick a map`;
@@ -264,8 +285,11 @@ function pickMap(mode) {
 
 function closeMaps() {
   $('maps').hidden = true;
+  $('niche').hidden = true;
   $('modes').hidden = false;
 }
+
+$('niche-back').addEventListener('click', () => { uiBlip(); $('niche').hidden = true; $('modes').hidden = false; });
 
 $('maps-back').addEventListener('click', () => { uiBlip(); closeMaps(); });
 

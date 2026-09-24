@@ -5,7 +5,7 @@ import { World, makeForkliftGroup, makeGolfCartGroup } from './world.js';
 import { ViewModel } from './viewmodel.js';
 import { Effects } from './effects.js';
 import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
-import { Hud, MODE_INFO } from './hud.js';
+import { Hud, MODE_INFO, isTeamMode } from './hud.js';
 import { input } from './input.js';
 import { settings, keyName } from './settings.js';
 import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor } from './weapons.js';
@@ -40,7 +40,14 @@ const DRONE_SPEED = 14;      // keep in step with DRONE_SPEED in server/server.p
 const DRONE_R = 0.5;         // how big a target it is
 // forklifts: a slow drive about the yard, nothing more
 const FK_SPEED = 5.5, FK_REVERSE = 2.8, FK_TURN = 1.5, FK_R = 1.0, FK_H = 2.1;
-const KNIFE_SPEED = 26, KNIFE_GRAVITY = 11;   // a thrown knife: a level throw from eye height is on the ground by fifteen metres
+const KNIFE_SPEED = 26, KNIFE_GRAVITY = 11;
+// the niche modes' kits: what you carry, how many grenades, whether your attachments come along
+const NICHE_RULES = {
+  snipers: { primary: 'heavy', pistol: null, nades: 0, attach: true },
+  knives: { primary: null, pistol: null, nades: 0, attach: false },
+  firefight: { primary: 'flamer', pistol: null, nades: 2, nadeKind: 'molotov', attach: false },
+  oitc: { primary: null, pistol: 'pistol', nades: 0, attach: false, rounds: 1 },
+};   // a thrown knife: a level throw from eye height is on the ground by fifteen metres
 const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, forward and back
 const SITE_R = 4.8;
 const HILL_R = 6.0;
@@ -245,6 +252,13 @@ export class Game {
       case 'dead': return this.onDead(m);
       case 'team': this.me.team = m.team; return this.updateTeamLook();
       case 'ldnow': return this.applyLoadout(m.ld);
+      case 'oitc': {
+        const pw = this.me.weapons && this.me.weapons.pistol;
+        if (pw) { pw.mag = m.r; pw.reserve = 0; pw.reloading = false; }
+        this.hud.lastAmmo = '';
+        if (m.r > 0 && this.me.alive) this.hud.center('One in the chamber', 'A fresh round', '', 1.4, 1);
+        return;
+      }
       case 'heal':
         this.me.hp = m.hp;
         this.hud.setHP(m.hp);
@@ -507,7 +521,18 @@ export class Game {
   }
 
   isTeamMode() {
-    return !!this.room && ['tdm', 'koth', 'bomb'].includes(this.room.mode);
+    return !!this.room && isTeamMode(this.room.mode);
+  }
+
+  // the niche modes hand out a fixed kit instead of the locker's loadout
+  modeRules() {
+    const mode = this.room && this.room.mode;
+    return NICHE_RULES[mode] || null;
+  }
+
+  maxNades() {
+    const r = this.modeRules();
+    return r ? r.nades : nadesFor(this.me.loadout, this.me.nadeKind);
   }
 
   warmup() {
@@ -531,7 +556,7 @@ export class Game {
       if (this.room.mode === 'bomb' && this.g && this.g.att !== undefined) label += this.g.att === t ? ' · attacking' : ' · defending';
       this.hud.setTeamLabel(label, TEAM_COLORS[t]);
     } else {
-      this.hud.setTeamLabel(this.room && this.room.mode === 'ffa' ? 'Free for all' : '', col);
+      this.hud.setTeamLabel(this.room && !this.isTeamMode() && MODE_INFO[this.room.mode] ? MODE_INFO[this.room.mode].name : '', col);
     }
   }
 
@@ -553,24 +578,39 @@ export class Game {
     me.nadeKind = locker.nadeFor(ld);
     me.perkLeft = PERKS[locker.perkFor(ld)].uses;
     me.nades = Math.min(me.nades, nadesFor(ld, me.nadeKind));
-    const primary = locker.primaryFor(ld);
-    const secondary = locker.secondaryFor(ld);
-    const fitted = locker.attachFor(primary);
-    const pistolFit = locker.attachFor(secondary);
+    let primary = locker.primaryFor(ld);
+    let secondary = locker.secondaryFor(ld);
+    let fitted = locker.attachFor(primary);
+    let pistolFit = locker.attachFor(secondary);
+    const rules = this.modeRules();
+    if (rules) {
+      primary = rules.primary;
+      secondary = rules.pistol;
+      fitted = rules.attach && primary ? locker.attachFor(primary) : null;
+      pistolFit = rules.attach && secondary ? locker.attachFor(secondary) : null;
+      me.nadeKind = rules.nadeKind || me.nadeKind;
+      me.nades = rules.nades;
+      me.perkLeft = 0;
+    }
     me.weapons = {
-      primary: makeWeaponState(primary, fitted),
-      pistol: makeWeaponState(secondary, pistolFit),
+      primary: primary ? makeWeaponState(primary, fitted) : null,
+      pistol: secondary ? makeWeaponState(secondary, pistolFit) : null,
       knife: makeWeaponState('knife'),
     };
-    this.vm.setAttachments(primary, fitted);
-    this.vm.setAttachments(secondary, pistolFit);
-    me.slot = 'primary';
+    if (rules && rules.rounds !== undefined && me.weapons.pistol) {
+      // one in the chamber: a single round and no spares
+      me.weapons.pistol.mag = rules.rounds;
+      me.weapons.pistol.reserve = 0;
+    }
+    if (primary) this.vm.setAttachments(primary, fitted);
+    if (secondary) this.vm.setAttachments(secondary, pistolFit);
+    me.slot = primary ? 'primary' : secondary ? 'pistol' : 'knife';
     this.vm.setSkins(locker.cosmetics(ld).g);
-    this.vm.setWeapon(primary);
+    this.vm.setWeapon(me.weapons[me.slot].id);
     if (this.inRoom && this.net) {
       this.send({ t: 'cos', cos: locker.cosmetics(ld) });
       // the server needs to know about anything that changes damage
-      this.send({ t: 'atch', a: serverFlags(primary, fitted) });
+      if (primary) this.send({ t: 'atch', a: serverFlags(primary, fitted) });
     }
     this.hud.lastAmmo = '';
   }
@@ -603,6 +643,7 @@ export class Game {
     me.spawnT = this.clock;
     me.grounded = true;
     this.applyLoadout(m.ld);
+    if (m.lv !== undefined && this.room && this.room.mode === 'oitc') this.hud.center(`${m.lv} ${m.lv === 1 ? 'life' : 'lives'}`, 'One round in the chamber. A kill loads another', '', 2.2, 2);
     this.updateTeamLook();
     this.hud.setHP(100);
     document.getElementById('death').hidden = true;
@@ -625,7 +666,8 @@ export class Game {
     this.vm.scoped = false;
     this.hud.scope(false);
     if (me.slot && me.weapons) me.weapons[me.slot].reloading = false;
-    const by = m.by && m.by !== this.myId ? `Killed by <b>${escapeHtml(m.byn)}</b>` : m.w === 'bomb' ? 'Caught in the blast' : 'You died';
+    let by = m.by && m.by !== this.myId ? `Killed by <b>${escapeHtml(m.byn)}</b>` : m.w === 'bomb' ? 'Caught in the blast' : 'You died';
+    if (m.lv !== undefined && m.lv >= 0) by += m.lv > 0 ? ` · ${m.lv} ${m.lv === 1 ? 'life' : 'lives'} left` : ' · no lives left, most kills wins';
     this.ui.showDeath(by, me.respawnAt);
   }
 
@@ -660,6 +702,10 @@ export class Game {
     const m = this.g.mode;
     if (m === 'tdm') return 'First team to 50 kills wins';
     if (m === 'ffa') return 'First to 25 kills wins';
+    if (m === 'snipers') return 'The .50 only. First to 20 kills wins';
+    if (m === 'knives') return 'Knives only. First to 25 kills wins';
+    if (m === 'firefight') return 'Flamethrowers and molotovs only. First to 25 kills wins';
+    if (m === 'oitc') return 'One round, three lives. Most kills wins';
     if (m === 'koth') return 'Hold the hill with nobody from the other team on it';
     return '';
   }
@@ -736,7 +782,7 @@ export class Game {
       }
       case 'matchend': {
         let big, cls = '';
-        if (g.mode === 'ffa') {
+        if (!isTeamMode(g.mode)) {
           big = m.w === this.myId ? 'You win' : `${this.nameOf(m.w)} wins`;
         } else if (m.w === -1) {
           big = 'Draw';
@@ -855,6 +901,7 @@ export class Game {
   usePerk() {
     const me = this.me;
     const perk = locker.perkFor(me.loadout);
+    if (this.modeRules()) return;          // no perks in the niche modes
     if (me.perkLeft <= 0) {
       this.hud.center(`No ${PERKS[perk].name} left`, 'You get more when you respawn', '', 1.6, 1);
       return;
@@ -1853,8 +1900,11 @@ export class Game {
     // the mouse wheel also switches, unless it has been bound to something else
     const bound = [...Object.values(settings.binds), ...Object.values(settings.alt)];
     const wheel = (input.pressedCode('WheelUp') && !bound.includes('WheelUp')) || (input.pressedCode('WheelDown') && !bound.includes('WheelDown'));
-    if (input.pressed('swap') || wheel) want = me.slot === 'primary' ? 'pistol' : 'primary';
-    if (want && want !== me.slot && me.nadeBusy <= 0) {
+    if (input.pressed('swap') || wheel) {
+      const have = ['primary', 'pistol', 'knife'].filter((s) => me.weapons[s]);
+      want = have[(have.indexOf(me.slot) + 1) % have.length];
+    }
+    if (want && want !== me.slot && me.nadeBusy <= 0 && me.weapons[want]) {
       ws.reloading = false;
       me.slot = want;
       vm.switchTo(me.weapons[want].id);
@@ -2445,7 +2495,7 @@ export class Game {
     hud.update(dt);
     if (!this.inRoom) return;
     const ws = this.weapon();
-    if (ws) hud.setAmmo(ws, me.nades, nadesFor(me.loadout), keyName(settings.binds.reload));
+    if (ws) hud.setAmmo(ws, me.nades, this.maxNades(), keyName(settings.binds.reload));
     const perk = PERKS[locker.perkFor(me.loadout)];
     hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), (NADE_INFO[me.nadeKind] || NADE_INFO.frag).name);
     hud.setHP(me.alive ? me.hp : 0);

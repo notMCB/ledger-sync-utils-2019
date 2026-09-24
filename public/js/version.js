@@ -2,9 +2,23 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.11.1';
+export const VERSION = '2.12.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.12.0',
+    date: '25 September 2026',
+    title: 'Niche modes, and skins that stick',
+    notes: [
+      'Niche Modes: a new button beside the main modes that opens a folder of four. Everyone for themselves, on the usual map rotation, with a fixed kit instead of your loadout.',
+      'Snipers: the Kabir .50 and nothing else, with your attachments. First to 20.',
+      'Knife Fight: knives only. A stab to the head or the back kills, two from the front. First to 25.',
+      'Firefight: the flamethrower and two molotovs, nothing else. First to 25.',
+      'One in the Chamber: a pistol with one round, a knife, and three lives. A hit with the round kills and loads you another; a miss leaves you the knife until you earn one back. When your lives are gone you sit out, and the match ends when nobody is left to fight. Most kills wins, whoever is last standing.',
+      'Gun skins now stay on. Skins put on the Barq PDW and the Rimah Carbine were being thrown away by the server, which then sent its copy back over yours; the same echo could undo any skin you had just changed. Both are fixed, and the Asad .44 now takes finishes like every other gun.',
+      'Under the bonnet: fire and smoke particles are recycled instead of rebuilt, so long bursts of the flamethrower and burning patches no longer stutter.',
+    ],
+  },
   {
     version: '2.11.1',
     date: '25 September 2026',

@@ -195,7 +195,7 @@ def clean_equip(e, locker):
     if e.get('outfit') in locker['outfits']:
         res['outfit'] = e['outfit']
     g = e.get('guns') if isinstance(e.get('guns'), dict) else {}
-    for w in ('smg', 'lmg', 'shotgun', 'sniper', 'knife', 'heavy', 'revolver', 'flamer'):
+    for w in GUNS:                       # every gun, so a new gun's skin is never thrown away
         f = g.get(w)
         if isinstance(f, str) and '%s:%s' % (w, f) in locker['guns']:
             res['guns'][w] = f

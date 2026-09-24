@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.11.1'
+VERSION = '2.12.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -52,7 +52,22 @@ MODES = {
     'tdm':  {'name': 'Team Deathmatch',  'time': 600, 'limit': 50,  'respawn': 3.0},
     'koth': {'name': 'King of the Hill', 'time': 720, 'limit': 150, 'respawn': 5.0},
     'bomb': {'name': 'Bomb Defusal',     'time': 115, 'limit': 7,   'respawn': 0.0},
+    # the niche modes: everyone for themselves with a fixed kit
+    'snipers':   {'name': 'Snipers',            'time': 600, 'limit': 20, 'respawn': 3.0},
+    'knives':    {'name': 'Knife Fight',        'time': 600, 'limit': 25, 'respawn': 3.0},
+    'firefight': {'name': 'Firefight',          'time': 600, 'limit': 25, 'respawn': 3.0},
+    'oitc':      {'name': 'One in the Chamber', 'time': 300, 'limit': 0,  'respawn': 3.0},
 }
+NICHE_MODES = ('snipers', 'knives', 'firefight', 'oitc')
+FFA_MODES = ('ffa',) + NICHE_MODES
+# what a niche mode hands you: (primary, secondary, grenade kinds); None is nothing in that slot
+NICHE_ARMS = {
+    'snipers':   ('heavy', None, ()),
+    'knives':    (None, None, ()),
+    'firefight': ('flamer', None, ('molotov',)),
+    'oitc':      (None, 'pistol', ()),
+}
+OITC_LIVES = 3
 TEAM_MODES = ('tdm', 'koth', 'bomb')
 
 # damage model — keep in step with public/js/weapons.js
@@ -248,6 +263,8 @@ class Player:
         self.account = None       # {'id', 'username'} once signed in
         self.perk_left = 0
         self.knives_air = []     # when each thrown knife left the hand, until it lands
+        self.lives = OITC_LIVES  # one in the chamber: lives left this match
+        self.rounds = 1          # one in the chamber: rounds in the pistol
         self.last_chat = 0.0
         self.last_active = now()   # the last time they moved or did anything
         self.auth_times = []
@@ -275,6 +292,8 @@ class Player:
 
     def reset_stats(self):
         self.kills = self.deaths = self.score = self.assists = 0
+        self.lives = OITC_LIVES
+        self.rounds = 1
 
     @property
     def locker(self):
@@ -434,6 +453,13 @@ class Room:
         if not self.players:
             self.empty_since = now()
 
+    def arms(self, p):
+        """(primary, secondary) a player carries here: the niche modes override the locker."""
+        if self.mode in NICHE_ARMS:
+            a = NICHE_ARMS[self.mode]
+            return a[0], a[1]
+        return p.primary, p.secondary
+
     def rebalance(self):
         if self.mode not in TEAM_MODES:
             return
@@ -504,13 +530,19 @@ class Room:
         p.alive = True
         p.hurt_by = {}
         p.burn_until = 0.0
-        p.nades = p.nades_for()
-        p.perk_left = PERK_USES[p.perk]
+        if self.mode in NICHE_ARMS:
+            kinds = NICHE_ARMS[self.mode][2]
+            p.nades = 2 if kinds else 0
+            p.perk_left = 0
+        else:
+            p.nades = p.nades_for()
+            p.perk_left = PERK_USES[p.perk]
+        p.rounds = 1
         p.sc += 1
         p.protect_until = now() + PROTECT
         p.last_active = now()      # a fresh life starts the idle clock again
         p.in_round = True
-        p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team})
+        p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team, 'lv': p.lives})
         self.roster_dirty = True
 
     def random_spawn(self, p, others, warmup):
@@ -598,7 +630,7 @@ class Room:
     def end_match(self, winner):
         self.prepare_map()
         for p in self.players.values():
-            won = (p.id == winner) if self.mode == 'ffa' else (p.team == winner)
+            won = (p.id == winner) if self.mode in FFA_MODES else (p.team == winner)
             self.earn(p, 'win' if won else 'match', EARN['match'] + (EARN['win'] if won else 0))
         self.winner = winner
         self.set_phase('ended', POSTMATCH)
@@ -736,8 +768,15 @@ class Room:
             if p.perk != 'knives' or not p.knives_air:
                 return
             p.knives_air.pop(0)
-        elif w not in (p.primary, p.secondary, 'knife'):
+        elif w not in self.arms(p) + ('knife',):
             return
+        if self.mode == 'oitc' and w == 'pistol':
+            # one round in the chamber: nothing to fire until a kill puts another in
+            if p.rounds <= 0:
+                self.reject_shot(p, 'empty')
+                return
+            p.rounds -= 1
+            p.send({'t': 'oitc', 'r': p.rounds})
         spec = SLUG if (w == 'shotgun' and p.slug) else WEAPONS[w]
         t = now()
         gap = 60.0 / spec['rpm']
@@ -790,6 +829,9 @@ class Room:
             dmg = spec['dmg'] * f * (spec['head'] if head else 1.0)
             # the knife kills outright to the head, or from behind
             if w == 'knife' and (head or self.behind(p, q)):
+                dmg = 999
+            # one in the chamber: the one round kills wherever it lands
+            if self.mode == 'oitc' and w == 'pistol':
                 dmg = 999
             cur = per_target.setdefault(tid, [0.0, False])
             cur[0] += dmg
@@ -895,16 +937,26 @@ class Room:
                 self.earn(attacker, 'kill', EARN['kill'] + (EARN['headshot'] if head else 0))
             if counting and self.mode == 'tdm':
                 self.scores[attacker.team] += 1
-        elif counting and self.mode == 'ffa':
+            if self.mode == 'oitc' and attacker.rounds < 1:
+                attacker.rounds = 1
+                attacker.send({'t': 'oitc', 'r': 1})
+        elif counting and self.mode in FFA_MODES:
             q.score = max(0, q.score - 50)
-        if self.mode != 'bomb' or self.phase in ('waiting', 'countdown'):
+        out = False
+        if self.mode == 'oitc' and self.phase == 'live':
+            q.lives -= 1
+            out = q.lives <= 0
+        if out:
+            q.respawn_at = 0
+        elif self.mode != 'bomb' or self.phase in ('waiting', 'countdown'):
             delay = 1.5 if self.phase in ('waiting', 'countdown') else self.cfg['respawn']
             q.respawn_at = now() + delay
         self.event({'e': 'kill', 'k': attacker.id if attacker else 0, 'v': q.id, 'w': w, 'hs': head,
                     'kn': attacker.name if attacker else '', 'vn': q.name, 'as': assisted,
                     'p': [round(v, 2) for v in q.pos]})
         q.send({'t': 'dead', 'by': attacker.id if attacker else 0, 'byn': attacker.name if attacker else '',
-                'w': w, 'rs': max(0.0, q.respawn_at - now()) if self.mode != 'bomb' or self.phase in ('waiting', 'countdown') else -1})
+                'w': w, 'rs': max(0.0, q.respawn_at - now()) if q.respawn_at and (self.mode != 'bomb' or self.phase in ('waiting', 'countdown')) else -1,
+                'lv': q.lives if self.mode == 'oitc' else -1})
         self.roster_dirty = True
 
     def handle_nade(self, p, m):
@@ -913,6 +965,11 @@ class Room:
         p.nades -= 1
         nid = int(num(m.get('n')))
         kind = m.get('k') if m.get('k') in NADE_OPTIONS[p.loadout] else 'frag'
+        if self.mode in NICHE_ARMS:
+            kinds = NICHE_ARMS[self.mode][2]
+            if not kinds:
+                return
+            kind = kinds[0]
         p.nade_ids[nid] = (now(), kind)
         self.broadcast({'t': 'nade', 'id': p.id, 'n': nid, 'k': kind, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}, skip=p)
 
@@ -1000,7 +1057,7 @@ class Room:
 
     def handle_perk(self, p, m):
         k = m.get('k')
-        if not p.alive or k != p.perk or p.perk_left <= 0 or self.phase == 'ended':
+        if not p.alive or k != p.perk or p.perk_left <= 0 or self.phase == 'ended' or self.mode in NICHE_ARMS:
             return
         t = now()
         if k == 'knives':
@@ -1330,9 +1387,12 @@ class Room:
     def update_timed_mode(self, t):
         if self.mode == 'koth':
             self.update_hill(t)
-        if self.mode == 'ffa':
-            top = max(self.players.values(), key=lambda p: p.kills)
-            if top.kills >= self.cfg['limit']:
+        if self.mode in FFA_MODES:
+            top = max(self.players.values(), key=lambda p: (p.kills, -p.deaths))
+            if self.cfg['limit'] and top.kills >= self.cfg['limit']:
+                return self.end_match(top.id)
+            # one in the chamber: over when nobody is left to fight, most kills wins
+            if self.mode == 'oitc' and sum(1 for p in self.players.values() if p.lives > 0) <= 1:
                 return self.end_match(top.id)
         elif self.mode == 'tdm':
             for i in (0, 1):
@@ -1343,7 +1403,7 @@ class Room:
                 if self.scores[i] >= self.cfg['limit']:
                     return self.end_match(i)
         if t >= self.match_end:
-            if self.mode == 'ffa':
+            if self.mode in FFA_MODES:
                 top = max(self.players.values(), key=lambda p: (p.kills, -p.deaths))
                 self.end_match(top.id)
             else:
@@ -1479,7 +1539,8 @@ class Room:
 
     def roster(self):
         return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths, 'a': p.assists,
-                                       's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': p.cos, 'pw': p.primary, 'sw': p.secondary}
+                                       's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': p.cos, 'pw': self.arms(p)[0] or '', 'sw': self.arms(p)[1] or '',
+                                       'lv': p.lives if self.mode == 'oitc' else -1}
                                       for p in self.players.values()]}
 
     def summary(self):
@@ -1762,7 +1823,9 @@ class Conn:
                 return
             lk['equip'] = catalog.clean_equip(m.get('equip'), lk)
             accounts.save_locker(p.account['id'], lk)
-            self.send({'t': 'locker', 'locker': lk})
+            # echo the cleaned locker with the client's own sequence number, so a
+            # stale echo can never overwrite a newer choice made in the meantime
+            self.send({'t': 'locker', 'locker': lk, 'seq': m.get('seq')})
         elif t == 'bug':
             # a bug report from the menu: name and text, kept for the owner to read
             tnow = now()

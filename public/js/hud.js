@@ -12,7 +12,15 @@ export const MODE_INFO = {
   koth: { name: 'King of the Hill', short: 'KOTH', desc: 'Hold the marked ground alone to score. It moves every 75 seconds. First to 150.' },
   bomb: { name: 'Bomb Defusal', short: 'Bomb', desc: 'Attackers plant at A or B, defenders stop them. One life per round, first to 7 rounds.' },
   range: { name: 'Aim Training', short: 'Range', desc: 'Just you, a bunker under the souk and steel targets from 10 to 105 m. Works offline.' },
+  niche: { name: 'Niche Modes', short: 'Niche', desc: 'Snipers, Knife Fight, Firefight and One in the Chamber. Everyone for themselves.' },
+  snipers: { name: 'Snipers', short: 'Snipers', desc: 'The Kabir .50 and nothing else. One shot, one kill. First to 20.' },
+  knives: { name: 'Knife Fight', short: 'Knives', desc: 'Knives only. A stab to the head or the back kills. First to 25.' },
+  firefight: { name: 'Firefight', short: 'Fire', desc: 'Flamethrowers and molotovs only. First to 25.' },
+  oitc: { name: 'One in the Chamber', short: 'OITC', desc: 'A pistol with one round, a knife, three lives. A hit kills and gives you another round; a miss leaves you the knife. Most kills wins.' },
 };
+export const TEAM_MODES = ['tdm', 'koth', 'bomb'];
+export const NICHE_MODES = ['snipers', 'knives', 'firefight', 'oitc'];
+export const isTeamMode = (mode) => TEAM_MODES.includes(mode);
 
 function fmtTime(s) {
   s = Math.max(0, Math.ceil(s));
@@ -239,7 +247,7 @@ export class Hud {
       hot = true;
     }
     const mid = `<div class="tb-mid"><div class="time${hot ? ' hot' : ''}">${timeText}</div><div class="sub">${sub}</div></div>`;
-    if (mode === 'ffa') {
+    if (!isTeamMode(mode)) {
       const sorted = [...roster.values()].sort((a, b) => b.k - a.k);
       const me = roster.get(myId);
       const lead = sorted[0];
@@ -580,7 +588,7 @@ export class Hud {
     const head = '<tr><th>Player</th><th>Kills</th><th>Assists</th><th>Deaths</th><th>Score</th><th>Ping</th></tr>';
     const all = [...roster.values()];
     let body = '';
-    if (mode === 'ffa') {
+    if (!isTeamMode(mode)) {
       all.sort((a, b) => b.k - a.k || a.d - b.d);
       body = `<table class="sb-table">${head}${rows(all)}</table>`;
     } else {

@@ -68,6 +68,7 @@ function loadGuest() {
 let guest = loadGuest();
 let account = null;       // the server's copy of your locker when signed in
 let server = null;        // send function to the server, when signed in
+let equipSeq = 0;         // numbers each equip sent, so old echoes from the server are ignored
 const listeners = new Set();
 const pending = [];       // crate openings waiting on the server
 
@@ -405,8 +406,13 @@ export const locker = {
   },
 
   saved() {
-    if (account && server) server({ t: 'equip', equip: account.equip });
+    if (account && server) server({ t: 'equip', equip: account.equip, seq: ++equipSeq });
     changed();
+  },
+
+  // the server's echo of an equip: only the latest one may replace what we have
+  equipEcho(seq) {
+    return seq === undefined || seq === null || seq === equipSeq;
   },
 
   // what other players should see for a loadout, sent to the server
