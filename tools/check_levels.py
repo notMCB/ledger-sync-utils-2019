@@ -22,7 +22,7 @@ import mapgen  # noqa: E402
 
 CELL = 0.2       # finer than a stair tread, so no tread is skipped between cells
 STEP = 0.45
-HEAD = 1.75
+HEAD = 1.9        # a standing player, with a little to spare
 PAD = 0.22         # the player's radius, near enough
 
 

@@ -250,10 +250,10 @@ class Manor(Town):
         holes2 = [(-WELL_X, WELL_X, AT_Z0, AT_Z1)]
         for sgn in (-1, 1):
             a_top = sgn * A_FOOT + sgn * RUN          # where flight A ends
-            a_low = sgn * A_FOOT + sgn * 5 * STEP_D   # where heads start to need the room
+            a_low = sgn * A_FOOT + sgn * 4 * STEP_D   # from the fourth tread up, a standing head needs the slab gone
             holes1.append((min(a_top, a_low), max(a_top, a_low), -9.35, -6.35))
             b_top = sgn * B_FOOT - sgn * RUN
-            b_low = sgn * B_FOOT - sgn * 5 * STEP_D
+            b_low = sgn * B_FOOT - sgn * 4 * STEP_D
             holes2.append((min(b_top, b_low), max(b_top, b_low), -5.15, -2.15))
         self.slab(1, holes1)
         self.slab(2, holes2)
@@ -669,10 +669,12 @@ class Manor(Town):
                                  (x - hw - 0.25, z, 0.25, hd), (x + hw + 0.25, z, 0.25, hd)):
             self.box(cx, 0.125, cz, hx, 0.125, hz, 0, 'marble')
         for k in range(3):
+            # loungers along the north side, lying towards the water with their backs away from it
             lx = x - 4.0 + k * 4.0
-            self.box(lx, 0.25, z + hd + 2.0, 0.9, 0.12, 0.35, 0, 'wood')
-            self.box(lx - 0.6, 0.55, z + hd + 2.0, 0.3, 0.2, 0.35, 0, 'wood', 0)
-            self.props.append((lx, z + hd + 2.0, 1.2))
+            lz = z + hd + 2.0
+            self.box(lx, 0.25, lz, 0.35, 0.12, 0.9, 0, 'wood')
+            self.box(lx, 0.55, lz + 0.6, 0.35, 0.2, 0.3, 0, 'wood', 0)
+            self.props.append((lx, lz, 1.2))
         self.box(x - hw - 1.4, 0.55, z, 1.2, 0.05, 0.3, 0, 'wood')            # the diving board
         self.box(x - hw - 2.4, 0.25, z, 0.2, 0.25, 0.3, 0, 'steel', 1)
         self.props.append((x, z, max(hw, hd) + 1.2))

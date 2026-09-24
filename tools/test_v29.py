@@ -193,7 +193,48 @@ async def test_new_primaries():
     e.ws.w.close(); f.ws.w.close(); await asyncio.sleep(0.4)
 
 
+async def test_knives():
+    """Throwing knives: three a life, everyone sees the throw, a landing kills; the knife kills from behind or to the head."""
+    a, b = await pair('Thrower', 'Mark10', ld=3, pk='knives')
+    o = [a.pos[0], a.pos[1] + 1.5, a.pos[2]]
+    a.ws.send({'t': 'perk', 'k': 'knives', 'p': o, 'v': [24, 0, 0]})
+    await wait(lambda: got(a, 'perkleft'), 3, 'a knife counted')
+    assert got(a, 'perkleft')[-1]['n'] == 2, got(a, 'perkleft')
+    await wait(lambda: got(b, 'throw', id=a.id), 3, 'the other player seeing the knife fly')
+    # a landing kills wherever it hits
+    a.ws.send({'t': 'shot', 'w': 'tknife', 'o': o, 'e': [], 'h': [[b.id, 'b']]})
+    await wait(lambda: a.saw('kill'), 3, 'a thrown knife kill')
+    assert a.saw('kill')[0]['w'] == 'tknife'
+    # no knife in the air: a landing is refused
+    await asyncio.sleep(0.3)
+    a.ws.send({'t': 'shot', 'w': 'tknife', 'o': o, 'e': [], 'h': [[b.id, 'b']]})
+    await asyncio.sleep(0.4)
+    assert len(a.saw('kill')) == 1, 'a knife that was never thrown cannot land'
+    print('knives ok: counted, seen, a kill where it lands, and no phantom knives')
+    a.ws.w.close(); b.ws.w.close(); await asyncio.sleep(0.4)
+    # the knife in hand: everyone faces -z; standing at +z of the victim is behind them
+    c, d = await pair('Stabber', 'Mark11', ld=0)
+    c.move([d.pos[0], 0, d.pos[2] - 1.2])          # in front of the victim
+    await asyncio.sleep(0.3)
+    shot(c, d, 'knife', 'b')
+    await asyncio.sleep(0.5)
+    assert not c.saw('kill'), 'one stab from the front should not kill'
+    c.move([d.pos[0], 0, d.pos[2] + 1.2])          # now behind
+    await asyncio.sleep(0.3)
+    shot(c, d, 'knife', 'b')
+    await wait(lambda: c.saw('kill'), 3, 'a backstab kill')
+    c.ws.w.close(); d.ws.w.close(); await asyncio.sleep(0.4)
+    e, f = await pair('Stabber2', 'Mark12', ld=0)
+    e.move([f.pos[0], 0, f.pos[2] - 1.2])
+    await asyncio.sleep(0.3)
+    shot(e, f, 'knife', 'h')
+    await wait(lambda: e.saw('kill'), 3, 'a knife to the head')
+    print('knife ok: two from the front, one from behind, one to the head')
+    e.ws.w.close(); f.ws.w.close(); await asyncio.sleep(0.4)
+
+
 async def main():
+    await test_knives()
     await test_new_primaries()
     await test_heavy()
     await test_revolver()

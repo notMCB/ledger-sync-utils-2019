@@ -140,7 +140,7 @@ STARTING_DINARS = 300
 GUN_ATTACH_SLOTS = ('optic', 'muzzle', 'mag', 'ammo', 'trigger', 'laser', 'grip', 'barrel')
 # the choices a loadout has (keyed by loadout number as a string); the first is the default
 NADE_CHOICES = {'0': ('frag',), '1': ('frag', 'smoke'), '2': ('frag', 'flash'), '3': ('frag',)}
-PERK_CHOICES = {'0': ('ammo',), '1': ('med', 'wall'), '2': ('ladder',), '3': ('beacon', 'drone')}
+PERK_CHOICES = {'0': ('ammo',), '1': ('med', 'wall'), '2': ('ladder',), '3': ('beacon', 'drone', 'knives')}
 PRIMARY_CHOICES = {'0': ('smg', 'pdw', 'carbine'), '1': ('lmg', 'carbine'), '2': ('shotgun', 'flamer'), '3': ('sniper', 'heavy')}
 
 

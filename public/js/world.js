@@ -1171,20 +1171,57 @@ export class World {
     const yaw = d.yaw || 0;
     paint.box(d.x, d.y || 2.0, d.z, (w + 0.12) / 2, (h + 0.12) / 2, 0.025, yaw, colorOf('#c9a13b'), 1);
     const c = document.createElement('canvas');
-    c.width = 64; c.height = Math.max(8, Math.round(64 * h / w));
+    c.width = 96; c.height = Math.max(8, Math.round(96 * h / w));
     const x = c.getContext('2d');
+    const W = c.width, Hh = c.height;
     const P = PAINTINGS[(d.c || 0) % PAINTINGS.length];
+    const seed = Math.abs(Math.round(d.x * 7 + d.z * 13 + (d.y || 0) * 3));
+    const r = (seed % 11) / 11;
+    const kind = (seed + (d.c || 0)) % 6;
     x.fillStyle = P[0];
-    x.fillRect(0, 0, c.width, c.height);
-    const r = (((d.x * 7 + d.z * 13) % 11) + 11) % 11 / 11;
-    x.fillStyle = P[1];
-    x.fillRect(0, c.height * (0.45 + r * 0.2), c.width, c.height);
-    x.fillStyle = P[2];
-    x.beginPath();
-    x.ellipse(c.width * (0.3 + r * 0.4), c.height * 0.45, c.width * 0.18, c.height * 0.28, 0, 0, Math.PI * 2);
-    x.fill();
-    x.fillStyle = P[3];
-    x.fillRect(c.width * 0.6, c.height * 0.55, c.width * 0.25, c.height * 0.3);
+    x.fillRect(0, 0, W, Hh);
+    const ell = (cx, cy, rx, ry, col) => { x.fillStyle = col; x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); x.fill(); };
+    if (kind === 0) {
+      // a landscape: hills under a sun, a tree on the ridge
+      ell(W * (0.25 + r * 0.5), Hh * 0.28, W * 0.09, W * 0.09, '#f6e2a0');
+      x.fillStyle = P[1];
+      x.beginPath(); x.moveTo(0, Hh); x.lineTo(0, Hh * 0.62);
+      for (let i = 0; i <= 6; i++) x.lineTo(W * i / 6, Hh * (0.55 + 0.12 * Math.sin(i * 1.7 + r * 6)));
+      x.lineTo(W, Hh); x.fill();
+      x.fillStyle = P[3]; x.fillRect(W * (0.6 + r * 0.2), Hh * 0.42, W * 0.02, Hh * 0.2);
+      ell(W * (0.61 + r * 0.2), Hh * 0.4, W * 0.08, Hh * 0.12, P[2]);
+    } else if (kind === 1) {
+      // a portrait: a face and shoulders on a dark ground
+      x.fillStyle = P[1]; x.fillRect(0, Hh * 0.62, W, Hh);
+      ell(W * 0.5, Hh * 0.72, W * 0.32, Hh * 0.25, P[3]);
+      ell(W * 0.5, Hh * 0.4, W * 0.16, Hh * 0.2, P[2]);
+      ell(W * 0.5, Hh * 0.3, W * 0.17, Hh * 0.1, P[1]);
+    } else if (kind === 2) {
+      // a still life: a table with fruit and a jug
+      x.fillStyle = P[1]; x.fillRect(0, Hh * 0.6, W, Hh);
+      x.fillStyle = P[3]; x.fillRect(W * 0.55, Hh * 0.3, W * 0.16, Hh * 0.32);
+      ell(W * 0.63, Hh * 0.3, W * 0.1, Hh * 0.05, P[3]);
+      for (let i = 0; i < 4; i++) ell(W * (0.15 + i * 0.1), Hh * (0.56 - (i % 2) * 0.05), W * 0.06, W * 0.06, i % 2 ? P[2] : '#c8483a');
+    } else if (kind === 3) {
+      // a seascape: bands of water, a sail
+      for (let i = 0; i < 5; i++) { x.fillStyle = i % 2 ? P[1] : P[0]; x.fillRect(0, Hh * (0.5 + i * 0.1), W, Hh * 0.1); }
+      x.fillStyle = P[2]; x.beginPath(); x.moveTo(W * (0.4 + r * 0.2), Hh * 0.2); x.lineTo(W * (0.4 + r * 0.2), Hh * 0.55); x.lineTo(W * (0.58 + r * 0.2), Hh * 0.55); x.fill();
+      x.fillStyle = P[3]; x.fillRect(W * (0.33 + r * 0.2), Hh * 0.55, W * 0.3, Hh * 0.05);
+    } else if (kind === 4) {
+      // an abstract: blocks of colour
+      x.fillStyle = P[1]; x.fillRect(W * 0.1, Hh * 0.1, W * 0.35, Hh * 0.5);
+      x.fillStyle = P[2]; x.fillRect(W * 0.5, Hh * 0.2, W * 0.4, Hh * 0.3);
+      x.fillStyle = P[3]; x.fillRect(W * 0.2, Hh * 0.65, W * 0.6, Hh * 0.2);
+      ell(W * (0.3 + r * 0.4), Hh * 0.5, W * 0.1, W * 0.1, '#f0e6d0');
+    } else {
+      // a hunt: riders on a green field under a pale sky
+      x.fillStyle = P[1]; x.fillRect(0, Hh * 0.5, W, Hh);
+      for (let i = 0; i < 3; i++) {
+        const hx = W * (0.2 + i * 0.28 + r * 0.05), hy = Hh * (0.66 + (i % 2) * 0.08);
+        ell(hx, hy, W * 0.09, Hh * 0.06, P[3]);
+        ell(hx, hy - Hh * 0.1, W * 0.03, Hh * 0.07, P[2]);
+      }
+    }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     const canvas = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex }));

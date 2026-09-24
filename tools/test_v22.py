@@ -55,13 +55,15 @@ async def test_knife():
     assert a.team != b.team
     b.move([a.pos[0] + 1.2, 0, a.pos[2]])
     await asyncio.sleep(0.3)
-    # one swing must not be enough
-    a.shoot(b, 1, 'knife')
+    # one stab to the body, from the side, must not be enough (the head, or from behind, kills outright)
+    def stab():
+        a.ws.send({'t': 'shot', 'w': 'knife', 'o': [a.pos[0], a.pos[1] + 1.5, a.pos[2]], 'e': [b.pos], 'h': [[b.id, 'b']]})
+    stab()
     await asyncio.sleep(0.8)
     assert not a.saw('kill'), 'one knife hit should not kill'
-    a.shoot(b, 1, 'knife')
+    stab()
     await wait(lambda: a.saw('kill'), 3, 'knife kill on the second hit')
-    print('knife ok: two hits killed, one did not')
+    print('knife ok: two body hits killed, one did not')
     a.ws.w.close()
     b.ws.w.close()
 

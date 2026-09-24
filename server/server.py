@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.10.1'
+VERSION = '2.11.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -63,6 +63,8 @@ WEAPONS = {
     'sniper':  {'dmg': 95, 'head': 2.5, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 45, 'pellets': 1, 'range': 300},
     'pistol':  {'dmg': 34, 'head': 2.0, 'near': 20, 'far': 50, 'min': 0.7,  'rpm': 380, 'pellets': 1, 'range': 120},
     'knife':   {'dmg': 55, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 110, 'pellets': 1, 'range': 2.6},
+    # a thrown knife: it kills wherever it lands, and it only flies fifteen metres or so
+    'tknife':  {'dmg': 999, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 300, 'pellets': 1, 'range': 20},
     # the Marksman's .50: one hit anywhere; the revolver; the flamethrower's ticks (three targets a tick)
     'heavy':   {'dmg': 130, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 30, 'pellets': 1, 'range': 400},
     'revolver': {'dmg': 40, 'head': 1.5, 'near': 30, 'far': 80, 'min': 0.75, 'rpm': 150, 'pellets': 1, 'range': 160},
@@ -83,9 +85,10 @@ LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 # each loadout's perk and how many uses it has per life
 PERKS = ['ammo', 'med', 'ladder', 'beacon']
 # the perks a loadout may pick from (first is the default), and the grenades
-PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('beacon', 'drone')]
+PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('beacon', 'drone', 'knives')]
 NADE_OPTIONS = [('frag', 'molotov'), ('frag', 'smoke'), ('frag', 'flash', 'molotov'), ('frag',)]
-PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1}
+PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1, 'knives': 3}
+KNIFE_AIR = 3.5         # a thrown knife may land this long after it leaves the hand
 WALL_HP = 900
 WALL_LIFE = 90.0
 DRONE_HP = 40
@@ -244,6 +247,7 @@ class Player:
         self.hill_t = 0.0
         self.account = None       # {'id', 'username'} once signed in
         self.perk_left = 0
+        self.knives_air = []     # when each thrown knife left the hand, until it lands
         self.last_chat = 0.0
         self.last_active = now()   # the last time they moved or did anything
         self.auth_times = []
@@ -723,7 +727,16 @@ class Room:
         if not p.alive or self.phase in ('freeze', 'post', 'ended'):
             return
         w = m.get('w')
-        if w not in WEAPONS or w not in (p.primary, p.secondary, 'knife'):
+        if w not in WEAPONS:
+            return
+        if w == 'tknife':
+            # a thrown knife landing: only as many as have been thrown and are still in the air
+            t0 = now()
+            p.knives_air = [x for x in p.knives_air if t0 - x < KNIFE_AIR]
+            if p.perk != 'knives' or not p.knives_air:
+                return
+            p.knives_air.pop(0)
+        elif w not in (p.primary, p.secondary, 'knife'):
             return
         spec = SLUG if (w == 'shotgun' and p.slug) else WEAPONS[w]
         t = now()
@@ -775,6 +788,9 @@ class Room:
             else:
                 f = 1.0 - (1.0 - spec['min']) * (d - spec['near']) / (spec['far'] - spec['near'])
             dmg = spec['dmg'] * f * (spec['head'] if head else 1.0)
+            # the knife kills outright to the head, or from behind
+            if w == 'knife' and (head or self.behind(p, q)):
+                dmg = 999
             cur = per_target.setdefault(tid, [0.0, False])
             cur[0] += dmg
             cur[1] = cur[1] or head
@@ -975,12 +991,30 @@ class Room:
 
     # -- perks --
 
+    def behind(self, p, q):
+        """Is p standing behind q, in the half of the world q has its back to?"""
+        fx, fz = -math.sin(q.yaw), -math.cos(q.yaw)
+        dx, dz = p.pos[0] - q.pos[0], p.pos[2] - q.pos[2]
+        d = math.hypot(dx, dz)
+        return d > 0.05 and (fx * dx + fz * dz) / d < -0.25
+
     def handle_perk(self, p, m):
         k = m.get('k')
         if not p.alive or k != p.perk or p.perk_left <= 0 or self.phase == 'ended':
             return
         t = now()
-        if k in ('med', 'ammo'):
+        if k == 'knives':
+            # a knife leaves the hand: everyone sees it fly; the hit, if any, comes as a shot
+            pos = vec3(m.get('p'))
+            vel = vec3(m.get('v'))
+            if dist3(pos, [p.pos[0], p.pos[1] + 1.5, p.pos[2]]) > 4.0:
+                return
+            speed = math.sqrt(sum(v * v for v in vel)) or 1.0
+            if speed > 30.0:
+                vel = [v * 30.0 / speed for v in vel]
+            p.knives_air = [x for x in p.knives_air if t - x < KNIFE_AIR] + [t]
+            self.broadcast({'t': 'throw', 'id': p.id, 'o': [round(v, 3) for v in pos], 'v': [round(v, 3) for v in vel]}, skip=p)
+        elif k in ('med', 'ammo'):
             # drop a crate your whole team can use, once each
             pos = vec3(m.get('p'))
             if dist3(pos, p.pos) > 4.0:

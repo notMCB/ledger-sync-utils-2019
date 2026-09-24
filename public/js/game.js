@@ -40,6 +40,7 @@ const DRONE_SPEED = 14;      // keep in step with DRONE_SPEED in server/server.p
 const DRONE_R = 0.5;         // how big a target it is
 // forklifts: a slow drive about the yard, nothing more
 const FK_SPEED = 5.5, FK_REVERSE = 2.8, FK_TURN = 1.5, FK_R = 1.0, FK_H = 2.1;
+const KNIFE_SPEED = 26, KNIFE_GRAVITY = 11;   // a thrown knife: a level throw from eye height is on the ground by fifteen metres
 const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, forward and back
 const SITE_R = 4.8;
 const HILL_R = 6.0;
@@ -102,6 +103,7 @@ export class Game {
     this.drones = new Map();    // player id -> their drone in the air
     this.drone = null;          // my own drone while I'm flying it
     this.forklifts = new Map(); // forklift id -> { mesh, box, pos, yaw, driver }
+    this.knives = [];           // thrown knives in flight or stuck in walls
     this.driving = null;        // the forklift I'm driving, if any
     this.flashT = 0;
     this.flashMax = 1;
@@ -223,6 +225,7 @@ export class Game {
     else if (m.k === 'beacon') this.onBeacon({ id: -1, p: m.p });
     else if (m.k === 'wall') this.onWall({ id: 'local' + me.perkLeft, p: m.p, y: m.y, hp: 300, tm: -1, owner: -1 });
     else if (m.k === 'drone') this.onDrone({ id: this.myId, p: [m.p[0], m.p[1] + 1.8, m.p[2]], hp: 40, tm: -1, life: 40 });
+    // a thrown knife is already in the air: nothing more to do here
     me.perkLeft = Math.max(0, me.perkLeft - 1);
   }
 
@@ -269,6 +272,7 @@ export class Game {
         this.me.perkLeft = m.n;
         return;
       case 'ladder': return this.onLadder(m);
+      case 'throw': if (m.id !== this.myId) this.spawnKnife(new THREE.Vector3(...m.o), new THREE.Vector3(...m.v), false, m.id); return;
       case 'beacon': return this.onBeacon(m);
       case 'ping': return this.onPing(m);
       case 'chat':
@@ -308,6 +312,7 @@ export class Game {
     }
     this.forklifts.clear();
     this.driving = null;
+    this.clearKnives();
     for (const d of map.deco) {
       if ((d.k !== 'forklift' && d.k !== 'golfcart') || d.id === undefined) continue;
       // a golf cart drives exactly like the forklift: only the body differs
@@ -873,7 +878,95 @@ export class Game {
       if (this.drone || this.drones.has(this.myId)) return;
       if (!me.grounded) return this.hud.center('Land first', '', '', 1.2, 1);
       this.perkSend({ t: 'perk', k: 'drone', p: [me.pos.x, me.pos.y, me.pos.z].map((v) => +v.toFixed(3)) });
+    } else if (perk === 'knives') {
+      if (me.nadeBusy > 0 || this.vm.busySwitching || this.driving) return;
+      me.nadeBusy = 0.55;
+      this.vm.throwNade('tknife');
+      setTimeout(() => this.launchKnife(), 220);
     }
+  }
+
+  // -- throwing knives: a straight, fast, heavy throw that kills whatever it lands on --
+
+  launchKnife() {
+    const me = this.me;
+    if (!me.alive || (!this.inRoom && !this.offline)) return;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const fwd = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const origin = cam.position.clone().addScaledVector(fwd, 0.4);
+    const h = this.world.physics.raycast(cam.position, fwd, 0.5);
+    if (h) origin.copy(cam.position).addScaledVector(fwd, Math.max(0, h.t - 0.1));
+    const vel = fwd.clone().multiplyScalar(KNIFE_SPEED);
+    this.spawnKnife(origin, vel, true, this.myId);
+    sfx.knifeSwing();
+    this.perkSend({ t: 'perk', k: 'knives', p: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(3)), v: [vel.x, vel.y, vel.z].map((v) => +v.toFixed(3)) });
+  }
+
+  spawnKnife(origin, vel, mine, owner) {
+    const mesh = makeKnifeMesh();
+    mesh.position.copy(origin);
+    this.scene.add(mesh);
+    this.knives.push({ mesh, pos: origin.clone(), vel: vel.clone(), mine, owner, t: 0, stuck: 0, spin: 0 });
+  }
+
+  updateKnives(dt) {
+    const me = this.me;
+    const phys = this.world.physics;
+    const teamMode = this.isTeamMode() && !this.warmup();
+    const skip = (a) => a.id === me.id || (teamMode && a.team === me.team);
+    for (let i = this.knives.length - 1; i >= 0; i--) {
+      const k = this.knives[i];
+      k.t += dt;
+      if (k.stuck) {
+        // it stays in the wall a while, then is gone
+        if (k.t > k.stuck + 8) { this.scene.remove(k.mesh); this.knives.splice(i, 1); }
+        continue;
+      }
+      const sub = 3;
+      let done = false;
+      for (let s = 0; s < sub && !done; s++) {
+        const h = dt / sub;
+        k.vel.y -= KNIFE_GRAVITY * h;
+        const step = k.vel.length() * h;
+        if (step < 1e-5) continue;
+        const dir = tmpA.copy(k.vel).normalize();
+        const wall = phys.raycast(k.pos, dir, step + 0.05);
+        const reach = wall ? wall.t : step + 0.05;
+        const ph = k.mine ? this.avatars.raycast(k.pos, dir, reach, skip) : null;
+        if (ph) {
+          // it lands: the server settles the kill
+          if (!this.offline) this.send({ t: 'shot', w: 'tknife', q: 1, f: 0, o: [this.camera.position.x, this.camera.position.y, this.camera.position.z].map((v) => +v.toFixed(2)), e: [], h: [[ph.id, 'b']] });
+          sfx.knifeHit(k.pos);
+          this.fx.impact(k.pos.clone().addScaledVector(dir, ph.t || 0), dir.clone().negate(), 'flesh');
+          this.scene.remove(k.mesh);
+          this.knives.splice(i, 1);
+          done = true;
+        } else if (wall) {
+          k.pos.copy(wall.point).addScaledVector(dir, -0.12);
+          k.stuck = k.t;
+          this.fx.impact(wall.point, wall.normal, wall.box && wall.box.mat);
+          done = true;
+        } else {
+          k.pos.addScaledVector(k.vel, h);
+        }
+      }
+      if (done && !this.knives.includes(k)) continue;
+      k.mesh.position.copy(k.pos);
+      if (!k.stuck) {
+        // point along the flight, spinning end over end
+        const dir = tmpA.copy(k.vel).normalize();
+        k.mesh.quaternion.setFromUnitVectors(tmpB.set(0, 0, -1), dir);
+        k.spin += dt * 22;
+        k.mesh.rotateX(k.spin);
+      }
+      if (k.t > 3.0 || k.pos.y < -10) { this.scene.remove(k.mesh); this.knives.splice(i, 1); }
+    }
+  }
+
+  clearKnives() {
+    for (const k of this.knives) this.scene.remove(k.mesh);
+    this.knives.length = 0;
   }
 
   // where a cover wall would stand: a little in front of you, on your floor,
@@ -2445,6 +2538,7 @@ export class Game {
         }
       }
       this.fx.update(dt, this.world.physics, this.camera, NADE_FUSE);
+      this.updateKnives(dt);
       this.updateDevices(dt);
       this.updateLaser();
       if (this.range) this.range.update(dt);
@@ -2484,6 +2578,20 @@ export class Game {
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// a thrown knife: a steel blade and a dark handle, pointing down -z
+function makeKnifeMesh() {
+  const g = new THREE.Group();
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.005, 0.22), new THREE.MeshStandardMaterial({ color: '#c9ced4', roughness: 0.3, metalness: 0.85 }));
+  blade.position.z = -0.11;
+  g.add(blade);
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.012, 0.012), new THREE.MeshLambertMaterial({ color: '#3c3f44' }));
+  g.add(guard);
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.018, 0.1), new THREE.MeshLambertMaterial({ color: '#2a2622' }));
+  handle.position.z = 0.055;
+  g.add(handle);
+  return g;
 }
 
 function makeLadderMesh(H = LADDER_H) {

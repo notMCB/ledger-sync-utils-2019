@@ -2,9 +2,20 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.10.1';
+export const VERSION = '2.11.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.11.0',
+    date: '25 September 2026',
+    title: 'Throwing knives, a real stab, backstabs',
+    notes: [
+      'Marksman: Throwing Knives, a third perk beside the beacon and the drone. Three a life. A throw goes exactly where you aim and kills wherever it lands, but the knife is heavy: it drops away fast and reaches fifteen metres at best. Everyone sees it fly, and it sticks in whatever it hits.',
+      'The knife: a stab to the head or from behind kills outright. From the front it still takes two.',
+      'The knife swing is a stab now: the arm draws back and drives the blade straight forward, rather than flicking across.',
+      'The Manor: the end stairs no longer bump your head on the floor above on the way down, the poolside loungers face the water, and the paintings come in six kinds: landscapes, portraits, still lifes, seascapes, abstracts and hunting scenes, each in its own colours.',
+    ],
+  },
   {
     version: '2.10.1',
     date: '25 September 2026',

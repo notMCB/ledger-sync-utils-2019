@@ -154,7 +154,7 @@ export class Hud {
   feedKill(ev, myId) {
     const row = document.createElement('div');
     row.className = 'kf' + (ev.k === myId || ev.v === myId ? ' me' : '');
-    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', fire: 'fire', molotov: 'molotov' };
+    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife' };
     const wname = names[ev.w] || (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {

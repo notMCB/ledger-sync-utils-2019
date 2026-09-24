@@ -1019,7 +1019,13 @@ function buildNadeHand(sleeve) {
   box(can, 0.01, 0.05, 0.012, MAT.steel, 0.012, 0.03, 0, 0, 0, 0.2);
   can.position.set(0, 0.04, -0.01);
   g.add(can);
-  g.kinds = { frag, molotov, can };
+  // a throwing knife, held by the blade's tip, ready to go
+  const tknife = new THREE.Group();
+  box(tknife, 0.018, 0.005, 0.2, MAT.silver, 0, 0.06, -0.06, -0.35);
+  box(tknife, 0.022, 0.018, 0.08, MAT.dark, 0, 0.01, 0.04, -0.35);
+  tknife.position.set(0, 0.03, -0.01);
+  g.add(tknife);
+  g.kinds = { frag, molotov, can, tknife };
   return g;
 }
 
@@ -1193,6 +1199,7 @@ export class ViewModel {
       K.frag.visible = kind === 'frag';
       K.molotov.visible = kind === 'molotov';
       K.can.visible = kind === 'smoke' || kind === 'flash';
+      K.tknife.visible = kind === 'tknife';
     }
   }
 
@@ -1293,18 +1300,19 @@ export class ViewModel {
       nh.rotation.set(-0.2 + wind * 0.9 - fling * 1.6, 0, 0);
       if (t >= 1) { this.nadeAnim = -1; nh.visible = false; }
     }
-    // knife slash
+    // knife stab: draw the arm back and up, then drive the blade straight
+    // forward and slightly down, hold a moment, and pull back to the guard
     if (this.swingAnim >= 0) {
-      this.swingAnim += dt / 0.42;
+      this.swingAnim += dt / 0.4;
       const t = this.swingAnim;
-      const wind = seg(t, 0, 0.3), cut = seg(t, 0.3, 0.62), back = seg(t, 0.62, 1);
-      const arc = wind - cut;
-      pos.x += arc * 0.16 - cut * 0.12 + back * 0.12;
-      pos.y += wind * 0.06 - cut * 0.14 + back * 0.08;
-      pos.z += -cut * 0.14 + back * 0.14;
-      rz += arc * 0.9 - cut * 0.7 + back * 0.7;
-      ry += wind * 0.5 - cut * 1.1 + back * 0.6;
-      rx += cut * 0.5 - back * 0.5;
+      const draw = seg(t, 0, 0.22), thrust = seg(t, 0.22, 0.42), pull = seg(t, 0.55, 1);
+      const out = thrust - pull;             // 1 while the blade is fully forward
+      pos.x += draw * 0.05 - out * 0.03;
+      pos.y += draw * 0.05 - out * 0.06;
+      pos.z += draw * 0.12 - out * 0.34;
+      rx += draw * 0.3 - out * 0.45;
+      ry += draw * 0.25 - out * 0.35;
+      rz += draw * 0.35 - out * 0.15;
       if (t >= 1) this.swingAnim = -1;
     }
     g.group.position.copy(pos);
