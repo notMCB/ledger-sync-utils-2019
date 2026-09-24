@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.9.0'
+VERSION = '2.9.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -74,7 +74,7 @@ SECONDARY_OPTIONS = ('pistol', 'revolver')
 BURN_TIME = 10.0        # seconds on fire after the last touch of flame
 BURN_DPS = 5.0
 FIRE_LIFE = 15.0        # a molotov's fire
-FIRE_R = 1.6            # roughly three metres across
+FIRE_R = 2.25           # about four and a half metres across: twice the area it had
 # the shotgun firing slugs is a different gun as far as damage goes
 SLUG = {'dmg': 85, 'head': 1.5, 'near': 30, 'far': 90, 'min': 0.55, 'rpm': 70, 'pellets': 1, 'range': 200}
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']

@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { nameTag, softDot } from './textures.js';
-import { outfitMaterials, gunMaterials } from './skins.js';
+import { outfitMaterials, gunMaterials, chromeMaterial } from './skins.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
 export const TEAM_NAMES = ['Sand', 'Sky'];
@@ -18,7 +18,7 @@ const DELAY = 0.1; // render other players this far in the past, so there is alw
 
 const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
 const SHARED = {
-  silver: new THREE.MeshStandardMaterial({ color: '#c9ced4', roughness: 0.3, metalness: 0.85 }),
+  silver: chromeMaterial(),
   skin: lam('#b58461'),
   boots: lam('#3a2f24'),
   pants: lam('#6d6452'),
@@ -121,7 +121,7 @@ function ghillieGeometry() {
 
 const GUN_SIZES = {
   smg: [0.06, 0.1, 0.5], lmg: [0.09, 0.13, 0.85], shotgun: [0.06, 0.08, 0.85], sniper: [0.06, 0.09, 1.05], pistol: [0.04, 0.08, 0.2],
-  knife: [0.03, 0.04, 0.28], heavy: [0.08, 0.11, 1.35], revolver: [0.035, 0.08, 0.28], flamer: [0.07, 0.1, 0.8],
+  knife: [0.03, 0.04, 0.28], heavy: [0.08, 0.11, 1.35], revolver: [0.04, 0.09, 0.33], flamer: [0.07, 0.1, 0.8],
 };
 
 // the flash of sun off a scope lens, shared by every avatar

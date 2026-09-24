@@ -755,6 +755,15 @@ export class Game {
     const a = this.avatars.get(m.id);
     const w = WEAPONS[m.w] || WEAPONS.smg;
     const from = a && a.alive ? a.muzzle(V()) : new THREE.Vector3(m.o[0], m.o[1] - 0.2, m.o[2]);
+    if (m.w === 'flamer') {
+      const e = (m.e || [])[0];
+      const dir = e ? new THREE.Vector3(e[0] - m.o[0], e[1] - m.o[1], e[2] - m.o[2]).normalize() : new THREE.Vector3(0, 0, -1);
+      this.fx.flame(from, dir, w.range, 8);
+      this.fx.light(from.clone().addScaledVector(dir, 1.2), 7, 0xff8030, 0.12);
+      sfx.flame(from, false);
+      if (a) a.revealT = 2;
+      return;
+    }
     const quiet = !!m.q;
     // a flash hider or brake makes their flash smaller too
     const flashMul = typeof m.f === 'number' ? m.f : 1;
@@ -1849,6 +1858,7 @@ export class Game {
       return;
     }
     if (trigger && !ws.reloading && !vm.busySwitching && me.nadeBusy <= 0 && !this.frozen()) {
+      if (d.flame && ws.mag > 0 && !me.sprinting) this.flameFrame(ws);
       if (me.sprinting) {
         me.sprinting = false;
         ws.nextFire = Math.max(ws.nextFire, now + 0.12);
@@ -2057,6 +2067,18 @@ export class Game {
     this.send(msg);
   }
 
+  // the flamethrower's fire, drawn every frame the trigger is held: the jet
+  // on the gun and a stream of flame from its nozzle
+  flameFrame(ws) {
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const fwd = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const muzzle = this.vm.muzzleWorld(cam, V());
+    this.fx.flame(muzzle, fwd, ws.def.range, 2);
+    this.fx.light(muzzle.clone().addScaledVector(fwd, 1.2), 7, 0xff8030, 0.05);
+    this.vm.flameOn();
+  }
+
   // the flamethrower: a fan of short rays, everyone they touch is burned this tick
   fireFlame(ws) {
     const me = this.me;
@@ -2088,14 +2110,14 @@ export class Game {
         ph.avatar.showName = 1.0;
       }
     }
-    this.fx.flame(muzzle, fwd, d.range);
-    this.fx.light(muzzle.clone().addScaledVector(fwd, 1.5), 6, 0xff8030, 0.08);
     sfx.flame(null, true);
     this.vm.fire(0.004, true);
-    if (hits.length) this.send({ t: 'shot', w: d.id, q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: [], h: hits });
-    else if ((ws.flameT = (ws.flameT || 0) + 1) % 4 === 0) {
-      // let others see the flame now and then even when it hits nothing
-      this.send({ t: 'shot', w: d.id, q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: [[+(origin.x + fwd.x * d.range).toFixed(2), +(origin.y + fwd.y * d.range).toFixed(2), +(origin.z + fwd.z * d.range).toFixed(2)]], h: [] });
+    // the far end of the jet goes along so others can draw it from their side
+    const far = [[+(origin.x + fwd.x * d.range).toFixed(2), +(origin.y + fwd.y * d.range).toFixed(2), +(origin.z + fwd.z * d.range).toFixed(2)]];
+    if (hits.length) this.send({ t: 'shot', w: d.id, q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: far, h: hits });
+    else if ((ws.flameT = (ws.flameT || 0) + 1) % 2 === 0) {
+      // let others see the flame every other tick even when it hits nothing
+      this.send({ t: 'shot', w: d.id, q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: far, h: [] });
     }
   }
 

@@ -2,9 +2,19 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.9.0';
+export const VERSION = '2.9.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.9.1',
+    date: '24 September 2026',
+    title: 'Bigger fires, a proper jet, a proper revolver',
+    notes: [
+      'Molotovs now light twice the ground: about four and a half metres across, up from three.',
+      'The flamethrower’s fire comes out of the nozzle. A jet on the gun while you hold the trigger, and a stream that leaves the muzzle thin and white-hot, swells, and droops to the ground. Other players see the tongue of fire from your gun too.',
+      'The Asad .44 is a revolver now: a bigger nickel-plated frame in the old style, a round barrel with a full underlug, a ramp front sight with a red insert, a target hammer and walnut grips. Polished so it reflects the sky. Its front sight rides the barrel, so a long or short barrel moves it.',
+    ],
+  },
   {
     version: '2.9.0',
     date: '24 September 2026',

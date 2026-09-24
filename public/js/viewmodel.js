@@ -5,11 +5,12 @@
 
 import * as THREE from 'three';
 import { flashTex } from './textures.js';
-import { gunMaterials } from './skins.js';
+import { gunMaterials, chromeMaterial } from './skins.js';
 
 const std = (color, rough = 0.6, metal = 0.3) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 const MAT = {
   silver: std('#c9ced4', 0.28, 0.9),
+  chrome: chromeMaterial(),
   steel: std('#5a5f66', 0.45, 0.35),
   dark: std('#3c3f44', 0.55, 0.3),
   polymer: std('#5b5c55', 0.8, 0.05),
@@ -691,58 +692,84 @@ function buildHeavy(sleeve) {
   return attachable(gun, sets, { optic: 'scope8', muzzle: 'none', mag: 'normal', laser: 'none', grip: 'none' });
 }
 
-// the Asad .44: a silver six-shooter with a wooden grip; the cylinder is its magazine
+// the Asad .44: a big nickel-plated N-frame six-shooter in the old style, a
+// full underlug beneath a round barrel, a target hammer and walnut grips; the
+// cylinder is its magazine
 function buildRevolver(sleeve) {
   const g = new THREE.Group();
-  box(g, 0.026, 0.036, 0.09, MAT.silver, 0, 0.012, -0.005);                // frame
-  box(g, 0.02, 0.012, 0.02, MAT.silver, 0, 0.032, 0.03);                   // top strap / hammer seat
-  box(g, 0.008, 0.03, 0.012, MAT.dark, 0, 0.044, 0.045, 0.4);             // hammer
-  box(g, 0.026, 0.09, 0.04, MAT.tan, 0, -0.05, 0.03, -0.3);               // wooden grip
-  box(g, 0.01, 0.028, 0.04, MAT.silver, 0, -0.012, -0.015);               // trigger guard
-  box(g, 0.004, 0.014, 0.006, MAT.dark, 0, -0.006, -0.01, 0.3);           // trigger
+  const C = MAT.chrome;
+  // the frame: a top strap over the cylinder window, the breech behind it, the lug ahead
+  box(g, 0.024, 0.008, 0.07, C, 0, 0.045, -0.035);                         // top strap
+  box(g, 0.03, 0.012, 0.07, C, 0, -0.017, -0.035);                         // lower frame
+  box(g, 0.03, 0.062, 0.03, C, 0, 0.015, 0.01);                            // breech and recoil shield
+  cyl(g, 0.015, 0.03, C, 0, 0.032, 0.01, 12);                              // the rounded top of the shield
+  box(g, 0.03, 0.062, 0.02, C, 0, 0.015, -0.075);                          // barrel lug
+  box(g, 0.004, 0.008, 0.016, MAT.steel, -0.017, 0.022, 0.006);            // cylinder latch, left side
+  box(g, 0.024, 0.006, 0.014, MAT.dark, 0, 0.052, -0.006);                 // adjustable rear sight base
+  // the hammer: a wide target spur, cocked back
+  box(g, 0.008, 0.03, 0.012, MAT.dark, 0, 0.05, 0.034, 0.55);
+  box(g, 0.014, 0.005, 0.014, MAT.dark, 0, 0.066, 0.043, 0.55);
+  // trigger guard, a rounded loop
+  const guard = new THREE.Mesh(new THREE.TorusGeometry(0.017, 0.0032, 6, 18), C);
+  guard.rotation.y = Math.PI / 2;
+  guard.position.set(0, -0.032, -0.03);
+  g.add(guard);
+  box(g, 0.004, 0.017, 0.006, MAT.dark, 0, -0.027, -0.028, 0.3);           // trigger
+  // the grip: the frame's backstrap between two walnut panels, a square butt
+  box(g, 0.022, 0.1, 0.044, C, 0, -0.07, 0.03, -0.28);
+  box(g, 0.012, 0.094, 0.04, MAT.wood, -0.015, -0.07, 0.031, -0.28);
+  box(g, 0.012, 0.094, 0.04, MAT.wood, 0.015, -0.07, 0.031, -0.28);
+  box(g, 0.04, 0.006, 0.048, C, 0, -0.121, 0.045, -0.28);                  // butt cap
   const mag = new THREE.Group();                                           // the cylinder
-  mag.position.set(0, 0.012, -0.03);
+  mag.position.set(0, 0.015, -0.035);
   g.add(mag);
   const { sets, add } = partSet(g);
-  add('mag', 'normal', {}, (m) => {
-    cyl(m, 0.02, 0.046, MAT.silver, 0, 0, 0, 12);
-    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; cyl(m, 0.004, 0.048, MAT.dark, Math.cos(a) * 0.013, Math.sin(a) * 0.013, 0, 6); }
-  }, mag);
-  add('mag', 'cyl8', {}, (m) => {
-    cyl(m, 0.024, 0.05, MAT.silver, 0, 0, 0, 16);
-    for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; cyl(m, 0.004, 0.052, MAT.dark, Math.cos(a) * 0.016, Math.sin(a) * 0.016, 0, 6); }
-  }, mag);
-  add('mag', 'fast', {}, (m) => {
-    cyl(m, 0.02, 0.046, MAT.silver, 0, 0, 0, 12);
-    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; cyl(m, 0.004, 0.048, MAT.brass, Math.cos(a) * 0.013, Math.sin(a) * 0.013, 0, 6); }
-  }, mag);
-  // barrels: the muzzle moves with the barrel's length
-  const barrel = (id, len, tip) => add('barrel', id, { tip, my: 0.03 }, (b) => {
-    cyl(b, 0.011, len, MAT.silver, 0, 0.03, -0.06 - len / 2, 12);
-    box(b, 0.016, 0.014, len - 0.02, MAT.silver, 0, 0.012, -0.06 - len / 2);   // ejector rod housing
+  const chambers = (m, n, ring, mat) => {
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; cyl(m, 0.0045, 0.064, mat, Math.cos(a) * ring, Math.sin(a) * ring, 0, 6); }
+  };
+  const flutes = (m, n, r) => {
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2 + Math.PI / n; box(m, 0.007, 0.004, 0.034, MAT.steel, Math.cos(a) * r, Math.sin(a) * r, 0.002, 0, 0, a + Math.PI / 2); }
+  };
+  add('mag', 'normal', {}, (m) => { cyl(m, 0.026, 0.06, C, 0, 0, 0, 16); chambers(m, 6, 0.016, MAT.dark); flutes(m, 6, 0.026); }, mag);
+  add('mag', 'cyl8', {}, (m) => { cyl(m, 0.03, 0.064, C, 0, 0, 0, 16); chambers(m, 8, 0.02, MAT.dark); }, mag);
+  add('mag', 'fast', {}, (m) => { cyl(m, 0.026, 0.06, C, 0, 0, 0, 16); chambers(m, 6, 0.016, MAT.brass); flutes(m, 6, 0.026); }, mag);
+  // barrels: a round barrel with a top rib and a full underlug; the front sight
+  // rides at the muzzle, so the muzzle moves with the barrel's length
+  const barrel = (id, len, tip) => add('barrel', id, { tip, my: 0.031 }, (b) => {
+    const zc = -0.085 - len / 2;
+    cyl(b, 0.012, len, C, 0, 0.031, zc, 14);                               // the barrel
+    box(b, 0.012, 0.005, len, C, 0, 0.0455, zc);                            // top rib
+    box(b, 0.018, 0.02, len - 0.012, C, 0, 0.009, zc + 0.006);              // underlug over the ejector rod
+    cyl(b, 0.005, 0.012, MAT.steel, 0, 0.004, tip + 0.012, 8);              // ejector rod tip
+    box(b, 0.006, 0.014, 0.018, MAT.dark, 0, 0.055, tip + 0.014);           // ramp front sight
+    box(b, 0.0025, 0.008, 0.008, MAT.red, 0, 0.058, tip + 0.009);           // its red insert
   });
-  barrel('medium', 0.13, -0.19);
-  barrel('long', 0.2, -0.26);
-  barrel('short', 0.07, -0.13);
-  add('optic', 'irons', { S: 0.052, adsZ: -0.34 }, (o) => irons(o, 0.052, -0.13, 0.03, 0.04, 0.04));
-  add('optic', 'reddot', { S: 0.076, adsZ: -0.32 }, (o) => {
-    box(o, 0.026, 0.012, 0.05, MAT.dark, 0, 0.044, 0.0);
-    reflex(o, 0.076, -0.01, 0.05);
+  barrel('medium', 0.15, -0.235);
+  barrel('long', 0.22, -0.305);
+  barrel('short', 0.07, -0.155);
+  // the rear notch alone: every barrel carries its own front blade
+  add('optic', 'irons', { S: 0.062, adsZ: -0.36 }, (o) => {
+    box(o, 0.005, 0.01, 0.008, MAT.steel, -0.0075, 0.06, -0.006);
+    box(o, 0.005, 0.01, 0.008, MAT.steel, 0.0075, 0.06, -0.006);
   });
-  add('optic', 'acog', { S: 0.086, adsZ: -0.2 }, (o) => {
-    box(o, 0.026, 0.012, 0.06, MAT.dark, 0, 0.044, 0.0);
-    acogBody(o, 0.086, 0.0, MAT.dark);
+  add('optic', 'reddot', { S: 0.09, adsZ: -0.34 }, (o) => {
+    box(o, 0.026, 0.012, 0.05, MAT.dark, 0, 0.061, -0.03);
+    reflex(o, 0.09, -0.04, 0.067);
   });
-  add('optic', 'scope6', { S: 0.09, adsZ: -0.16 }, (o) => {
-    box(o, 0.026, 0.012, 0.07, MAT.dark, 0, 0.044, 0.0);
-    scopeTube(o, 0.09, 0.2, 0.0, MAT.dark, MAT.silver);
+  add('optic', 'acog', { S: 0.1, adsZ: -0.22 }, (o) => {
+    box(o, 0.026, 0.012, 0.06, MAT.dark, 0, 0.061, -0.03);
+    acogBody(o, 0.1, -0.03, MAT.dark);
   });
-  laserModules(add, 0, -0.008, -0.1);
-  const h = hands(g, new THREE.Vector3(0.002, -0.06, 0.035), new THREE.Vector3(-0.012, -0.07, 0.02), sleeve);
+  add('optic', 'scope6', { S: 0.104, adsZ: -0.18 }, (o) => {
+    box(o, 0.026, 0.012, 0.07, MAT.dark, 0, 0.061, -0.03);
+    scopeTube(o, 0.104, 0.2, -0.03, MAT.dark, MAT.silver);
+  });
+  laserModules(add, 0, -0.012, -0.12);
+  const h = hands(g, new THREE.Vector3(0.002, -0.078, 0.046), new THREE.Vector3(-0.014, -0.088, 0.028), sleeve);
   h.left.rotation.set(0, 0.3, 0);
   const gun = {
-    group: g, sight: 0.052, muzzle: new THREE.Vector3(0, 0.03, -0.19), mag, magHome: mag.position.clone(),
-    hands: h, hip: new THREE.Vector3(0.13, -0.14, -0.38), ads: new THREE.Vector3(0, -0.052, -0.34),
+    group: g, sight: 0.062, muzzle: new THREE.Vector3(0, 0.031, -0.235), mag, magHome: mag.position.clone(),
+    hands: h, hip: new THREE.Vector3(0.14, -0.15, -0.4), ads: new THREE.Vector3(0, -0.062, -0.36),
     kind: 'revolver',
   };
   return attachable(gun, sets, { optic: 'irons', mag: 'normal', laser: 'none', barrel: 'medium' });
@@ -755,6 +782,13 @@ function buildFlamer(sleeve) {
   cyl(g, 0.012, 0.42, MAT.steel, 0, 0.012, -0.34, 10);                    // the lance
   cyl(g, 0.02, 0.05, MAT.dark, 0, 0.012, -0.55, 10);                      // nozzle
   const pilot = sphere(g, 0.012, MAT.red, 0, 0.012, -0.585);               // the pilot light
+  const jet = new THREE.Group();                                           // fire out of the nozzle while the trigger is held
+  const jetMat = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false });
+  cyl(jet, 0.014, 0.42, jetMat('#ff7a1e', 0.55), 0, 0, -0.21, 10, 0.06);
+  cyl(jet, 0.008, 0.28, jetMat('#fff1a8', 0.8), 0, 0, -0.14, 8, 0.03);
+  jet.position.set(0, 0.012, -0.6);
+  jet.visible = false;
+  g.add(jet);
   cyl(g, 0.03, 0.14, MAT.steel, 0, -0.01, -0.16, 12);                      // the mixing chamber
   box(g, 0.03, 0.1, 0.04, MAT.polymer, 0, -0.085, 0.06, -0.3);            // grip
   box(g, 0.02, 0.05, 0.08, MAT.polymer, 0, -0.06, -0.24);                 // fore grip
@@ -765,7 +799,7 @@ function buildFlamer(sleeve) {
   add('optic', 'irons', { S: 0.052, adsZ: -0.3 }, (o) => irons(o, 0.052, -0.3, 0.06, 0.038, 0.038));
   const h = hands(g, new THREE.Vector3(0.002, -0.09, 0.06), new THREE.Vector3(0, -0.075, -0.24), sleeve);
   const gun = {
-    group: g, sight: 0.052, muzzle: new THREE.Vector3(0, 0.012, -0.6), hands: h, pilot,
+    group: g, sight: 0.052, muzzle: new THREE.Vector3(0, 0.012, -0.6), hands: h, pilot, jet,
     hip: new THREE.Vector3(0.15, -0.15, -0.4), ads: new THREE.Vector3(0, -0.052, -0.3), kind: 'flame',
   };
   return attachable(gun, sets, { optic: 'irons' });
@@ -880,6 +914,7 @@ export class ViewModel {
     this.kick = 0;
     this.kickV = 0;
     this.flashT = 0;
+    this.jetT = 0;            // the flamethrower's jet stays lit this long after the last frame of fire
     this.bobT = 0;
     this.sway = new THREE.Vector2();
     this.swayTarget = new THREE.Vector2();
@@ -972,6 +1007,11 @@ export class ViewModel {
     this.flashT = 0.05;
     this.flashSmall = suppressed;
     if (this.cur && this.cur.slide) this.slideAnim = 0;
+  }
+
+  // called every frame the flamethrower's trigger is held
+  flameOn() {
+    this.jetT = 0.06;
   }
 
   throwNade() {
@@ -1101,6 +1141,16 @@ export class ViewModel {
       g.flash.scale.set(s, s, 1);
     }
     this.flashLight.intensity = this.flashT > 0 ? (this.flashSmall ? 0.5 : 3) : 0;
+    this.jetT -= dt;
+    if (g.jet) {
+      g.jet.visible = this.jetT > 0 && !this.scoped;
+      if (g.jet.visible) {
+        const f = 0.85 + Math.random() * 0.3;
+        g.jet.scale.set(f, f, 0.8 + Math.random() * 0.4);
+        g.jet.rotation.z = Math.random() * Math.PI;
+      }
+      if (g.jet.visible) this.flashLight.intensity = Math.max(this.flashLight.intensity, 1.5);
+    }
     this.flashLight.position.copy(pos).add(g.muzzle);
     this.root.visible = this.visible && !this.scoped;
     const light = st.indoor ? 0.55 : 1;

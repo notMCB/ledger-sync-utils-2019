@@ -32,6 +32,7 @@ export class Effects {
     this.bloodTex = softDot('rgba(150,20,15,0.95)', 'rgba(120,10,10,0)');
     this.smokeTex = softDot('rgba(90,80,70,0.8)', 'rgba(90,80,70,0)');
     this.fireTex = softDot('rgba(255,220,140,1)', 'rgba(255,90,20,0)');
+    this.coreTex = softDot('rgba(255,255,235,1)', 'rgba(255,200,80,0)');
     this.particles = [];
 
     this.holeMat = new THREE.MeshBasicMaterial({ map: holeTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
@@ -106,26 +107,34 @@ export class Effects {
     this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity, hold });
   }
 
-  // a burning patch about three metres across, fed with flame and smoke for `life` seconds
+  // a burning patch about four and a half metres across, fed with flame and smoke for `life` seconds
   fireZone(pos, life) {
     this.fires.push({ pos: pos.clone(), t: 0, life, next: 0 });
-    this.light(pos.clone().add(new THREE.Vector3(0, 0.6, 0)), 30, 0xff8030, 0.5);
-    for (let i = 0; i < 12; i++) {
-      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.6 + 0.2, Math.random() - 0.5).multiplyScalar(6);
+    this.light(pos.clone().add(new THREE.Vector3(0, 0.8, 0)), 40, 0xff8030, 0.5);
+    for (let i = 0; i < 22; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.6 + 0.2, Math.random() - 0.5).multiplyScalar(8);
       this.particle(this.fireTex, pos.clone().add(new THREE.Vector3(0, 0.2, 0)), v, 0.7, 2.5, 0.5 + Math.random() * 0.3, -1, 1, true);
     }
   }
 
-  // the tongue of a flamethrower: a burst of fire particles along the lance
-  flame(origin, dir, len) {
-    for (let i = 0; i < 4; i++) {
-      const d = dir.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.2 + 0.05, (Math.random() - 0.5) * 0.25)).normalize();
-      const v = d.multiplyScalar(len * 2.2 + Math.random() * 2);
-      this.particle(this.fireTex, origin.clone().addScaledVector(dir, 0.2), v, 0.35, 5, 0.45, -3, 0.95, true);
+  // The flamethrower's jet: fire born at the nozzle, white-hot and thin, that
+  // swells, slows and droops as it leaves the gun. `n` particles a call; the
+  // shooter's client calls this every frame the trigger is held, so the
+  // stream reads as one unbroken tongue from the muzzle.
+  flame(origin, dir, len, n = 2) {
+    for (let i = 0; i < n; i++) {
+      const along = Math.random();                       // where along the first stretch this one is born
+      const spread = 0.03 + along * 0.3;
+      const d = dir.clone().add(new THREE.Vector3((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread + 0.02, (Math.random() - 0.5) * spread)).normalize();
+      const speed = len * 2.3 + Math.random() * 2.5;
+      const start = origin.clone().addScaledVector(dir, along * 0.45);
+      this.particle(this.fireTex, start, d.multiplyScalar(speed), 0.07 + along * 0.18, 5.5, 0.4, -4, 0.95, true);
     }
-    if (Math.random() < 0.35) {
+    // the hot core right at the nozzle
+    this.particle(this.coreTex, origin.clone().addScaledVector(dir, 0.08), dir.clone().multiplyScalar(len * 2.0), 0.1, 3, 0.1, 0, 0.9, true);
+    if (Math.random() < 0.25) {
       const v = dir.clone().multiplyScalar(len * 1.4).add(new THREE.Vector3(0, 1.2, 0));
-      this.particle(this.smokeTex, origin.clone().addScaledVector(dir, 0.6), v, 0.5, 4, 1.4, -0.3, 0.5);
+      this.particle(this.smokeTex, origin.clone().addScaledVector(dir, 0.8), v, 0.4, 4, 1.4, -0.3, 0.45);
     }
   }
 
@@ -263,14 +272,14 @@ export class Effects {
       const dying = f.t > f.life - 3 ? (f.life - f.t) / 3 : 1;
       while (f.next <= 0) {
         f.next += 0.05;
-        for (let k = 0; k < 2; k++) {
-          const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 1.45 * dying;
+        for (let k = 0; k < 4; k++) {
+          const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 2.1 * dying;
           const start = f.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.05, Math.sin(a) * r));
           const v = new THREE.Vector3((Math.random() - 0.5) * 0.5, 1.6 + Math.random() * 1.6, (Math.random() - 0.5) * 0.5);
           this.particle(this.fireTex, start, v, 0.45 + Math.random() * 0.4, 1.8, 0.45 + Math.random() * 0.3, -2, dying, true);
         }
-        if (Math.random() < 0.5) {
-          const a = Math.random() * Math.PI * 2, r = Math.random() * 1.2;
+        if (Math.random() < 0.7) {
+          const a = Math.random() * Math.PI * 2, r = Math.random() * 1.7;
           this.particle(this.smokeTex, f.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.8, Math.sin(a) * r)), new THREE.Vector3(0, 1.4, 0), 0.7, 3, 2.2, -0.2, 0.55 * dying);
         }
       }

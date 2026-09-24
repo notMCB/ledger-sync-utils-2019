@@ -107,7 +107,7 @@ export const NADE_INFO = {
   frag: { id: 'frag', name: 'Frag', blurb: 'Explodes — up to 125 damage' },
   flash: { id: 'flash', name: 'Flash', blurb: 'Blinds anyone looking — no damage' },
   smoke: { id: 'smoke', name: 'Smoke', blurb: 'A thick cloud, fifteen metres across, for 15 seconds — no damage' },
-  molotov: { id: 'molotov', name: 'Molotov', blurb: 'Half a frag’s blast, then 3 m of fire for 15 seconds. Anyone it touches burns for 10 seconds after — 5 a second. Two a life.' },
+  molotov: { id: 'molotov', name: 'Molotov', blurb: 'Half a frag’s blast, then 4.5 m of fire for 15 seconds. Anyone it touches burns for 10 seconds after — 5 a second. Two a life.' },
 };
 // the secondaries every loadout may carry
 export const SECONDARIES = ['pistol', 'revolver'];

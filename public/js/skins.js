@@ -362,6 +362,40 @@ const animated = [];
 
 // the three materials for a finish, shared by every gun that wears it
 const gunMatCache = new Map();
+
+// Polished nickel: a mirror finish needs something to reflect, and the game
+// has no environment map, so this paints one — a sky above a horizon above
+// dusty ground — onto the six faces of a small cube. Shared by every chrome
+// part, first and third person alike.
+let chromeMat = null;
+export function chromeMaterial() {
+  if (chromeMat) return chromeMat;
+  chromeMat = new THREE.MeshStandardMaterial({ color: '#f0f2f5', roughness: 0.14, metalness: 1.0 });
+  try {
+    const face = (kind) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const x = c.getContext('2d');
+      if (kind === 'up') { x.fillStyle = '#bcd6ee'; x.fillRect(0, 0, 64, 64); }
+      else if (kind === 'down') { x.fillStyle = '#6e5a42'; x.fillRect(0, 0, 64, 64); }
+      else {
+        const gr = x.createLinearGradient(0, 0, 0, 64);
+        gr.addColorStop(0, '#bcd6ee'); gr.addColorStop(0.45, '#eef2f4'); gr.addColorStop(0.5, '#d9c9a8'); gr.addColorStop(1, '#6e5a42');
+        x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+      }
+      return c;
+    };
+    const env = new THREE.CubeTexture([face('side'), face('side'), face('up'), face('down'), face('side'), face('side')]);
+    env.colorSpace = THREE.SRGBColorSpace;
+    env.needsUpdate = true;
+    chromeMat.envMap = env;
+    chromeMat.envMapIntensity = 1.0;
+  } catch (e) {
+    // no canvas here: plain bright metal will do
+    chromeMat.metalness = 0.6;
+  }
+  return chromeMat;
+}
 // plain = true gives the same finish with its lights switched off: what other
 // players see, so a lit-up skin never gives its owner away in the dark
 export function gunMaterials(finishId, plain = false) {
