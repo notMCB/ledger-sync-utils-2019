@@ -152,7 +152,10 @@ export class Physics {
   // walks the grid along the ray; returns {t, point, normal, box} or null
   raycast(o, d, maxT = 400, res = null) {
     const n = new THREE.Vector3();
-    const tg = d.y < -1e-6 ? -o.y / d.y : Infinity;
+    // the street level is solid both ways: from above, and from underneath too,
+    // so nothing fired from the tunnels' ceiling gap passes up through it
+    const crossing = (d.y < -1e-6 && o.y > 0) || (d.y > 1e-6 && o.y < 0);
+    const tg = crossing ? -o.y / d.y : Infinity;
     let groundT = tg >= 0 && tg < maxT ? tg : Infinity;
     // a ray that crosses ground level inside a hatch keeps going down the shaft
     if (groundT < Infinity && this.pits.length && this.inPit(o.x + d.x * groundT, o.z + d.z * groundT)) groundT = Infinity;
@@ -188,7 +191,7 @@ export class Physics {
     }
     if (!bestBox && groundT < Infinity) {
       const r = res || {};
-      bn.set(0, 1, 0);
+      bn.set(0, d.y > 0 ? -1 : 1, 0);
       r.t = groundT; r.point = new THREE.Vector3().copy(o).addScaledVector(d, groundT); r.normal = bn; r.box = null; r.ground = true;
       return r;
     }
@@ -291,7 +294,15 @@ export class Physics {
     const reach = body.grounded ? step : Math.max(0.05, -v.y * dt + 0.05);
     for (const b of tmp) {
       if (b.maxY > p.y + reach || b.maxY <= ground) continue;
-      if (Physics.overlapsCircle(b, p.x, p.z, fr)) ground = b.maxY;
+      if (!Physics.overlapsCircle(b, p.x, p.z, fr)) continue;
+      // no perching where the head would be inside something (a barrel under a
+      // low ceiling): a top like that is not ground, and you slide back off it
+      let room = true;
+      for (const o of tmp) {
+        if (o === b || o.minY >= b.maxY + body.height - 0.05 || o.maxY <= b.maxY + 0.3) continue;
+        if (Physics.overlapsCircle(o, p.x, p.z, fr)) { room = false; break; }
+      }
+      if (room) ground = b.maxY;
     }
     if (v.y > 0) {
       // ceiling

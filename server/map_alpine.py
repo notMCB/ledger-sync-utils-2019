@@ -339,7 +339,18 @@ class Alpine(Town):
     def pine(self, x, z):
         y = self.at(x, z)
         h = self.rng.uniform(5.5, 9.0)
-        self.box(x, 1.2, z, 0.28, 1.2, 0.28, 0, 'inv')
+        # the trunk, the full height, so there is nothing to stand on; and the
+        # green tiers solid from 2.4 m up (clear of anyone walking beneath), so
+        # nobody can climb into the foliage
+        self.box(x, h / 2, z, 0.28, h / 2, 0.28, 0, 'inv')
+        for i in range(3):
+            base = h * (0.24 + i * 0.22)
+            r = h * 0.2 * (1 - i * 0.26) * 0.72
+            y0 = max(2.4, base)
+            y1 = base + h * 0.4 * 0.7
+            if y1 > y0 + 0.2:
+                for k in range(2):
+                    self.box(x, (y0 + y1) / 2, z, r, (y1 - y0) / 2, r * 0.62, k * math.pi / 4, 'inv')
         self.deco.append({'k': 'pine', 'x': round(x, 2), 'y': round(y, 2), 'z': round(z, 2), 'h': round(h, 2), 's': self.rng.randrange(3)})
         self.props.append((x, z, 0.5))
 

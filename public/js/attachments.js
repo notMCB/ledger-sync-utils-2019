@@ -31,8 +31,8 @@ const noMuzzle = { id: 'none', name: 'No Muzzle', unlock: 0, blurb: 'Bare barrel
 const fastMag = (unlock, rounds) => ({ id: 'fast', name: 'Fast Mag', unlock, blurb: `Same ${rounds} rounds, 10% quicker to reload.`, mods: { reload: 0.9 } });
 // lasers tighten your hip fire (hip: a multiplier on the spread you have when not aiming) — and everyone can see the beam
 const noLaser = { id: 'none', name: 'No Laser', unlock: 0, blurb: 'Nothing under the barrel.', mods: {} };
-const redLaser = (unlock) => ({ id: 'red', name: 'Red Laser', unlock, blurb: 'A little tighter from the hip. Enemies can see the beam.', mods: { hip: 0.85, laser: 'red' } });
-const greenLaser = (unlock) => ({ id: 'green', name: 'Green Laser', unlock, blurb: 'Much tighter from the hip. Enemies can see the beam.', mods: { hip: 0.65, laser: 'green' } });
+const redLaser = (unlock) => ({ id: 'red', name: 'Red Laser', unlock, blurb: 'Hip fire 30% tighter. Enemies can see the beam.', mods: { hip: 0.7, laser: 'red' } });
+const greenLaser = (unlock) => ({ id: 'green', name: 'Green Laser', unlock, blurb: 'Hip fire 70% tighter. Enemies can see the beam.', mods: { hip: 0.3, laser: 'green' } });
 const lasers = (red, green) => [noLaser, redLaser(red), greenLaser(green)];
 
 export const ATTACHMENTS = {

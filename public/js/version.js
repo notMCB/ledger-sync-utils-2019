@@ -2,9 +2,20 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.7.0';
+export const VERSION = '2.7.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.7.1',
+    date: '24 September 2026',
+    title: 'Two exploits closed, stronger lasers, scaffolding',
+    notes: [
+      'Tunnels: you can no longer stand on a barrel or crate and poke your head up through the floor above. Nowhere is ground unless your head fits there too, so a perch under a low ceiling drops you off (crouching on one is still fine); the street is solid from underneath, to bullets and to eyes.',
+      'Ridgeline: pine trees are solid all the way up. Nobody can climb the trunk or hide inside the branches.',
+      'Lasers are twice as effective: a red laser tightens hip fire by 30%, a green one by 70%.',
+      'Old Town: builders’ scaffolding stands against a quarter of the buildings, poles, ledgers and plank decks with a rail, never across a door. The decks are solid.',
+    ],
+  },
   {
     version: '2.7.0',
     date: '24 September 2026',

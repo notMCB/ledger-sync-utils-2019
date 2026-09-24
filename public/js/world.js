@@ -382,7 +382,8 @@ export class World {
       for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * W / 9, guv.getY(i) * D / 9);
     }
     const gtex = map.theme === 'concrete' ? tx.concrete : map.theme === 'snow' ? tx.snow : tx.ground;
-    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: gtex }));
+    // drawn from underneath as well, so nobody under the street sees through it
+    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: gtex, side: THREE.DoubleSide }));
     ground.receiveShadow = true;
     root.add(ground);
 

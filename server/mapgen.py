@@ -497,6 +497,8 @@ class Town:
                 floors = 2 if (w >= 8.2 and d >= 7.8 and rng.random() < 0.62) else 1
             tint = rng.randrange(tints)
             H = self.building(x, z, w, d, yaw, floors, tint)
+            if i not in dome_ids and rng.random() < 0.24:
+                self.scaffold(x, z, w, d, yaw, floors)
             if i in dome_ids:
                 r = round(min(w, d) * 0.36, 2)
                 self.deco.append({'k': 'dome', 'x': round(x, 2), 'y': round(H, 2), 'z': round(z, 2),
@@ -1023,6 +1025,77 @@ class Town:
             self.box(x + ox, s3 / 2, z + oz, s3 / 2, s3 / 2, s3 / 2, yaw, 'crate')
             return s * 1.3
         return s * 0.8
+
+    def scaffold(self, bx, bz, w, d, yaw, floors):
+        """Builders' scaffolding up one side of a building: steel poles and ledgers,
+        plank decks at each storey with a guard rail, all solid. Never over a door."""
+        rng = self.rng
+        hw, hd = w / 2, d / 2
+        sides = ['S', 'N', 'W', 'E']
+        rng.shuffle(sides)
+        for side in sides:
+            L = w if side in 'SN' else d
+            # the face in local coordinates: along the wall from -L/2 to L/2, out from the face by o
+            def local(u, o):
+                if side == 'S':
+                    return (u, -hd - o)
+                if side == 'N':
+                    return (u, hd + o)
+                if side == 'W':
+                    return (-hw - o, u)
+                return (hw + o, u)
+            # skip a side with a door on it (door points sit 0.9 m outside each door)
+            blocked = False
+            for (dx, dz) in self.doors:
+                lx, lz = rot(dx - bx, dz - bz, -yaw)
+                du, do = (lx, -lz - hd) if side == 'S' else (lx, lz - hd) if side == 'N' else (lz, -lx - hw) if side == 'W' else (lz, lx - hw)
+                if abs(du) < L / 2 + 0.5 and -0.5 < do < 2.2:
+                    blocked = True
+                    break
+            if blocked:
+                continue
+            depth = 1.25
+            u0, u1 = -L / 2 + 0.3, L / 2 - 0.3
+            # a run of bays 2.5 m wide
+            n = max(1, int((u1 - u0) / 2.5))
+            top = floors * STORY + 1.1
+            def wbox(lx, ly, lz, hx, hy, hz, mat, extra_yaw=0.0):
+                wx, wz = rot(lx, lz, yaw)
+                self.box(bx + wx, ly, bz + wz, hx, hy, hz, yaw + extra_yaw, mat, 2)
+            # standards (vertical poles), inner and outer rows
+            for k in range(n + 1):
+                u = u0 + (u1 - u0) * k / n
+                for o in (0.25, depth):
+                    lx, lz = local(u, o)
+                    wbox(lx, top / 2, lz, 0.05, top / 2, 0.05, 'steel')
+            # ledgers and decks at each storey
+            for f in range(1, floors + 1):
+                y = f * STORY - 0.05
+                for o in (0.25, depth):
+                    lx, lz = local((u0 + u1) / 2, o)
+                    if side in 'SN':
+                        wbox(lx, y, lz, (u1 - u0) / 2, 0.04, 0.04, 'steel')
+                    else:
+                        wbox(lx, y, lz, 0.04, 0.04, (u1 - u0) / 2, 'steel')
+                lx, lz = local((u0 + u1) / 2, (0.25 + depth) / 2)
+                if side in 'SN':
+                    wbox(lx, y + 0.08, lz, (u1 - u0) / 2, 0.03, (depth - 0.25) / 2, 'wood')     # the planks
+                    lx2, lz2 = local((u0 + u1) / 2, depth)
+                    wbox(lx2, y + 1.05, lz2, (u1 - u0) / 2, 0.03, 0.03, 'steel')                  # guard rail
+                else:
+                    wbox(lx, y + 0.08, lz, (depth - 0.25) / 2, 0.03, (u1 - u0) / 2, 'wood')
+                    lx2, lz2 = local((u0 + u1) / 2, depth)
+                    wbox(lx2, y + 1.05, lz2, 0.03, 0.03, (u1 - u0) / 2, 'steel')
+                # a couple of planks propped as a ramp look would be false: instead a bucket and boards on the deck
+                lx3, lz3 = local(rng.uniform(u0 + 0.6, u1 - 0.6), (0.25 + depth) / 2)
+                wbox(lx3, y + 0.11 + 0.5, lz3, 0.32, 0.5, 0.32, 'inv')
+                self.deco.append({'k': 'barrel', 'x': round(bx + rot(lx3, lz3, yaw)[0], 2), 'y': round(y + 0.11, 2), 'z': round(bz + rot(lx3, lz3, yaw)[1], 2), 'c': rng.randrange(3)})
+            # keep spawns and props off the footprint
+            lx, lz = local((u0 + u1) / 2, depth / 2)
+            wx, wz = rot(lx, lz, yaw)
+            self.props.append((bx + wx, bz + wz, max(L / 2, depth) + 0.4))
+            return True
+        return False
 
     def portal(self, x, z, yaw, w=5.0, h=3.6):
         """A fake tunnel mouth in the boundary where a road ends: black inside.
