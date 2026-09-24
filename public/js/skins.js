@@ -12,7 +12,7 @@ export const RARITIES = [
 ];
 export const RARITY = Object.fromEntries(RARITIES.map((r) => [r.id, r]));
 
-export const GUN_IDS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife', 'heavy', 'revolver', 'flamer'];
+export const GUN_IDS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife', 'heavy', 'revolver', 'flamer', 'pdw', 'carbine'];
 
 // Gun finishes. Each colours three roles: body (receiver, barrel), dark
 // (small parts, magazine) and furn (grip, stock, handguard).

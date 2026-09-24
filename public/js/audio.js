@@ -107,6 +107,8 @@ const GUN = {
   pistol:  { crack: [2900, 800, 0.08, 0.75], body: [160, 70, 0.07, 0.45], tail: 0.22 },
   heavy:   { crack: [2400, 150, 0.4, 1.0], body: [55, 18, 0.6, 1.0], tail: 1.8 },
   revolver: { crack: [2500, 600, 0.13, 0.9], body: [120, 45, 0.13, 0.75], tail: 0.45 },
+  pdw:     { crack: [2800, 800, 0.08, 0.8], body: [150, 65, 0.07, 0.5], tail: 0.22 },
+  carbine: { crack: [2300, 600, 0.1, 0.85], body: [130, 55, 0.1, 0.6], tail: 0.3 },
 };
 
 export function gunshot(weapon, pos, local, suppressed = false) {

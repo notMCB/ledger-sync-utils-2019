@@ -231,6 +231,7 @@ const MAPS = [
   { id: 'town', name: 'Old Town', desc: 'Sun-baked streets, rooftops and tunnels', swatch: 'linear-gradient(90deg,#c9a877,#e9d6b4)' },
   { id: 'dock', name: 'The Dockyard', desc: 'Containers, cranes and warehouses', swatch: 'linear-gradient(90deg,#8f949a,#b8412f,#2e6fa3)' },
   { id: 'alpine', name: 'Ridgeline', desc: 'A snowbound ridge, bunkers and pines', swatch: 'linear-gradient(90deg,#e9edf1,#6f8fb0)' },
+  { id: 'manor', name: 'The Manor', desc: 'A great house in its gardens', swatch: 'linear-gradient(90deg,#6f9a3c,#f4f2ec,#b9ae98)' },
 ];
 
 // after a mode is chosen: pick the map, unless a match in that mode is already
@@ -647,7 +648,7 @@ if (location.hostname === 'localhost' && params.get('demo') === 'stability') {
 }
 // the owner's own locker, set up from a private link
 if (params.get('unlock') === 'mcb-souk-7k2p9') {
-  locker.grant(150, 500000, true);
+  locker.grant(1000, 500000, true);
   history.replaceState(null, '', location.pathname);
 }
 // testing on this Mac only: ?dinars=500 tops up the locker

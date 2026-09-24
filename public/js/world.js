@@ -10,6 +10,14 @@ const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b', '#3b34
 const CLOTH = ['#b3352b', '#2f7f7a', '#d49a2a', '#6b3f7a', '#2d5f9a', '#c46a2e'];
 const BARREL = ['#35577a', '#8a4a26', '#5a6b3a'];
 const CONCRETE_TINTS = ['#a6a59f', '#8f8e89', '#b8b6ae'];
+const VELVET_TINTS = ['#8a2a2e', '#2e4a7a', '#4a6a3a'];      // crimson, royal blue, sage
+const BOOK_TINTS = ['#7a2a2a', '#2a3f6a', '#3f6a3a', '#8a6a2a', '#5a2a5a', '#2a5a5a', '#a08a5a'];
+// the paintings: sky, ground, a figure, a building — landscape or portrait in oils
+const PAINTINGS = [
+  ['#9fb8d6', '#5f7a3c', '#e2c9a0', '#6b4a2a'], ['#3a3a4a', '#6a4a2a', '#e8d2b0', '#8a2a2a'], ['#dbe6ee', '#8a9a6a', '#d8b890', '#4a5a7a'],
+  ['#2f3f5f', '#1f2a3a', '#c9b090', '#7a5a2a'], ['#f0d8a0', '#a07a4a', '#8a6a5a', '#2f4a2a'], ['#8fb0c8', '#3f6a8a', '#f0e0c0', '#2a2a2a'],
+  ['#d0c0a0', '#5a4a3a', '#a08060', '#8a2a4a'], ['#4a6a8a', '#2a4a3a', '#e0c0a0', '#c9a13b'],
+];
 const STEEL_TINTS = ['#d1b83c', '#8f949a', '#5b636c', '#4d6b3f'];          // crane yellow, grey, dark, generator green
 const CONTAINER_TINTS = ['#b8412f', '#2e6fa3', '#3f7a4a', '#d9a13a', '#7a7f85', '#8a3f7a'];
 // sky, fog and light for each kind of map
@@ -17,6 +25,7 @@ const THEMES = {
   sand: { top: '#5d93c9', mid: '#bcd3e2', bot: '#e9d6b4', fog: '#d9cdb4', near: 70, far: 260, hemi: ['#cfe0ee', '#a9855a', 1.1], sun: ['#fff0d6', 2.7, [55, 62, 35]] },
   concrete: { top: '#5a8dc4', mid: '#c2d4e0', bot: '#dcdad4', fog: '#d6d6d1', near: 70, far: 260, hemi: ['#dbe6ef', '#8c8c88', 1.5], sun: ['#fff6e8', 3.2, [40, 62, -30]] },
   snow: { top: '#6f8fb0', mid: '#d5dde6', bot: '#e6ebf0', fog: '#dfe5ec', near: 45, far: 210, hemi: ['#dbe6f2', '#b9c0c8', 1.2], sun: ['#fff8f0', 2.2, [-45, 40, 30]] },
+  garden: { top: '#4f8fd0', mid: '#bcd6ea', bot: '#e4ecd8', fog: '#d6dfcf', near: 75, far: 270, hemi: ['#d6e6f2', '#5f7a3c', 1.15], sun: ['#fff4e0', 2.8, [50, 66, 40]] },
 };
 
 let texCache = null;
@@ -27,6 +36,7 @@ function textures() {
     crate: T.crate(), metal: T.metal(), leaf: T.palmLeaf(),
     cloth: CLOTH.map((c) => T.cloth(c)),
     concrete: T.concrete(), snow: T.snow(), corrugated: T.corrugated(), rock: T.rock(), container: T.containerSkin(),
+    grass: T.grass(), marble: T.marble(), hedge: T.hedge(),
   };
   return texCache;
 }
@@ -298,7 +308,11 @@ export class World {
       flatroof: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
       rock: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
       terrain: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
-      terraintop: new THREE.MeshLambertMaterial({ map: map.theme === 'snow' ? tx.snow : tx.ground, vertexColors: true }),
+      terraintop: new THREE.MeshLambertMaterial({ map: map.theme === 'snow' ? tx.snow : map.theme === 'garden' ? tx.grass : tx.ground, vertexColors: true }),
+      marble: new THREE.MeshLambertMaterial({ map: tx.marble, vertexColors: true }),
+      hedge: new THREE.MeshLambertMaterial({ map: tx.hedge, vertexColors: true }),
+      velvet: new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }),
+      lacquer: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: '#666666' }),
     };
     const builders = {};
     const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
@@ -335,6 +349,14 @@ export class World {
         B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#9a9c9e'), 3.0, { faces: 'sides' });
       } else if (mat === 'flatroof') {
         B('flatroof').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#7d7b76'), 3.0);
+      } else if (mat === 'marble') {
+        B('marble').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf('#f4f2ec'), { ao: true }), 2.4);
+      } else if (mat === 'hedge') {
+        B('hedge').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 1.2);
+      } else if (mat === 'velvet') {
+        B('velvet').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(VELVET_TINTS[tint % 3]), 1.0);
+      } else if (mat === 'lacquer') {
+        B('lacquer').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#141416'), 1.0);
       } else if (mat === 'rock') {
         const snowy = map.theme === 'snow';
         B('rock').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(snowy ? '#d9dce0' : '#ffffff'), { ao: true }), 3.0);
@@ -381,7 +403,7 @@ export class World {
       const guv = gg.attributes.uv;
       for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * W / 9, guv.getY(i) * D / 9);
     }
-    const gtex = map.theme === 'concrete' ? tx.concrete : map.theme === 'snow' ? tx.snow : tx.ground;
+    const gtex = map.theme === 'concrete' ? tx.concrete : map.theme === 'snow' ? tx.snow : map.theme === 'garden' ? tx.grass : tx.ground;
     // drawn from underneath as well, so nobody under the street sees through it
     const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: gtex, side: THREE.DoubleSide }));
     ground.receiveShadow = true;
@@ -398,7 +420,8 @@ export class World {
     const cars = new GeoBuilder();
     const steel = new GeoBuilder();      // crane fittings, lattice towers, generators, masts
     const paint = new GeoBuilder();      // white and coloured plain-painted bits
-    const tanks = [], cones = [];
+    const tanks = [], cones = [], canopies = [], figures = [], brass = [], glow = [];
+    const canopyGeo = new THREE.SphereGeometry(1, 12, 9);
     const unitCyl = new THREE.CylinderGeometry(1, 1, 1, 22);
     const coneGeo = new THREE.ConeGeometry(1, 1, 9);
     const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
@@ -435,6 +458,43 @@ export class World {
         this.addRig(cars, steel, paint, wheels, wheelGeo, d);
       } else if (d.k === 'forklift') {
         if (d.id === undefined) this.addForklift(steel, paint, wheels, wheelGeo, d);
+      } else if (d.k === 'golfcart') {
+        if (d.id === undefined) this.addGolfCart(steel, paint, wheels, wheelGeo, d);
+      } else if (d.k === 'tree') {
+        this.addTree(trunks, canopies, trunkSeg, canopyGeo, d);
+      } else if (d.k === 'topiary') {
+        canopies.push({ geo: canopyGeo, matrix: mtx(d.x, (d.y || 0) + 0.3 + d.r, d.z, 0, 0, 0, d.r, d.r, d.r), color: colorOf('#2f6b2e') });
+        trunks.push({ geo: trunkSeg, matrix: mtx(d.x, (d.y || 0) + 0.2, d.z, 0, 0, 0, 0.35, 0.5, 0.35), color: colorOf('#5a3f2a') });
+      } else if (d.k === 'statue') {
+        this.addStatue(figures, d);
+      } else if (d.k === 'painting') {
+        this.addPainting(root, paint, d);
+      } else if (d.k === 'chandelier') {
+        this.addChandelier(brass, glow, d);
+      } else if (d.k === 'books') {
+        // rows of spines down the face of a bookcase
+        const yaw = d.yaw || 0;
+        const c = Math.cos(yaw), s = Math.sin(yaw);
+        for (let row = 0; row < 5; row++) {
+          for (let k = 0; k < d.w / 0.16; k++) {
+            const u = -d.w / 2 + 0.1 + k * 0.16;
+            const px = d.x + c * u, pz = d.z - s * u;
+            const [ox, oz] = [s * 0.24, c * 0.24];
+            paint.box(px + ox, (d.y || 0) + 0.35 + row * 0.5, pz + oz, 0.06, 0.16, 0.04, yaw, colorOf(BOOK_TINTS[(k + row) % BOOK_TINTS.length]), 1);
+          }
+        }
+      } else if (d.k === 'net') {
+        const yaw = d.yaw || 0;
+        const c = Math.cos(yaw), s = Math.sin(yaw);
+        for (const sx of [-1, 1]) {
+          const u = sx * d.w / 2;
+          steel.box(d.x + c * u, 0.55, d.z - s * u, 0.05, 0.55, 0.05, yaw, colorOf('#2b2e32'), 1);
+        }
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(d.w, 0.9), new THREE.MeshLambertMaterial({ color: '#2a2a2a', side: THREE.DoubleSide, transparent: true, opacity: 0.55 }));
+        mesh.position.set(d.x, 0.5, d.z);
+        mesh.rotation.y = yaw;
+        root.add(mesh);
+        paint.box(d.x, 0.96, d.z, d.w / 2, 0.02, 0.01, yaw, colorOf('#f3f1e6'), 1);
       } else if (d.k === 'tank') {
         const ty = d.y || 0;
         tanks.push({ geo: unitCyl, matrix: mtx(d.x, ty + d.h / 2, d.z, 0, 0, 0, d.r, d.h, d.r), color: colorOf('#c9c4b8') });
@@ -754,6 +814,11 @@ export class World {
     }
     wheelGeo.dispose(); hubGeo.dispose();
     add(trunks, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    add(canopies, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    add(figures, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    add(brass, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    add(glow, new THREE.MeshBasicMaterial({ vertexColors: true }), false);
+    canopyGeo.dispose();
     add(leaves, new THREE.MeshLambertMaterial({ map: tx.leaf, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 }));
     add(domes, new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }));
     add(poles, new THREE.MeshLambertMaterial({ vertexColors: true }));
@@ -1021,6 +1086,121 @@ export class World {
     }
   }
 
+  // a golf cart: a white body on four small wheels, a bench seat, a canopy on four posts
+  addGolfCart(steel, paint, wheels, wheelGeo, d) {
+    const yaw = d.yaw || 0;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
+    const white = colorOf('#f2f2ee');
+    const dark = colorOf('#2b2e32');
+    const green = colorOf('#2f6b4a');
+    const P = (lx, ly, lz, hx, hy, hz, color, gb = paint) => {
+      const [x, z] = W(lx, lz);
+      gb.box(x, ly, z, hx, hy, hz, yaw, color, 1);
+    };
+    P(0, 0.42, 0, 1.15, 0.14, 0.6, white);                     // the floor pan
+    P(0.85, 0.72, 0, 0.3, 0.2, 0.55, white);                   // the front cowl
+    P(-0.8, 0.75, 0, 0.35, 0.28, 0.55, white);                 // the rear box
+    P(-0.15, 0.78, 0, 0.32, 0.12, 0.5, green);                 // the seat
+    P(-0.45, 1.05, 0, 0.06, 0.28, 0.5, green);                 // the seat back
+    P(0.55, 0.85, 0, 0.03, 0.12, 0.03, dark, steel);           // the steering column
+    P(0.5, 1.0, 0, 0.14, 0.02, 0.14, dark, steel);             // the wheel
+    for (const [lx, lz] of [[0.95, -0.5], [0.95, 0.5], [-0.95, -0.5], [-0.95, 0.5]]) P(lx, 1.2, lz, 0.03, 0.65, 0.03, dark, steel);
+    P(0, 1.9, 0, 1.15, 0.03, 0.62, white);                     // the canopy
+    for (const [lx, lz] of [[0.75, 0.62], [0.75, -0.62], [-0.75, 0.62], [-0.75, -0.62]]) {
+      const [x, z] = W(lx, lz);
+      wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.26, z, Math.PI / 2, yaw, 0, 0.75, 0.75, 0.75), color: colorOf('#1d1d1f') });
+    }
+  }
+
+  // a broadleaf garden tree: a trunk and a round canopy
+  addTree(trunks, canopies, trunkSeg, canopyGeo, d) {
+    const greens = ['#3f7a35', '#4d8a3c', '#35662f'];
+    const h = d.h || 4.5, r = d.r || 2.6;
+    trunks.push({ geo: trunkSeg, matrix: mtx(d.x, h * 0.35, d.z, 0, 0, 0, 1.3, h * 0.7, 1.3), color: colorOf('#5a3f2a') });
+    canopies.push({ geo: canopyGeo, matrix: mtx(d.x, h + r * 0.5, d.z, 0, 0, 0, r, r * 0.85, r), color: colorOf(greens[(d.c || 0) % 3]) });
+    canopies.push({ geo: canopyGeo, matrix: mtx(d.x + r * 0.4, h + r * 0.35, d.z - r * 0.3, 0, 0, 0, r * 0.7, r * 0.6, r * 0.7), color: colorOf(greens[((d.c || 0) + 1) % 3]) });
+    canopies.push({ geo: canopyGeo, matrix: mtx(d.x - r * 0.35, h + r * 0.4, d.z + r * 0.35, 0, 0, 0, r * 0.65, r * 0.6, r * 0.65), color: colorOf(greens[((d.c || 0) + 2) % 3]) });
+  }
+
+  // a marble figure on its plinth: a standing form, head and shoulders, one of four poses
+  addStatue(figures, d) {
+    const p = d.p || 0;
+    const white = colorOf('#e8e6df');
+    const yaw = d.yaw || 0;
+    const at = (lx, ly, lz, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
+      // local offsets turned by the statue's yaw
+      const c = Math.cos(yaw), sn = Math.sin(yaw);
+      return mtx(d.x + c * lx + sn * lz, (d.y || 0) + ly, d.z - sn * lx + c * lz, rx, ry + yaw, rz, sx, sy, sz);
+    };
+    if (!this._figGeo) {
+      this._figGeo = {
+        body: new THREE.CapsuleGeometry(0.22, 1.05, 4, 10), head: new THREE.SphereGeometry(0.16, 10, 8),
+        arm: new THREE.CapsuleGeometry(0.07, 0.55, 3, 8), skirt: new THREE.ConeGeometry(0.36, 0.9, 12, 1, true),
+      };
+    }
+    const G = this._figGeo;
+    figures.push({ geo: G.body, matrix: at(0, 0.85, 0), color: white });
+    figures.push({ geo: G.head, matrix: at(0, 1.62, 0), color: white });
+    figures.push({ geo: G.skirt, matrix: at(0, 0.45, 0), color: white });
+    if (p === 0) figures.push({ geo: G.arm, matrix: at(0.3, 1.25, 0.1, 0, 0, -0.9), color: white });
+    else if (p === 1) figures.push({ geo: G.arm, matrix: at(-0.28, 1.1, 0.15, -0.9, 0, 0.5), color: white });
+    else if (p === 2) figures.push({ geo: G.arm, matrix: at(0.26, 1.45, 0, 0, 0, -2.6), color: white });
+    else figures.push({ geo: G.arm, matrix: at(0.3, 1.0, 0, 0, 0, -0.3), color: white });
+  }
+
+  // a framed painting on a wall: a gilt frame round a canvas, the picture a
+  // few blocks of colour, hung facing `yaw`
+  addPainting(root, paint, d) {
+    const w = d.w || 1.4, h = d.h || 1.0;
+    const yaw = d.yaw || 0;
+    paint.box(d.x, d.y || 2.0, d.z, (w + 0.12) / 2, (h + 0.12) / 2, 0.025, yaw, colorOf('#c9a13b'), 1);
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = Math.max(8, Math.round(64 * h / w));
+    const x = c.getContext('2d');
+    const P = PAINTINGS[(d.c || 0) % PAINTINGS.length];
+    x.fillStyle = P[0];
+    x.fillRect(0, 0, c.width, c.height);
+    const r = (((d.x * 7 + d.z * 13) % 11) + 11) % 11 / 11;
+    x.fillStyle = P[1];
+    x.fillRect(0, c.height * (0.45 + r * 0.2), c.width, c.height);
+    x.fillStyle = P[2];
+    x.beginPath();
+    x.ellipse(c.width * (0.3 + r * 0.4), c.height * 0.45, c.width * 0.18, c.height * 0.28, 0, 0, Math.PI * 2);
+    x.fill();
+    x.fillStyle = P[3];
+    x.fillRect(c.width * 0.6, c.height * 0.55, c.width * 0.25, c.height * 0.3);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const canvas = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex }));
+    canvas.position.set(d.x + Math.sin(yaw) * 0.03, d.y || 2.0, d.z + Math.cos(yaw) * 0.03);
+    canvas.rotation.y = yaw;
+    root.add(canvas);
+  }
+
+  // a chandelier: a chain, a brass ring of candles, flames that glow
+  addChandelier(brass, glow, d) {
+    const r = d.r || 1.0;
+    const y = d.y || 3.0;
+    if (!this._chGeo) {
+      this._chGeo = {
+        chain: new THREE.CylinderGeometry(0.02, 0.02, 1.2, 5), ring: new THREE.TorusGeometry(1, 0.04, 6, 24),
+        stem: new THREE.CylinderGeometry(0.06, 0.1, 0.5, 8), candle: new THREE.CylinderGeometry(0.03, 0.03, 0.22, 6),
+        flame: new THREE.SphereGeometry(0.045, 6, 5),
+      };
+    }
+    const G = this._chGeo;
+    const gold = colorOf('#c9a13b');
+    brass.push({ geo: G.chain, matrix: mtx(d.x, y + 0.6, d.z), color: colorOf('#3a3a3a') });
+    brass.push({ geo: G.ring, matrix: mtx(d.x, y, d.z, Math.PI / 2, 0, 0, r * 0.6, r * 0.6, 1), color: gold });
+    brass.push({ geo: G.stem, matrix: mtx(d.x, y - 0.2, d.z), color: gold });
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      brass.push({ geo: G.candle, matrix: mtx(d.x + Math.cos(a) * r * 0.6, y + 0.12, d.z + Math.sin(a) * r * 0.6), color: colorOf('#f4efe0') });
+      glow.push({ geo: G.flame, matrix: mtx(d.x + Math.cos(a) * r * 0.6, y + 0.28, d.z + Math.sin(a) * r * 0.6), color: colorOf('#ffe6a8') });
+    }
+  }
+
   // a gantry crane's fittings: bracing on the legs, a trolley and hook under the beam, a cab
   addCrane(steel, paint, d) {
     const yaw = d.yaw || 0;
@@ -1107,7 +1287,7 @@ export class World {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx);
     g.computeVertexNormals();
-    if (!this._roadTex) this._roadTex = { dirt: T.road(), asphalt: T.roadStyle('asphalt'), snow: T.roadStyle('snow') };
+    if (!this._roadTex) this._roadTex = { dirt: T.road(), asphalt: T.roadStyle('asphalt'), snow: T.roadStyle('snow'), gravel: T.roadStyle('gravel'), court: T.roadStyle('court') };
     const mat = new THREE.MeshLambertMaterial({ map: this._roadTex[d.c] || this._roadTex.dirt, polygonOffset: true, polygonOffsetFactor: -1, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(g, mat);
     mesh.receiveShadow = true;
@@ -1156,7 +1336,7 @@ export class World {
     const out = [];
     if (!this.map) return out;
     for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
-      if (mat === 'crate' || mat === 'car' || mat === 'stone' || mat === 'inv' || mat === 'container' || mat === 'steel' || mat === 'concrete') {
+      if (mat === 'crate' || mat === 'car' || mat === 'stone' || mat === 'inv' || mat === 'container' || mat === 'steel' || mat === 'concrete' || mat === 'hedge') {
         // on stepped ground a prop sits on its cell, so anything below head height counts
         if (cy - hy > (this.hasTerrain ? 12 : 0.2) || hy > 4) continue;
         if ((mat === 'stone' || mat === 'concrete') && (hx > 30 || hz > 30)) continue;
@@ -1180,6 +1360,29 @@ export class World {
 
 // a forklift as its own object, for the ones that drive about: the same look as
 // the parked ones, built as a small group at the origin facing -z... (local +x is forward)
+export function makeGolfCartGroup() {
+  const tx = textures();
+  const steel = new GeoBuilder(), paint = new GeoBuilder();
+  const wheels = [];
+  const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
+  World.prototype.addGolfCart.call({}, steel, paint, wheels, wheelGeo, { x: 0, z: 0, yaw: 0 });
+  const g = new THREE.Group();
+  for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, new THREE.MeshLambertMaterial({ vertexColors: true })]]) {
+    if (gb.empty) continue;
+    const mesh = new THREE.Mesh(gb.geometry(), mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  }
+  if (wheels.length) {
+    const mesh = new THREE.Mesh(mergeInto(wheels), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    mesh.castShadow = true;
+    g.add(mesh);
+  }
+  wheelGeo.dispose();
+  return g;
+}
+
 export function makeForkliftGroup() {
   const tx = textures();
   const steel = new GeoBuilder(), paint = new GeoBuilder();

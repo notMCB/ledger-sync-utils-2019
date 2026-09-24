@@ -6,7 +6,7 @@ tools/test_catalog.py checks the two lists agree.
 
 import random
 
-GUNS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife', 'heavy', 'revolver', 'flamer']
+GUNS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife', 'heavy', 'revolver', 'flamer', 'pdw', 'carbine']
 
 RARITY_WEIGHTS = {'common': 55, 'uncommon': 25, 'rare': 13, 'epic': 5.5, 'legendary': 1.5}
 # the Bazaar Case has no commons and better odds at the top
@@ -141,7 +141,7 @@ GUN_ATTACH_SLOTS = ('optic', 'muzzle', 'mag', 'ammo', 'trigger', 'laser', 'grip'
 # the choices a loadout has (keyed by loadout number as a string); the first is the default
 NADE_CHOICES = {'0': ('frag',), '1': ('frag', 'smoke'), '2': ('frag', 'flash'), '3': ('frag',)}
 PERK_CHOICES = {'0': ('ammo',), '1': ('med', 'wall'), '2': ('ladder',), '3': ('beacon', 'drone')}
-PRIMARY_CHOICES = {'0': ('smg',), '1': ('lmg',), '2': ('shotgun', 'flamer'), '3': ('sniper', 'heavy')}
+PRIMARY_CHOICES = {'0': ('smg', 'pdw', 'carbine'), '1': ('lmg', 'carbine'), '2': ('shotgun', 'flamer'), '3': ('sniper', 'heavy')}
 
 
 def new_locker():

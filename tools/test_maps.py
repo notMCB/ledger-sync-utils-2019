@@ -29,7 +29,7 @@ async def play_on(kind, mode):
     await b.start(mode)
     await wait(lambda: b.map, 10, "the second player's map")
     assert b.map['kind'] == kind and b.map['seed'] == a.map['seed'], 'both players should share the map'
-    await phase(a, 'live', 15)
+    await phase(a, 'live', 30)      # bomb mode counts down and then freezes before it goes live
     await settle(a, a, b)
     bx, bz = a.map['bounds']
     for p in (a, b):
@@ -108,11 +108,51 @@ async def test_idle():
     await asyncio.sleep(0.5)
 
 
+async def test_golfcart():
+    """On the Manor a golf cart boards and drives exactly like the forklift."""
+    a, b = P('Cart'), P('Watcher2')
+    a.ws = await __import__('test_server').WS.connect(__import__('test_server').URL)
+    a.ws.send({'t': 'hello', 'name': a.name, 'v': '2.0.0'})
+    a.ws.send({'t': 'join', 'mode': 'tdm', 'ld': 0, 'map': 'manor'})
+    asyncio.ensure_future(a.read())
+    await wait(lambda: a.map, 10, 'the map')
+    await b.start('tdm')
+    await wait(lambda: b.map, 10, 'the second map')
+    await phase(a, 'live', 15)
+    await settle(a, a, b)
+    carts = [d for d in a.map['deco'] if d['k'] == 'golfcart']
+    assert len(carts) >= 4, 'the manor should have golf carts'
+    f = carts[0]
+    a.move([f['x'] + 1.5, 0, f['z']])
+    await asyncio.sleep(0.3)
+    a.ws.send({'t': 'fkin', 'id': f['id']})
+    await wait(lambda: [m for m in b.msgs if m.get('t') == 'fk' and m.get('driver') == a.id], 3, 'the driver seated in the cart')
+    for k in range(6):
+        a.ws.send({'t': 'fk', 'id': f['id'], 'p': [f['x'] + 1.0 * (k + 1), 0, f['z']], 'y': 0.3})
+        a.move([f['x'] + 1.0 * (k + 1), 0, f['z']])
+        await asyncio.sleep(0.15)
+    await asyncio.sleep(0.4)
+    moved = [row for row in (b.snap_fk or []) if row[0] == f['id'] and row[1] > f['x'] + 4]
+    assert moved, 'the cart should have moved in the watcher\'s snapshot: %r' % (b.snap_fk,)
+    # roadkill from the cart
+    b.move([a.pos[0] + 0.8, 0, a.pos[2] + 0.4])
+    await asyncio.sleep(0.3)
+    a.ws.send({'t': 'roadkill', 'id': b.id})
+    await wait(lambda: a.saw('kill'), 3, 'a roadkill from the cart')
+    assert a.saw('kill')[0]['w'] == 'forklift'
+    print('golf cart ok: boarded, drove, seen by others, ran someone over')
+    a.ws.w.close()
+    b.ws.w.close()
+    await asyncio.sleep(0.5)
+
+
 async def main():
     await play_on('dock', 'tdm')
     await play_on('alpine', 'ffa')
     await play_on('town', 'koth')
+    await play_on('manor', 'bomb')
     await test_forklift()
+    await test_golfcart()
     await test_idle()
     print('all passed')
 

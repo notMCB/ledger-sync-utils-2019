@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.9.2'
+VERSION = '2.10.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -66,10 +66,12 @@ WEAPONS = {
     # the Marksman's .50: one hit anywhere; the revolver; the flamethrower's ticks (three targets a tick)
     'heavy':   {'dmg': 130, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 30, 'pellets': 1, 'range': 400},
     'revolver': {'dmg': 40, 'head': 1.5, 'near': 30, 'far': 80, 'min': 0.75, 'rpm': 150, 'pellets': 1, 'range': 160},
-    'flamer':  {'dmg': 3, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 400, 'pellets': 3, 'range': 4},
+    'flamer':  {'dmg': 7, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 400, 'pellets': 3, 'range': 6},
+    'pdw':     {'dmg': 30, 'head': 1.6, 'near': 7,  'far': 20, 'min': 0.3,  'rpm': 700, 'pellets': 1, 'range': 60},
+    'carbine': {'dmg': 27, 'head': 1.8, 'near': 22, 'far': 55, 'min': 0.65, 'rpm': 720, 'pellets': 1, 'range': 150},
 }
 # the guns a loadout may carry: the first is the default
-PRIMARY_OPTIONS = [('smg',), ('lmg',), ('shotgun', 'flamer'), ('sniper', 'heavy')]
+PRIMARY_OPTIONS = [('smg', 'pdw', 'carbine'), ('lmg', 'carbine'), ('shotgun', 'flamer'), ('sniper', 'heavy')]
 SECONDARY_OPTIONS = ('pistol', 'revolver')
 BURN_TIME = 10.0        # seconds on fire after the last touch of flame
 BURN_DPS = 5.0
@@ -348,7 +350,7 @@ class Room:
         # forklifts: driveable, so the server keeps their pose and who is at the wheel
         self.forklifts = {}
         for d in self.map['deco']:
-            if d.get('k') == 'forklift' and 'id' in d:
+            if d.get('k') in ('forklift', 'golfcart') and 'id' in d:
                 self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None}
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
         self.ladders = {}
@@ -1620,7 +1622,7 @@ class Conn:
         if str(user.get('username', '')).lower() == 'mcb':
             # the owner's account: every gun fully unlocked and a full purse
             for w in catalog.SHOOTERS:
-                lk['kills'][w] = max(lk['kills'].get(w, 0), 150)
+                lk['kills'][w] = max(lk['kills'].get(w, 0), 1000)
             lk['dinars'] = max(lk.get('dinars', 0), 500000)
             for w in catalog.GUNS:
                 for f in catalog.FINISHES:

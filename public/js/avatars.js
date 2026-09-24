@@ -122,6 +122,7 @@ function ghillieGeometry() {
 const GUN_SIZES = {
   smg: [0.06, 0.1, 0.5], lmg: [0.09, 0.13, 0.85], shotgun: [0.06, 0.08, 0.85], sniper: [0.06, 0.09, 1.05], pistol: [0.04, 0.08, 0.2],
   knife: [0.03, 0.04, 0.28], heavy: [0.08, 0.11, 1.35], revolver: [0.04, 0.09, 0.33], flamer: [0.07, 0.1, 0.8],
+  pdw: [0.06, 0.11, 0.45], carbine: [0.06, 0.1, 0.78],
 };
 
 // the flash of sun off a scope lens, shared by every avatar

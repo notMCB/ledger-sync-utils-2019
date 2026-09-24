@@ -2,9 +2,22 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.9.2';
+export const VERSION = '2.10.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.10.0',
+    date: '25 September 2026',
+    title: 'The Manor, two new guns, barrels, golf carts',
+    notes: [
+      'A fourth map: The Manor. A neoclassical country house, by far the biggest building in the game: three storeys round a grand atrium that rises the full height, a ballroom, library, dining room and kitchen below, bedrooms and a study above, a picture gallery on the top floor, galleries round the atrium on every level, stair halls at each end and a portico of columns at the front, all of it furnished and hung with paintings. Outside, a gravel drive runs from the gate to the forecourt between short hedges; a parterre garden lies west, a tennis court east, open lawn with a pond and pavilions behind, and hedges, garden walls, statues and trees for cover. Bomb site A is in the ballroom, B on the tennis court. Roughly two thirds of it is outside and plays long; the house plays close.',
+      'Golf carts on the Manor: drive them exactly as you drive the forklift. Walk up, press your interact key, steer with your move keys. Roadkill applies.',
+      'Assault: the Barq PDW, chosen in the Locker. Seventeen rounds gone in a second and a half, brutal inside seven metres and hopeless past twenty. Grips, quick and extended mags, red dot, holographic and 3× sights, lasers, brakes and a suppressor, and its own barrels.',
+      'Assault and Medic: the Rimah Carbine, the all-rounder between the SMG and the LMG. Red dot, holographic, 3× and 6× sights, brakes and a suppressor, quick and extended mags, grips, lasers and barrels.',
+      'Barrels: an Extended Barrel tightens spread and bloom at range but is worse from the hip and a touch slower on your feet; a Shortened Barrel is quicker from the hip and on your feet but looser at range. Extended on the PDW, SMG, LMG, Carbine, Saqr and pistol; shortened on the PDW, SMG, Carbine and pistol. Muzzle devices move out with the barrel.',
+      'The flamethrower reaches six metres, up from four, and kills in about two seconds of contact rather than four. The burn it leaves is still five a second.',
+    ],
+  },
   {
     version: '2.9.2',
     date: '24 September 2026',

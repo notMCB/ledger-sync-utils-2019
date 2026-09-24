@@ -113,6 +113,70 @@ export function ground() {
   return tex(c);
 }
 
+// a mown lawn: green with darker mowing stripes and a few worn patches
+export function grass() {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(77);
+  g.fillStyle = '#6f9a3c';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = i % 2 ? 'rgba(90,140,50,0.35)' : 'rgba(130,180,80,0.25)';
+    g.fillRect(0, i * S / 8, S, S / 8);
+  }
+  for (let i = 0; i < 90; i++) {
+    const x = r() * S, y = r() * S, rad = 20 + r() * 60;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, r() < 0.5 ? 'rgba(150,130,60,0.16)' : 'rgba(60,110,40,0.2)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  speckle(g, S, r, 12000, ['rgba(40,90,30,0.35)', 'rgba(170,210,110,0.3)', 'rgba(120,160,60,0.3)'], 1, 2.5);
+  return tex(c);
+}
+
+// white marble with grey veins
+export function marble() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(91);
+  g.fillStyle = '#eef0ee';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 26; i++) {
+    g.strokeStyle = `rgba(120,125,135,${0.12 + r() * 0.2})`;
+    g.lineWidth = 0.6 + r() * 1.6;
+    g.beginPath();
+    let x = r() * S, y = r() * S;
+    g.moveTo(x, y);
+    for (let k = 0; k < 8; k++) {
+      x += (r() - 0.5) * 70;
+      y += (r() - 0.5) * 70;
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  speckle(g, S, r, 1500, ['rgba(200,205,210,0.4)', 'rgba(255,255,255,0.5)'], 1, 2);
+  return tex(c);
+}
+
+// a clipped hedge: dense dark leaves
+export function hedge() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(83);
+  g.fillStyle = '#2f5e2a';
+  g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2600; i++) {
+    const x = r() * S, y = r() * S, rad = 2 + r() * 5;
+    g.fillStyle = r() < 0.5 ? `rgba(${40 + r() * 40},${100 + r() * 50},${30 + r() * 30},0.8)` : `rgba(${20 + r() * 20},${60 + r() * 30},${20 + r() * 20},0.8)`;
+    g.beginPath();
+    g.ellipse(x, y, rad, rad * 0.7, r() * 3, 0, Math.PI * 2);
+    g.fill();
+  }
+  return tex(c);
+}
+
 // poured concrete: grey, a little stained, with expansion joints
 export function concrete() {
   const S = 256;
@@ -466,12 +530,28 @@ export function road() {
   return tx;
 }
 
-// asphalt with a dashed centre line, and packed snow with two tyre tracks
+// asphalt with a dashed centre line, packed snow with two tyre tracks,
+// raked gravel, and a clay tennis court
 export function roadStyle(style) {
   const S = 256;
   const [c, g] = canvas(S);
-  const r = rng(style === 'snow' ? 61 : 59);
-  if (style === 'snow') {
+  const r = rng(style === 'snow' ? 61 : style === 'gravel' ? 67 : style === 'court' ? 71 : 59);
+  if (style === 'gravel') {
+    g.fillStyle = '#b9ae98';
+    g.fillRect(0, 0, S, S);
+    speckle(g, S, r, 9000, ['rgba(80,70,55,0.35)', 'rgba(235,228,210,0.45)', 'rgba(150,140,120,0.4)'], 1, 2.5);
+    const e = g.createLinearGradient(0, 0, S, 0);
+    e.addColorStop(0, 'rgba(111,154,60,0.9)');
+    e.addColorStop(0.08, 'rgba(111,154,60,0)');
+    e.addColorStop(0.92, 'rgba(111,154,60,0)');
+    e.addColorStop(1, 'rgba(111,154,60,0.9)');
+    g.fillStyle = e;
+    g.fillRect(0, 0, S, S);
+  } else if (style === 'court') {
+    g.fillStyle = '#b8583a';
+    g.fillRect(0, 0, S, S);
+    speckle(g, S, r, 5000, ['rgba(120,50,30,0.25)', 'rgba(230,150,110,0.2)'], 1, 2);
+  } else if (style === 'snow') {
     // packed, dirty snow with tyre tracks: a road through the white
     g.fillStyle = '#b9bcbf';
     g.fillRect(0, 0, S, S);

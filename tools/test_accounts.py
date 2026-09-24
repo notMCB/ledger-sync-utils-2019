@@ -75,13 +75,13 @@ async def main():
     lk3 = last(c, 'auth')['locker']
     assert lk3['dinars'] >= 500000, lk3['dinars']
     for w in ('smg', 'lmg', 'shotgun', 'sniper', 'pistol'):
-        assert lk3['kills'].get(w, 0) >= 150, (w, lk3['kills'])
+        assert lk3['kills'].get(w, 0) >= 1000, (w, lk3['kills'])
     import catalog
     want = {'%s:%s' % (w, f[0]) for w in catalog.GUNS for f in catalog.FINISHES}
     assert want <= set(lk3['guns']), 'every finish on every gun: missing %d' % len(want - set(lk3['guns']))
     assert {o[0] for o in catalog.OUTFITS} <= set(lk3['outfits']), 'every outfit'
     c.ws.w.close()
-    print('owner ok: MCB has 500000 dinars, 150 kills on every gun, every finish and every outfit')
+    print('owner ok: MCB has 500000 dinars, 1000 kills on every gun, every finish and every outfit')
     print('all passed')
 
 

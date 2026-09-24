@@ -42,6 +42,14 @@ const angledGrip = (unlock) => ({ id: 'angled', name: 'Angled Grip', unlock, blu
 const straightGrip = (unlock) => ({ id: 'straight', name: 'Straight Grip', unlock, blurb: 'A little less spread and recoil.', mods: { spread: 0.94, recoil: 0.94 } });
 const shortGrip = (unlock) => ({ id: 'short', name: 'Short Grip', unlock, blurb: 'Noticeably less spread and recoil.', mods: { spread: 0.85, recoil: 0.85 } });
 const grips = (straight, angled, short) => [noGrip, straightGrip(straight), angledGrip(angled), shortGrip(short)];
+// barrels: a longer one reaches, a shorter one is quicker from the hip. These
+// and the two newest guns keep the kill counts they were given (`exact`): the
+// half-again rule below applies to the older tables only.
+const exact = (a) => ({ ...a, exact: true });
+const stdBarrel = exact({ id: 'normal', name: 'Standard Barrel', unlock: 0, blurb: 'The barrel it comes with.', mods: {} });
+const extBarrel = (unlock) => exact({ id: 'ext', name: 'Extended Barrel', unlock, blurb: 'Tighter spread and bloom at range. Worse from the hip, and a touch slower on your feet.', mods: { spread: 0.85, hip: 1.2, move: 0.97 } });
+const shortBarrel = (unlock) => exact({ id: 'short', name: 'Shortened Barrel', unlock, blurb: 'Better from the hip and quicker on your feet. Looser at range.', mods: { spread: 1.15, hip: 0.8, move: 1.04 } });
+const barrels = (ext, short) => [stdBarrel, extBarrel(ext)].concat(short ? [shortBarrel(short)] : []);
 
 export const ATTACHMENTS = {
   smg: {
@@ -60,6 +68,7 @@ export const ATTACHMENTS = {
     ],
     laser: lasers(15, 50),
     grip: grips(20, 25, 100),
+    barrel: barrels(100, 120),
   },
   lmg: {
     optic: [
@@ -77,6 +86,7 @@ export const ATTACHMENTS = {
     ],
     laser: lasers(15, 50),
     grip: grips(20, 25, 100),
+    barrel: barrels(150, 0),
   },
   shotgun: {
     optic: [
@@ -110,6 +120,7 @@ export const ATTACHMENTS = {
     ],
     laser: lasers(25, 75),
     grip: grips(10, 25, 50),
+    barrel: barrels(100, 0),
   },
   heavy: {
     optic: [
@@ -140,6 +151,7 @@ export const ATTACHMENTS = {
       { id: 'auto', name: 'Full Auto', unlock: 100, blurb: 'Hold the trigger down. Much less accurate.', mods: { auto: true, spread: 1.6 } },
     ],
     laser: lasers(25, 75),
+    barrel: barrels(50, 30),
   },
   revolver: {
     optic: [
@@ -162,10 +174,47 @@ export const ATTACHMENTS = {
   },
 };
 
-// attachments are earned: every unlock takes half as many kills again
+ATTACHMENTS.pdw = {
+  optic: [
+    exact({ id: 'irons', name: 'Iron Sights', unlock: 0, blurb: 'Flip-up post and notch.', mods: {} }),
+    exact(reddot(25)),
+    exact(holo(75)),
+    exact(acog(150)),
+  ],
+  muzzle: [noMuzzle, exact(brake(25)), exact(suppressor(75)), exact(longbrake(125))],
+  mag: [
+    exact({ id: 'normal', name: 'Standard Mag', unlock: 0, blurb: '17 rounds.', mods: {} }),
+    exact({ ...fastMag(50, 17), name: 'Quick Mag' }),
+    exact({ id: 'large', name: 'Extended Mag', unlock: 125, blurb: '50% more rounds: 26 a magazine.', mods: { mag: 1.5 } }),
+  ],
+  laser: [noLaser, exact(redLaser(50)), exact(greenLaser(150))],
+  grip: [noGrip, exact(straightGrip(25)), exact(angledGrip(100)), exact(shortGrip(150))],
+  barrel: barrels(75, 40),
+};
+ATTACHMENTS.carbine = {
+  optic: [
+    exact({ id: 'irons', name: 'Iron Sights', unlock: 0, blurb: 'Standard post and aperture.', mods: {} }),
+    exact(reddot(10)),
+    exact(holo(40)),
+    exact(acog(75)),
+    exact({ id: 'scope6', name: '6× Scope', unlock: 120, blurb: 'The Saqr’s scope on a carbine. Slowest to aim.', mods: { sight: 'scope', zoom: 6.0, adsTime: 0.32 } }),
+  ],
+  muzzle: [noMuzzle, exact(brake(30)), exact(suppressor(50)), exact(longbrake(90))],
+  mag: [
+    exact({ id: 'normal', name: 'Standard Mag', unlock: 0, blurb: '30 rounds.', mods: {} }),
+    exact({ ...fastMag(60, 30), name: 'Quick Mag' }),
+    exact({ id: 'large', name: 'Extended Mag', unlock: 100, blurb: '50% more rounds: 45 a magazine.', mods: { mag: 1.5 } }),
+  ],
+  laser: [noLaser, exact(redLaser(30)), exact(greenLaser(75))],
+  grip: [noGrip, exact(straightGrip(30)), exact(angledGrip(50)), exact(shortGrip(100))],
+  barrel: barrels(80, 120),
+};
+
+// attachments are earned: every one of the older unlocks takes half as many
+// kills again; the newest tables (marked exact) keep their counts as written
 for (const w in ATTACHMENTS) {
   for (const slot in ATTACHMENTS[w]) {
-    ATTACHMENTS[w][slot] = ATTACHMENTS[w][slot].map((a) => ({ ...a, unlock: Math.round(a.unlock * 1.5) }));
+    ATTACHMENTS[w][slot] = ATTACHMENTS[w][slot].map((a) => (a.exact ? a : { ...a, unlock: Math.round(a.unlock * 1.5) }));
   }
 }
 

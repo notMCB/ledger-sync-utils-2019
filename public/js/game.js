@@ -1,7 +1,7 @@
 // The match: local player, weapons, network glue, and the render loop.
 
 import * as THREE from 'three';
-import { World, makeForkliftGroup } from './world.js';
+import { World, makeForkliftGroup, makeGolfCartGroup } from './world.js';
 import { ViewModel } from './viewmodel.js';
 import { Effects } from './effects.js';
 import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
@@ -308,10 +308,11 @@ export class Game {
     this.forklifts.clear();
     this.driving = null;
     for (const d of map.deco) {
-      if (d.k !== 'forklift' || d.id === undefined) continue;
-      const mesh = makeForkliftGroup();
+      if ((d.k !== 'forklift' && d.k !== 'golfcart') || d.id === undefined) continue;
+      // a golf cart drives exactly like the forklift: only the body differs
+      const mesh = d.k === 'golfcart' ? makeGolfCartGroup() : makeForkliftGroup();
       this.scene.add(mesh);
-      const F = { id: d.id, mesh, box: null, pos: new THREE.Vector3(d.x, d.y || 0, d.z), target: new THREE.Vector3(d.x, d.y || 0, d.z), yaw: d.yaw || 0, tyaw: d.yaw || 0, driver: 0 };
+      const F = { id: d.id, kind: d.k, mesh, box: null, pos: new THREE.Vector3(d.x, d.y || 0, d.z), target: new THREE.Vector3(d.x, d.y || 0, d.z), yaw: d.yaw || 0, tyaw: d.yaw || 0, driver: 0 };
       this.forklifts.set(d.id, F);
       this.placeForklift(F);
     }
@@ -2379,7 +2380,7 @@ export class Game {
       const opt = this.interactOption();
       const fk = !opt && !this.driving && me.alive && !this.drone ? this.forkliftNear() : null;
       if (opt) hud.prompt(opt.kind === 'plant' ? `Hold ${keyName(settings.binds.interact)} to plant at ${opt.site}` : `Hold ${keyName(settings.binds.interact)} to defuse`, undefined);
-      else if (fk) hud.prompt(`${keyName(settings.binds.interact)} to drive the forklift`, undefined);
+      else if (fk) hud.prompt(`${keyName(settings.binds.interact)} to drive the ${fk.kind === 'golfcart' ? 'golf cart' : 'forklift'}`, undefined);
       else if (b && b.dt !== undefined && b.df !== this.myId && g.att !== me.team) hud.prompt(`${this.nameOf(b.df)} is defusing`, b.dt);
       else if (b && b.pt !== undefined && b.pl !== this.myId && g.att === me.team) hud.prompt(`${this.nameOf(b.pl)} is planting`, b.pt);
       else hud.prompt(null);

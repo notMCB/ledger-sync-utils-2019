@@ -74,11 +74,29 @@ export const WEAPONS = {
   // the Breacher's other primary: a flamethrower, fuel instead of rounds
   flamer: {
     id: 'flamer', name: 'Nar Flamethrower', short: 'Flamer', auto: true, rpm: 400, mag: 100, reserve: 0,
-    reload: 0, pellets: 3, dmg: 3, range: 4, flame: true, fuelPerShot: 0.75,
+    reload: 0, pellets: 3, dmg: 7, range: 6, flame: true, fuelPerShot: 0.75,
     base: 3.0, bloomShot: 0, bloomMax: 0, recover: 9, move: 0.5, air: 1,
     adsMul: 1.0, sight: 'irons', zoom: 1.05, adsTime: 0.14, moveMul: 0.9, crosshair: 'circle',
     recoilUp: 0.0, recoilSide: 0.0, kick: 0.01,
     tracer: 0xff9a4a, sound: 'flamer',
+  },
+  // the Assault's other SMG: a compact room-clearer that empties in a second and a half
+  pdw: {
+    id: 'pdw', name: 'Barq PDW', short: 'PDW', auto: true, rpm: 700, mag: 17, reserve: 68,
+    reload: 1.9, pellets: 1, dmg: 30, range: 60,
+    base: 1.9, bloomShot: 0.45, bloomMax: 6.0, recover: 10, move: 1.5, air: 5,
+    adsMul: 0.36, sight: 'irons', zoom: 1.15, adsTime: 0.13, moveMul: 1.08,
+    recoilUp: 0.014, recoilSide: 0.006, kick: 0.04,
+    tracer: 0xffd27a, sound: 'pdw',
+  },
+  // the all-rounder: between the SMG and the LMG, for the Assault and the Medic
+  carbine: {
+    id: 'carbine', name: 'Rimah Carbine', short: 'Carbine', auto: true, rpm: 720, mag: 30, reserve: 90,
+    reload: 2.4, pellets: 1, dmg: 27, range: 150,
+    base: 1.7, bloomShot: 0.28, bloomMax: 5.2, recover: 8, move: 1.9, air: 5,
+    adsMul: 0.3, sight: 'irons', zoom: 1.2, adsTime: 0.2, moveMul: 0.98,
+    recoilUp: 0.011, recoilSide: 0.0045, kick: 0.04,
+    tracer: 0xffd27a, sound: 'carbine',
   },
 };
 WEAPONS.shotgun.crosshair = 'circle';
@@ -94,8 +112,8 @@ export const PERKS = {
 };
 
 export const LOADOUTS = [
-  { id: 0, weapon: 'smg', weapons: ['smg'], perk: 'ammo', perks: ['ammo'], nadeKinds: ['frag', 'molotov'], nades: 3, title: 'Assault', blurb: 'Fast-firing SMG and three grenades, or two molotovs. Quick to aim, strong up close. Kills with it unlock attachments.' },
-  { id: 1, weapon: 'lmg', weapons: ['lmg'], perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
+  { id: 0, weapon: 'smg', weapons: ['smg', 'pdw', 'carbine'], perk: 'ammo', perks: ['ammo'], nadeKinds: ['frag', 'molotov'], nades: 3, title: 'Assault', blurb: 'SMG, the Barq PDW or the Rimah Carbine, with three grenades or two molotovs. Quick to aim, strong up close. Kills with it unlock attachments.' },
+  { id: 1, weapon: 'lmg', weapons: ['lmg', 'carbine'], perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG, or the Rimah Carbine. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
   { id: 2, weapon: 'shotgun', weapons: ['shotgun', 'flamer'], perk: 'ladder', perks: ['ladder'], nadeKinds: ['frag', 'flash', 'molotov'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun or a flamethrower, devastating in rooms and doorways. Frag, flash or molotov.' },
   { id: 3, weapon: 'sniper', weapons: ['sniper', 'heavy'], perk: 'beacon', perks: ['beacon', 'drone'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope, or the one-shot .50. Drops a recon beacon, or flies a bomb drone.' },
 ];

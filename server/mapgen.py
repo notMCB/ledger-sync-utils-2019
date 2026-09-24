@@ -1269,17 +1269,20 @@ class Town:
         }
 
 
-MAP_KINDS = ('town', 'dock', 'alpine')
+MAP_KINDS = ('town', 'dock', 'alpine', 'manor')
 
 
 def generate(seed, kind='town'):
-    """A finished map of the given kind: 'town', 'dock' or 'alpine'."""
+    """A finished map of the given kind: 'town', 'dock', 'alpine' or 'manor'."""
     if kind == 'dock':
         import map_dock
         t = map_dock.Dockyard(seed)
     elif kind == 'alpine':
         import map_alpine
         t = map_alpine.Alpine(seed)
+    elif kind == 'manor':
+        import map_manor
+        t = map_manor.Manor(seed)
     else:
         t = Town(seed)
     t.generate()

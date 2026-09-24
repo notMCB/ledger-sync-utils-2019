@@ -82,7 +82,7 @@ async def test_flamer():
         await asyncio.sleep(0.15)
     took = asyncio.get_event_loop().time() - t0
     assert a.saw('kill'), 'the flame should have killed within six seconds'
-    assert 3.5 <= took <= 5.0, 'dies in about four seconds of flame: took %.1f' % took
+    assert 1.5 <= took <= 2.8, 'dies in about two seconds of flame: took %.1f' % took
     assert all(m.get('fire') for m in got(b, 'hurt')), 'flame hurt is marked as fire'
     print('flamer ok: killed in %.1f s of contact, hurt marked as fire' % took)
     a.ws.w.close(); b.ws.w.close(); await asyncio.sleep(0.4)
@@ -94,7 +94,7 @@ async def test_flamer():
     await asyncio.sleep(3.0)
     burn = [m for m in got(d, 'hurt') if m.get('fire')]
     total = sum(m['d'] for m in burn)
-    assert 12 <= total <= 22, 'about three seconds of burning after one touch: %d damage in %d ticks' % (total, len(burn))
+    assert 12 <= total <= 26, 'about three seconds of burning after one touch: %d damage in %d ticks' % (total, len(burn))
     print('burn ok: %d damage over three seconds after a single touch' % total)
     c.ws.w.close(); d.ws.w.close(); await asyncio.sleep(0.4)
 
@@ -168,7 +168,33 @@ async def test_bug():
     a.ws.w.close()
 
 
+async def test_new_primaries():
+    """The PDW and the carbine are carried when chosen, and only by the right classes."""
+    a, b = await pair('Pdw', 'Mark7', ld=0, pw='pdw')
+    shot(a, b, 'smg')
+    await asyncio.sleep(0.4)
+    assert not got(b, 'hurt'), 'the SMG is not in hand when the PDW is chosen'
+    for i in range(4):
+        shot(a, b, 'pdw', 'b')
+        await asyncio.sleep(0.1)
+    await wait(lambda: a.saw('kill'), 3, 'a PDW kill up close')
+    a.ws.w.close(); b.ws.w.close(); await asyncio.sleep(0.4)
+    c, d = await pair('Medic', 'Mark8', ld=1, pw='carbine')
+    for i in range(4):
+        shot(c, d, 'carbine', 'b')
+        await asyncio.sleep(0.1)
+    await wait(lambda: c.saw('kill'), 3, 'a carbine kill by the medic')
+    c.ws.w.close(); d.ws.w.close(); await asyncio.sleep(0.4)
+    e, f = await pair('Breach', 'Mark9', ld=2, pw='carbine')
+    shot(e, f, 'carbine', 'b')
+    await asyncio.sleep(0.4)
+    assert not got(f, 'hurt'), 'the breacher may not carry the carbine'
+    print('new primaries ok: PDW and carbine fire for those who may carry them')
+    e.ws.w.close(); f.ws.w.close(); await asyncio.sleep(0.4)
+
+
 async def main():
+    await test_new_primaries()
     await test_heavy()
     await test_revolver()
     await test_flamer()
