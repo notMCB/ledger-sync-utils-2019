@@ -2,9 +2,18 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.9.1';
+export const VERSION = '2.9.2';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.9.2',
+    date: '24 September 2026',
+    title: 'A greyer revolver, a thirstier flamethrower',
+    notes: [
+      'The Asad .44 is gunmetal grey now rather than white: the same polish, a darker nickel.',
+      'The flamethrower burns five fuel a second, up from three. The tank still holds 100, so a full tank is twenty seconds of fire instead of thirty-three.',
+    ],
+  },
   {
     version: '2.9.1',
     date: '24 September 2026',

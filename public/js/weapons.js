@@ -74,7 +74,7 @@ export const WEAPONS = {
   // the Breacher's other primary: a flamethrower, fuel instead of rounds
   flamer: {
     id: 'flamer', name: 'Nar Flamethrower', short: 'Flamer', auto: true, rpm: 400, mag: 100, reserve: 0,
-    reload: 0, pellets: 3, dmg: 3, range: 4, flame: true, fuelPerShot: 0.45,
+    reload: 0, pellets: 3, dmg: 3, range: 4, flame: true, fuelPerShot: 0.75,
     base: 3.0, bloomShot: 0, bloomMax: 0, recover: 9, move: 0.5, air: 1,
     adsMul: 1.0, sight: 'irons', zoom: 1.05, adsTime: 0.14, moveMul: 0.9, crosshair: 'circle',
     recoilUp: 0.0, recoilSide: 0.0, kick: 0.01,

@@ -302,7 +302,7 @@ function renderLoadouts(host) {
 
 // attachments for one gun, with everything you haven't unlocked yet greyed out
 const GUN_BLURB = {
-  shotgun: 'Pump action, nine pellets a shell', flamer: 'Four metres of fire, 100 fuel',
+  shotgun: 'Pump action, nine pellets a shell', flamer: 'Four metres of fire, 100 fuel at five a second',
   sniper: 'Bolt action, 6× scope, one headshot', heavy: 'One round, one kill, slow and loud',
   pistol: '12 rounds, quick and light', revolver: 'Six rounds, long reach, three to kill',
   smg: '', lmg: '',

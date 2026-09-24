@@ -370,7 +370,7 @@ const gunMatCache = new Map();
 let chromeMat = null;
 export function chromeMaterial() {
   if (chromeMat) return chromeMat;
-  chromeMat = new THREE.MeshStandardMaterial({ color: '#f0f2f5', roughness: 0.14, metalness: 1.0 });
+  chromeMat = new THREE.MeshStandardMaterial({ color: '#a9aeb5', roughness: 0.16, metalness: 1.0 });
   try {
     const face = (kind) => {
       const c = document.createElement('canvas');
@@ -389,7 +389,7 @@ export function chromeMaterial() {
     env.colorSpace = THREE.SRGBColorSpace;
     env.needsUpdate = true;
     chromeMat.envMap = env;
-    chromeMat.envMapIntensity = 1.0;
+    chromeMat.envMapIntensity = 0.8;
   } catch (e) {
     // no canvas here: plain bright metal will do
     chromeMat.metalness = 0.6;
