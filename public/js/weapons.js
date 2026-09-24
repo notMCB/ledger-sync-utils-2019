@@ -80,9 +80,9 @@ export const WEAPONS = {
     recoilUp: 0.0, recoilSide: 0.0, kick: 0.01,
     tracer: 0xff9a4a, sound: 'flamer',
   },
-  // the Assault's other SMG: a compact room-clearer that empties in a second and a half
+  // the Assault's other SMG: a compact room-clearer that empties in under a second
   pdw: {
-    id: 'pdw', name: 'Barq PDW', short: 'PDW', auto: true, rpm: 700, mag: 17, reserve: 68,
+    id: 'pdw', name: 'Barq PDW', short: 'PDW', auto: true, rpm: 1050, mag: 17, reserve: 68,
     reload: 1.9, pellets: 1, dmg: 30, range: 60,
     base: 1.9, bloomShot: 0.45, bloomMax: 6.0, recover: 10, move: 1.5, air: 5,
     adsMul: 0.36, sight: 'irons', zoom: 1.15, adsTime: 0.13, moveMul: 1.08,

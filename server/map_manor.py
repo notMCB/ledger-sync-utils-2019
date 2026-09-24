@@ -39,6 +39,9 @@ AT_X = 7.0                    # the atrium's half width
 AT_Z0, AT_Z1 = 2.0, 11.0      # the open well of the atrium, on the upper floors
 WELL_X = 4.5                  # its half width: galleries run round it inside the wing walls
 HOUSE_Z = -14.0               # where the house sits in the world (its centre)
+HX = 14.0                     # the stair halls fill the ends of the back rooms, inside x = ±HX
+A_FOOT = 15.0                 # flight A starts here and climbs to the end wall
+B_FOOT = 20.8                 # flight B starts here and climbs back towards the middle
 
 
 class Manor(Town):
@@ -73,6 +76,7 @@ class Manor(Town):
         r = r or rng.uniform(2.2, 3.4)
         h = rng.uniform(4.0, 5.5)
         self.box(x, h / 2, z, 0.3, h / 2, 0.3, 0, 'inv')
+        self.box(x, h + 0.3 * r, z, r * 0.8, r * 0.7, r * 0.8, 0, 'inv')      # the canopy: nobody walks into it
         self.deco.append({'k': 'tree', 'x': round(x, 2), 'z': round(z, 2), 'h': round(h, 2), 'r': round(r, 2), 'c': rng.randrange(3)})
         self.props.append((x, z, 0.8))
 
@@ -146,7 +150,7 @@ class Manor(Town):
         for f in range(3):
             for u in (-19.5, -15.5, -11.5, 11.5, 15.5, 19.5):
                 window('S', u, f, 1.3, 1.0, 3.0 if f < 2 else 2.6)
-            if f > 0:
+            if f == 1:
                 for u in (-4.5, 4.5):
                     window('S', u, f)
         door('S', 0.0, 1.8, 1, 2.6)                       # the balcony door over the portico
@@ -190,12 +194,11 @@ class Manor(Town):
         for s in 'SNWE':
             for f in range(3):
                 run(s, f)
-        # a string course between the storeys and a cornice under the roof
-        for y in (FLOOR, 2 * FLOOR):
-            lb(-HW - 0.12, HW + 0.12, y - 0.1, y + 0.1, HD - 0.05, HD + 0.12)
-            lb(-HW - 0.12, HW + 0.12, y - 0.1, y + 0.1, -HD - 0.12, -HD + 0.05)
+        # a cornice under the roof
         lb(-HW - 0.3, HW + 0.3, H - 0.35, H, -HD - 0.3, HD + 0.3)                       # cornice
         lb(-HW - 0.3, HW + 0.3, H, H + 0.25, -HD - 0.3, HD + 0.3, 'roof')               # the roof
+        # nothing stands on the roof: an unseen block over it leaves no headroom
+        self.box(0.0, H + 0.25 + 0.9, HOUSE_Z, HW + 0.3, 0.9, HD + 0.3, 0.0, 'inv')
         for (x0, x1, z0, z1) in ((-HW - 0.3, HW + 0.3, HD, HD + 0.3), (-HW - 0.3, HW + 0.3, -HD - 0.3, -HD),
                                  (-HW - 0.3, -HW, -HD, HD), (HW, HW + 0.3, -HD, HD)):
             lb(x0, x1, H + 0.25, H + 1.2, z0, z1, 'stone')                              # balustrade
@@ -208,13 +211,12 @@ class Manor(Town):
 
         # -- inside: the same plan on every floor --
         lb(X0, X1, 0.0, 0.04, Z0, Z1, 'tile')
-        HX = 15.0                     # the stair halls fill the ends of the back rooms
         for f in range(3):
             y0, y1 = f * FLOOR, (f + 1) * FLOOR
             # the back corridor wall: doors into the stair halls, the back rooms, and
             # a wide opening onto the stair hall behind the atrium
-            self.wall_x(COR_Z, X0, -AT_X, y0, y1, [(-HX - 0.6, 1.2), (-(HX + AT_X + 0.15) / 2, 1.8)])
-            self.wall_x(COR_Z, AT_X, X1, y0, y1, [(HX + 0.6, 1.2), ((HX + AT_X + 0.15) / 2, 1.8)])
+            self.wall_x(COR_Z, X0, -AT_X, y0, y1, [(-HX - 0.7, 1.1), (-(HX + AT_X + 0.15) / 2, 1.8)])
+            self.wall_x(COR_Z, AT_X, X1, y0, y1, [(HX + 0.7, 1.1), ((HX + AT_X + 0.15) / 2, 1.8)])
             lb(-AT_X, -4.2, y0, y1, COR_Z - 0.15, COR_Z + 0.15, 'wall')
             lb(4.2, AT_X, y0, y1, COR_Z - 0.15, COR_Z + 0.15, 'wall')
             lb(-4.2, 4.2, y0 + 2.9, y1, COR_Z - 0.15, COR_Z + 0.15, 'wall')
@@ -241,17 +243,17 @@ class Manor(Town):
         # the stair halls at each end: flight A up the north side to the first floor,
         # flight B up the south side to the second
         for sgn in (-1, 1):
-            self.stair(sgn * 16.2, -9.35, -6.35, 0.0, sgn)             # A: climbs towards the end wall
-            self.stair(sgn * 22.2, -5.15, -2.15, FLOOR, -sgn)         # B: climbs back towards the middle
+            self.stair(sgn * A_FOOT, -9.35, -6.35, 0.0, sgn)           # A: climbs towards the end wall
+            self.stair(sgn * B_FOOT, -5.15, -2.15, FLOOR, -sgn)       # B: climbs back towards the middle
         # floor slabs: the atrium well, the stair heads
         holes1 = [(-WELL_X, WELL_X, AT_Z0, AT_Z1), (-1.6, 1.6, -RUN, 0.0)]
         holes2 = [(-WELL_X, WELL_X, AT_Z0, AT_Z1)]
         for sgn in (-1, 1):
-            a_top = sgn * 16.2 + sgn * RUN          # where flight A ends
-            a_low = sgn * 16.2 + sgn * 5 * STEP_D   # where heads start to need the room
+            a_top = sgn * A_FOOT + sgn * RUN          # where flight A ends
+            a_low = sgn * A_FOOT + sgn * 5 * STEP_D   # where heads start to need the room
             holes1.append((min(a_top, a_low), max(a_top, a_low), -9.35, -6.35))
-            b_top = sgn * 22.2 - sgn * RUN
-            b_low = sgn * 22.2 - sgn * 5 * STEP_D
+            b_top = sgn * B_FOOT - sgn * RUN
+            b_low = sgn * B_FOOT - sgn * 5 * STEP_D
             holes2.append((min(b_top, b_low), max(b_top, b_low), -5.15, -2.15))
         self.slab(1, holes1)
         self.slab(2, holes2)
@@ -283,10 +285,12 @@ class Manor(Town):
         for x in (-6.0, -3.6, -1.2, 1.2, 3.6, 6.0):
             self.dd('column', x, HD + 2.2, h=round(2 * FLOOR, 2))
             self.box(x, FLOOR, HOUSE_Z + HD + 2.2, 0.36, FLOOR, 0.36, 0, 'inv')
-        lb(-7.2, 7.2, 2 * FLOOR, 2 * FLOOR + 0.3, HD, HD + 3.4)
-        lb(-7.2, 7.2, 2 * FLOOR + 0.3, 2 * FLOOR + 1.1, HD + 3.1, HD + 3.4, 'stone')
-        lb(-7.2, -6.9, 2 * FLOOR + 0.3, 2 * FLOOR + 1.1, HD, HD + 3.4, 'stone')
-        lb(6.9, 7.2, 2 * FLOOR + 0.3, 2 * FLOOR + 1.1, HD, HD + 3.4, 'stone')
+        # the entablature over the columns is a solid two metres deep, so its top is
+        # out of reach of a ladder from the balcony; a balustrade crowns it
+        lb(-7.2, 7.2, 2 * FLOOR, 2 * FLOOR + 2.0, HD, HD + 3.4)
+        lb(-7.2, 7.2, 2 * FLOOR + 2.0, 2 * FLOOR + 2.8, HD + 3.1, HD + 3.4, 'stone')
+        lb(-7.2, -6.9, 2 * FLOOR + 2.0, 2 * FLOOR + 2.8, HD, HD + 3.4, 'stone')
+        lb(6.9, 7.2, 2 * FLOOR + 2.0, 2 * FLOOR + 2.8, HD, HD + 3.4, 'stone')
         lb(-4.0, 4.0, FLOOR - 0.2, FLOOR, HD, HD + 1.6, 'marble')
         lb(-4.0, 4.0, FLOOR, FLOOR + 1.0, HD + 1.5, HD + 1.6, 'stone')
         lb(-4.0, -3.9, FLOOR, FLOOR + 1.0, HD, HD + 1.6, 'stone')
@@ -324,7 +328,6 @@ class Manor(Town):
         dd = self.dd
         W = -AT_X - 0.15          # the east face of the west wing's rooms
         E = AT_X + 0.15
-        HX = 15.0
 
         def sofa(x, z, yaw, y=0.0):
             self.box(x, y + 0.3, HOUSE_Z + z, 1.1, 0.3, 0.45, yaw, 'velvet', rng.randrange(3))
@@ -337,9 +340,17 @@ class Manor(Town):
                 lb(x + sx * (hx - 0.12) - 0.05, x + sx * (hx - 0.12) + 0.05, y, y + h - 0.06,
                    z + sz * (hz - 0.12) - 0.05, z + sz * (hz - 0.12) + 0.05, mat)
 
-        def chair(x, z, y=0.0):
+        def chair(x, z, y=0.0, face='n'):
+            # the back of the chair is on the side away from what it faces
             lb(x - 0.22, x + 0.22, y, y + 0.45, z - 0.22, z + 0.22, 'wood')
-            lb(x - 0.22, x + 0.22, y + 0.45, y + 0.95, z + 0.15, z + 0.22, 'wood')
+            if face == 'n':
+                lb(x - 0.22, x + 0.22, y + 0.45, y + 0.95, z - 0.22, z - 0.15, 'wood')
+            elif face == 's':
+                lb(x - 0.22, x + 0.22, y + 0.45, y + 0.95, z + 0.15, z + 0.22, 'wood')
+            elif face == 'e':
+                lb(x - 0.22, x - 0.15, y + 0.45, y + 0.95, z - 0.22, z + 0.22, 'wood')
+            else:
+                lb(x + 0.15, x + 0.22, y + 0.45, y + 0.95, z - 0.22, z + 0.22, 'wood')
 
         def bed(x, z, y):
             lb(x - 1.0, x + 1.0, y, y + 0.55, z - 1.1, z + 1.1, 'velvet', 1)
@@ -354,8 +365,9 @@ class Manor(Town):
         def painting(x, z, yaw, y, w=1.6, h=1.2):
             dd('painting', x, z, y=round(y, 2), yaw=round(yaw, 4), w=w, h=h, c=rng.randrange(8))
 
-        def chandelier(x, z, y, r=1.0):
-            dd('chandelier', x, z, y=round(y, 2), r=r)
+        def chandelier(x, z, y, r=1.0, top=None):
+            # `top` is the ceiling the chain hangs from
+            dd('chandelier', x, z, y=round(y, 2), r=r, top=round(top if top is not None else y + 0.5, 2))
 
         def rug(x, z, y=0.0, c=None):
             dd('rug', x, z, y=round(y + 0.04, 2), yaw=0.0, c=rng.randrange(6) if c is None else c)
@@ -366,7 +378,7 @@ class Manor(Town):
             self.statue(x, 9.0, math.pi, 1.1, local=True)
         for x in (-5.5, 5.5):
             self.topiary_in(x, 2.0)
-        chandelier(0.0, 5.5, 2 * FLOOR + 1.6, 1.6)
+        chandelier(0.0, 5.5, 2 * FLOOR + 1.6, 1.6, 3 * FLOOR)
         for x in (-AT_X + 0.16, AT_X - 0.16):
             for z in (3.0, 9.0):
                 painting(x, z, math.pi / 2 if x < 0 else -math.pi / 2, 2.0, 1.4, 1.8)
@@ -380,77 +392,86 @@ class Manor(Town):
         lb(px - 0.8, px + 0.8, 0.6, 0.9, pz - 1.2, pz + 1.2, 'lacquer')
         lb(px - 0.7, px + 0.1, 0.0, 0.6, pz - 1.1, pz + 1.1, 'lacquer')
         lb(px - 0.9, px + 0.9, 0.9, 1.5, pz - 1.2, pz - 1.1, 'lacquer')            # the lid up
-        for z in (0.5, 9.5):
+        # the west wall has windows at z = 0 and 9 and the french doors at 5; the
+        # front wall windows at x = -19.5, -15.5 and -11.5: everything sits between
+        for z in (2.2, 11.2):
             sofa(X0 + 0.55, z, -math.pi / 2)
-        for x in (-12.0, -9.5):
+        for x in (-17.5, -13.5):
             sofa(x, Z1 - 0.65, math.pi)
         table(-13.5, 3.0, 0.6, 0.6, h=0.5)
         rug(-14.0, 6.0, 0, 0)
         rug(-14.0, 1.0, 0, 0)
-        chandelier(-15.0, 5.0, FLOOR - 0.5)
-        for x in (-19.0, -13.0):
-            painting(x, Z1 - 0.16, math.pi, 2.0, 1.8, 1.3)
-        painting(W - 0.16, 8.0, -math.pi / 2, 2.0, 1.6, 1.2)
-        painting(W - 0.16, 1.0, -math.pi / 2, 2.0, 1.6, 1.2)
+        chandelier(-15.0, 5.0, FLOOR - 0.5, 1.0, FLOOR - 0.25)
+        for x in (-17.5, -13.5, -9.3):
+            painting(x, Z1 - 0.16, math.pi, 2.2, 1.6, 1.2)
+        painting(W - 0.16, 9.0, -math.pi / 2, 2.0, 1.6, 1.2)
+        painting(W - 0.16, 2.2, -math.pi / 2, 2.0, 1.6, 1.2)
+        painting(X0 + 0.16, 7.3, math.pi / 2, 2.2, 1.4, 1.1)
         # the library (west back, between the stair hall and the atrium)
-        bookcase(-14.6, -12.4, -2.6, -2.2, 0.0)
-        bookcase(-9.8, -7.6, -2.6, -2.2, 0.0)
-        bookcase(-14.6, -12.4, -9.1, -8.7, 0.0)
+        bookcase(-13.8, -11.8, -2.6, -2.2, 0.0)
+        bookcase(-9.6, -7.6, -2.6, -2.2, 0.0)
+        bookcase(-13.8, -11.8, -9.1, -8.7, 0.0)
         table(-11.0, -6.0, 1.2, 0.6)
         for x in (-12.0, -10.0):
-            chair(x, -7.0)
+            chair(x, -7.0, 0.0, 'n')
+            chair(x, -5.0, 0.0, 's')
         rug(-11.0, -6.0, 0, 1)
-        painting(W - 0.16, -7.0, -math.pi / 2, 2.0, 1.2, 1.0)
+        painting(W - 0.16, -3.6, -math.pi / 2, 2.0, 1.2, 1.0)
         # the dining room (east front): a long table and chairs, a sideboard
         table(15.0, 5.5, 3.0, 0.7)
         for x in (12.8, 14.3, 15.8, 17.2):
-            chair(x, 4.3)
-            chair(x, 6.7)
-        lb(X1 - 0.6, X1, 0.0, 0.95, 8.0, 11.0, 'wood')
-        chandelier(15.0, 5.5, FLOOR - 0.5)
+            chair(x, 4.3, 0.0, 'n')
+            chair(x, 6.7, 0.0, 's')
+        lb(X1 - 0.6, X1, 0.0, 0.95, 10.2, 12.5, 'wood')                     # sideboard, past the last window
+        chandelier(15.0, 5.5, FLOOR - 0.5, 1.0, FLOOR - 0.25)
         rug(15.0, 5.5, 0, 2)
-        for x in (12.0, 18.0):
-            painting(x, Z1 - 0.16, math.pi, 2.0, 1.8, 1.3)
-        painting(E + 0.16, 8.0, math.pi / 2, 2.0, 1.6, 1.2)
-        painting(X1 - 0.16, 3.0, -math.pi / 2, 2.0, 1.4, 1.1)
+        for x in (13.5, 17.5):
+            painting(x, Z1 - 0.16, math.pi, 2.2, 1.6, 1.2)
+        painting(E + 0.16, 9.0, math.pi / 2, 2.0, 1.6, 1.2)
+        painting(X1 - 0.16, 2.2, -math.pi / 2, 2.0, 1.4, 1.1)
+        painting(X1 - 0.16, 11.3, -math.pi / 2, 2.2, 1.4, 1.1)
         # the kitchen (east back): an island and a counter, crates of stores
         lb(9.5, 13.0, 0.0, 0.95, -6.5, -5.5, 'marble')
         lb(HX - 1.0, HX - 0.2, 0.0, 0.95, -8.6, -3.0, 'marble')
         lb(9.0, 10.0, 0.0, 1.0, -4.5, -3.5, 'crate')
         lb(11.0, 12.0, 0.0, 1.0, -4.5, -3.5, 'crate')
         # the corridor: pictures along it, a light at each end on every floor
-        for x in (-12.0, -9.0, -3.0, 3.0, 9.0, 12.0):
-            painting(x, Z0 + 0.16, 0.0, 1.9, 1.2, 0.9)
+        # the back wall has windows at ±19, ±14, ±9 and ±4.5 and the door at 0
         for f in range(3):
-            chandelier(-12.0, -11.1, f * FLOOR + FLOOR - 0.5, 0.6)
-            chandelier(12.0, -11.1, f * FLOOR + FLOOR - 0.5, 0.6)
+            for x in (-16.5, -11.5, -6.8, 6.8, 11.5, 16.5):
+                painting(x, Z0 + 0.16, 0.0, f * FLOOR + 1.9, 1.2, 0.9)
+            chandelier(-12.0, -11.1, f * FLOOR + FLOOR - 0.5, 0.6, f * FLOOR + FLOOR - 0.25)
+            chandelier(12.0, -11.1, f * FLOOR + FLOOR - 0.5, 0.6, f * FLOOR + FLOOR - 0.25)
 
         # -- first floor --
         y = FLOOR
+        # the end walls have windows at z = -4, 2 and 8 on the upper floors
         bed(-16.0, 8.0, y)                                                    # the master bedroom
-        lb(X0, X0 + 0.6, y, y + 2.2, 1.0, 3.0, 'wood')
+        lb(X0, X0 + 0.6, y, y + 2.2, 3.5, 5.5, 'wood')
         sofa(-11.0, 2.0, math.pi / 2, y)
         rug(-16.0, 4.0, y)
-        painting(-18.0, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
+        painting(-17.5, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
+        painting(-13.5, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
         table(-11.0, -6.0, 1.0, 0.6, y)                                       # the study
-        chair(-11.0, -7.0, y)
-        chair(-9.5, -5.0, y)
-        bookcase(-14.6, -12.4, -2.6, -2.2, y)
-        painting(W - 0.16, -5.0, -math.pi / 2, y + 2.0)
+        chair(-11.0, -7.0, y, 'n')
+        chair(-9.6, -6.0, y, 'w')
+        bookcase(-13.8, -11.8, -2.6, -2.2, y)
+        painting(W - 0.16, -3.6, -math.pi / 2, y + 2.0)
         bed(16.0, 8.0, y)                                                     # the east bedrooms
         bed(11.0, -6.0, y)
-        lb(X1 - 0.6, X1, y, y + 2.2, 1.0, 3.0, 'wood')
+        lb(X1 - 0.6, X1, y, y + 2.2, 3.5, 5.5, 'wood')
         rug(16.0, 4.0, y)
-        painting(18.0, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
-        painting(E + 0.16, -6.0, math.pi / 2, y + 2.0)
+        painting(17.5, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
+        painting(13.5, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
+        painting(E + 0.16, -3.6, math.pi / 2, y + 2.0)
         for x in (-AT_X + 0.16, AT_X - 0.16):
-            for z in (2.5, 8.5):
+            for z in (2.5, 9.0):
                 painting(x, z, math.pi / 2 if x < 0 else -math.pi / 2, y + 2.0, 1.4, 1.8)
 
         # -- second floor: the picture gallery round the well, bedrooms in the wings --
         y = 2 * FLOOR
         for x in (-AT_X + 0.16, AT_X - 0.16):
-            for z in (2.0, 5.5, 9.0):
+            for z in (2.5, 9.0, -3.6, -8.0):
                 painting(x, z, math.pi / 2 if x < 0 else -math.pi / 2, y + 2.0, 1.2, 1.6)
         for x in (-4.5, 4.5):
             painting(x, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
@@ -461,10 +482,10 @@ class Manor(Town):
         bed(-11.0, -6.0, y)
         bed(16.0, 8.0, y)
         table(11.0, -6.0, 1.0, 0.6, y)
-        chair(11.0, -7.0, y)
-        for x in (-19.0, -13.0, 13.0, 19.0):
+        chair(11.0, -7.0, y, 'n')
+        for x in (-17.5, -13.5, 13.5, 17.5):
             painting(x, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
-        lb(X1 - 0.6, X1, y, y + 2.2, 1.0, 3.0, 'wood')
+        lb(X1 - 0.6, X1, y, y + 2.2, 3.5, 5.5, 'wood')
         rug(-16.0, 4.0, y)
         rug(16.0, 4.0, y)
         lb(-11.0, -10.0, y, y + 1.0, 2.0, 3.0, 'crate')
@@ -510,16 +531,16 @@ class Manor(Town):
 
         # the drive: gravel from the gate to the forecourt, hedges either side
         FRONT = HOUSE_Z + HD          # the house front, in the world
-        self.roads.append({'w': 9.0, 'c': 'gravel', 'pts': [(0.0, bz), (0.0, FRONT + 4.0)]})
-        self.roads.append({'w': 34.0, 'c': 'gravel', 'pts': [(0.0, FRONT + 4.6), (0.0, FRONT + 13.0)]})
+        self.roads.append({'w': 9.0, 'c': 'gravel', 'h': 0.0, 'pts': [(0.0, bz), (0.0, FRONT + 4.0)]})
+        self.roads.append({'w': 34.0, 'c': 'gravel', 'h': 0.006, 'pts': [(0.0, FRONT + 4.6), (0.0, FRONT + 13.0)]})
         # the ring round the house, clear of the terraces, and paths to the gardens
         r0, r1 = HW + 7.0, HD + 4.0
         ring = [(-r0, HOUSE_Z + r1), (-r0, HOUSE_Z - r1), (r0, HOUSE_Z - r1), (r0, HOUSE_Z + r1), (-r0, HOUSE_Z + r1)]
-        self.roads.append({'w': 4.0, 'c': 'gravel', 'pts': ring})
-        self.roads.append({'w': 3.0, 'c': 'gravel', 'pts': [(-r0, -8.0), (-44.0, 8.0), (-44.0, 22.0)]})
-        self.roads.append({'w': 3.0, 'c': 'gravel', 'pts': [(r0, -2.0), (42.0, 8.0), (42.0, 12.0)]})
-        self.roads.append({'w': 3.0, 'c': 'gravel', 'pts': [(-r0, HOUSE_Z - r1), (-33.0, -33.0)]})
-        self.roads.append({'w': 3.0, 'c': 'gravel', 'pts': [(r0, HOUSE_Z - r1), (38.0, -36.0)]})
+        self.roads.append({'w': 4.0, 'c': 'gravel', 'h': 0.012, 'pts': ring})
+        self.roads.append({'w': 3.0, 'c': 'gravel', 'h': 0.018, 'pts': [(-r0, -8.0), (-44.0, 8.0), (-44.0, 22.0)]})
+        self.roads.append({'w': 3.0, 'c': 'gravel', 'h': 0.024, 'pts': [(r0, -2.0), (42.0, 8.0), (42.0, 12.0)]})
+        self.roads.append({'w': 3.0, 'c': 'gravel', 'h': 0.018, 'pts': [(-r0, HOUSE_Z - r1), (-31.0, -34.0)]})
+        self.roads.append({'w': 3.0, 'c': 'gravel', 'h': 0.024, 'pts': [(r0, HOUSE_Z - r1), (38.0, -36.0)]})
         for z in range(int(FRONT + 15), int(bz - 4), 2):
             for sx in (-1, 1):
                 # a gap in the hedge every ten metres, so the drive can be crossed
@@ -575,14 +596,15 @@ class Manor(Town):
 
         # the east garden: a tennis court inside a hedge, benches, a pavilion
         cx, cz = 42.0, 26.0
-        self.roads.append({'w': 12.0, 'c': 'court', 'pts': [(cx, cz - 13.0), (cx, cz + 13.0)]})
+        self.roads.append({'w': 12.0, 'c': 'court', 'h': 0.03, 'pts': [(cx, cz - 13.0), (cx, cz + 13.0)]})
+        LY = 0.075     # the lines lie on the clay, not in it
         for dz in (-11.9, 11.9):
-            self.deco.append({'k': 'lines', 'x': cx, 'z': cz + dz, 'l': 11.0, 'yaw': math.pi / 2})
+            self.deco.append({'k': 'lines', 'x': cx, 'y': LY, 'z': cz + dz, 'l': 11.0, 'yaw': math.pi / 2})
         for dx in (-5.5, 5.5, -4.1, 4.1):
-            self.deco.append({'k': 'lines', 'x': cx + dx, 'z': cz, 'l': 23.8, 'yaw': 0.0})
+            self.deco.append({'k': 'lines', 'x': cx + dx, 'y': LY, 'z': cz, 'l': 23.8, 'yaw': 0.0})
         for dz in (-6.4, 6.4):
-            self.deco.append({'k': 'lines', 'x': cx, 'z': cz + dz, 'l': 8.2, 'yaw': math.pi / 2})
-        self.deco.append({'k': 'lines', 'x': cx, 'z': cz, 'l': 12.8, 'yaw': 0.0})
+            self.deco.append({'k': 'lines', 'x': cx, 'y': LY, 'z': cz + dz, 'l': 8.2, 'yaw': math.pi / 2})
+        self.deco.append({'k': 'lines', 'x': cx, 'y': LY, 'z': cz, 'l': 12.8, 'yaw': 0.0})
         self.box(cx, 0.5, cz, 6.4, 0.5, 0.04, 0, 'inv')
         self.deco.append({'k': 'net', 'x': cx, 'z': cz, 'w': 12.8, 'yaw': 0.0})
         self.hedge(cx - 8.5, cz, 0.5, 11.0, 0, 1.2)
@@ -595,10 +617,9 @@ class Manor(Town):
         self.areas.append({'n': 'Tennis Court', 'x': cx, 'z': cz, 'r': 18})
 
         # behind the house: open lawn with a pond, a gazebo, garden walls and trees
-        self.deco.append({'k': 'pond', 'x': -40.0, 'z': -38.0, 'r': 8.0})
-        self.props.append((-40.0, -38.0, 9.0))
+        self.pool(-40.0, -38.0, 16.0, 8.0)
         self.pavilion(52.0, -40.0, 0.0)
-        self.areas.append({'n': 'The Pond', 'x': -40.0, 'z': -38.0, 'r': 12})
+        self.areas.append({'n': 'The Pool', 'x': -40.0, 'z': -38.0, 'r': 12})
         self.areas.append({'n': 'North Lawn', 'x': 20.0, 'z': -42.0, 'r': 20})
         self.garden_wall(0.0, -40.0, 0.0, 18, 1.2)
         self.garden_wall(-22.0, -46.0, math.pi / 2, 10, 1.2)
@@ -635,10 +656,27 @@ class Manor(Town):
         for label, (sx, sz) in (('A', self.site_a), ('B', self.site_b)):
             self.deco.append({'k': 'site', 'x': round(sx, 2), 'z': round(sz, 2), 'r': 4.5, 'l': label})
         for rd in self.roads:
-            self.deco.append({'k': 'road', 'w': rd['w'], 'c': rd['c'], 'pts': [[round(x, 2), round(z, 2)] for (x, z) in rd['pts']]})
+            self.deco.append({'k': 'road', 'w': rd['w'], 'c': rd['c'], 'h': rd.get('h', 0.0), 'pts': [[round(x, 2), round(z, 2)] for (x, z) in rd['pts']]})
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': 0.0, 'r': 10})
         self.areas.append({'n': 'East Gate', 'x': self.spawn_e[0], 'z': 0.0, 'r': 10})
         self.pick_spawns()
+
+    def pool(self, x, z, w, d):
+        """A swimming pool: water inside a marble coping, loungers along one side, a diving board."""
+        hw, hd = w / 2, d / 2
+        self.deco.append({'k': 'pool', 'x': x, 'z': z, 'w': w, 'd': d})
+        for (cx, cz, hx, hz) in ((x, z - hd - 0.25, hw + 0.5, 0.25), (x, z + hd + 0.25, hw + 0.5, 0.25),
+                                 (x - hw - 0.25, z, 0.25, hd), (x + hw + 0.25, z, 0.25, hd)):
+            self.box(cx, 0.125, cz, hx, 0.125, hz, 0, 'marble')
+        for k in range(3):
+            lx = x - 4.0 + k * 4.0
+            self.box(lx, 0.25, z + hd + 2.0, 0.9, 0.12, 0.35, 0, 'wood')
+            self.box(lx - 0.6, 0.55, z + hd + 2.0, 0.3, 0.2, 0.35, 0, 'wood', 0)
+            self.props.append((lx, z + hd + 2.0, 1.2))
+        self.box(x - hw - 1.4, 0.55, z, 1.2, 0.05, 0.3, 0, 'wood')            # the diving board
+        self.box(x - hw - 2.4, 0.25, z, 0.2, 0.25, 0.3, 0, 'steel', 1)
+        self.props.append((x, z, max(hw, hd) + 1.2))
+        self.props.append((x - hw - 1.8, z, 1.2))
 
     def pavilion(self, x, z, yaw):
         """An open garden pavilion: four columns, a low wall on two sides, a roof."""

@@ -30,6 +30,8 @@ const MAT = {
   sightDot: new THREE.MeshBasicMaterial({ color: '#f1e3a0' }),
   sleeve: std('#6b5a3e', 0.9, 0),
   nade: std('#4a5236', 0.7, 0.2),
+  bottle: new THREE.MeshStandardMaterial({ color: '#8fb08a', roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.75 }),
+  rag: std('#d8cfb0', 0.9, 0),
 };
 
 // which parts of a gun a finish recolours
@@ -804,81 +806,91 @@ function buildRevolver(sleeve) {
   return attachable(gun, sets, { optic: 'irons', mag: 'normal', laser: 'none', barrel: 'medium' });
 }
 
-// the Barq PDW: a boxy upper over a deep front housing, the magazine ahead
-// of the trigger, a thin folding stock, rails everywhere
+// the Barq PDW: a long flat upper with the bore along its bottom edge, a deep
+// slab of a lower under the front where the bolt drops, the magazine ahead of
+// the trigger, the grip well back, a skeleton stock
 function buildPDW(sleeve) {
   const g = new THREE.Group();
-  box(g, 0.05, 0.06, 0.34, MAT.polymer, 0, 0.02, -0.08);                 // upper
-  box(g, 0.05, 0.07, 0.16, MAT.polymer, 0, -0.045, -0.2);                // the front housing
-  box(g, 0.05, 0.05, 0.14, MAT.polymer, 0, -0.03, -0.0);                 // lower
-  box(g, 0.03, 0.09, 0.035, MAT.polymer, 0, -0.09, 0.06, -0.3);          // grip
-  box(g, 0.012, 0.035, 0.05, MAT.dark, 0, -0.065, 0.0);                  // trigger guard
-  box(g, 0.02, 0.03, 0.16, MAT.dark, 0, 0.02, 0.2);                      // the stock, unfolded
-  box(g, 0.03, 0.07, 0.02, MAT.polymer, 0, 0.0, 0.28);
-  box(g, 0.045, 0.012, 0.32, MAT.dark, 0, 0.056, -0.08);                 // top rail
-  for (const z of [-0.14, -0.2, -0.26]) box(g, 0.052, 0.006, 0.008, MAT.dark, 0, -0.02, z);   // side rail ribs
-  const charge = box(g, 0.018, 0.012, 0.03, MAT.dark, -0.034, 0.035, -0.02);
+  box(g, 0.048, 0.04, 0.36, MAT.polymer, 0, 0.03, -0.1);                // upper: z -0.28 .. 0.08
+  box(g, 0.045, 0.012, 0.34, MAT.dark, 0, 0.056, -0.1);                 // top rail
+  box(g, 0.05, 0.11, 0.2, MAT.polymer, 0, -0.045, -0.16);               // the deep lower, z -0.26 .. -0.06
+  box(g, 0.05, 0.075, 0.05, MAT.polymer, 0, -0.06, -0.28, 0.55);        // its slanted nose
+  box(g, 0.045, 0.05, 0.16, MAT.polymer, 0, -0.015, 0.02);              // trigger housing, z -0.06 .. 0.1
+  box(g, 0.03, 0.09, 0.035, MAT.polymer, 0, -0.085, 0.09, -0.25);       // grip, right at the back
+  box(g, 0.012, 0.03, 0.05, MAT.dark, 0, -0.055, 0.03);                 // trigger guard
+  for (const z of [-0.12, -0.17, -0.22]) box(g, 0.054, 0.006, 0.008, MAT.dark, 0, -0.03, z);   // side rail ribs
+  box(g, 0.054, 0.006, 0.008, MAT.dark, 0, -0.03, -0.07);
+  for (const sx of [-1, 1]) box(g, 0.008, 0.016, 0.18, MAT.dark, sx * 0.018, 0.03, 0.19);     // the skeleton stock
+  box(g, 0.045, 0.07, 0.02, MAT.polymer, 0, 0.015, 0.29);               // butt
+  const charge = box(g, 0.018, 0.012, 0.03, MAT.dark, -0.034, 0.035, -0.2);
   const mag = new THREE.Group();
-  mag.position.set(0, -0.08, -0.05);
+  mag.position.set(0, -0.1, -0.08);
   g.add(mag);
   const { sets, add } = partSet(g);
   const rail = 0.062;
-  add('optic', 'irons', { S: 0.083, adsZ: -0.3 }, (o) => irons(o, 0.083, -0.23, 0.04, rail, rail));
+  add('optic', 'irons', { S: 0.083, adsZ: -0.3 }, (o) => irons(o, 0.083, -0.25, 0.06, rail, rail));
   add('optic', 'reddot', { S: 0.093, adsZ: -0.3 }, (o) => reflex(o, 0.093, -0.02, rail));
   add('optic', 'holo', { S: 0.115, adsZ: -0.22 }, (o) => holo(o, 0.115, -0.03, rail));
   add('optic', 'acog', { S: 0.107, adsZ: -0.18 }, (o) => {
     box(o, 0.03, 0.018, 0.1, MAT.dark, 0, 0.067, -0.03);
     acogBody(o, 0.107, -0.03, MAT.tan);
   });
-  barrelParts(add, 0.02, -0.25, 0.011, { normal: 0.09, ext: 0.19, short: 0.05 });
-  muzzleDevices(add, 0.02, -0.34, 0.011, ['none', 'brake', 'suppressor', 'longbrake']);
-  laserModules(add, 0, -0.092, -0.24);
-  gripModules(add, -0.08, -0.16);
-  add('mag', 'normal', {}, (m) => box(m, 0.026, 0.12, 0.04, MAT.dark, 0, -0.06, 0, 0.12), mag);
+  barrelParts(add, 0.012, -0.28, 0.011, { normal: 0.07, ext: 0.17, short: 0.04 });
+  muzzleDevices(add, 0.012, -0.35, 0.011, ['none', 'brake', 'suppressor', 'longbrake']);
+  laserModules(add, 0, -0.112, -0.23);
+  gripModules(add, -0.1, -0.15);
+  add('mag', 'normal', {}, (m) => box(m, 0.026, 0.11, 0.04, MAT.dark, 0, -0.055, 0), mag);
   add('mag', 'fast', {}, (m) => {
-    box(m, 0.026, 0.12, 0.04, MAT.dark, 0, -0.06, 0, 0.12);
-    box(m, 0.03, 0.04, 0.044, MAT.tan, 0, -0.085, 0.004, 0.12);
-    box(m, 0.028, 0.016, 0.042, MAT.brass, 0, -0.115, 0.012, 0.12);
+    box(m, 0.026, 0.11, 0.04, MAT.dark, 0, -0.055, 0);
+    box(m, 0.03, 0.04, 0.044, MAT.tan, 0, -0.08, 0.004);
+    box(m, 0.028, 0.016, 0.042, MAT.brass, 0, -0.105, 0.012);
   }, mag);
   add('mag', 'large', {}, (m) => {
-    box(m, 0.028, 0.2, 0.042, MAT.dark, 0, -0.1, 0.006, 0.12);
-    box(m, 0.03, 0.016, 0.044, MAT.steel, 0, -0.03, 0, 0.12);
+    box(m, 0.028, 0.2, 0.042, MAT.dark, 0, -0.1, 0.004);
+    box(m, 0.03, 0.016, 0.044, MAT.steel, 0, -0.03, 0);
   }, mag);
-  const h = hands(g, new THREE.Vector3(0.002, -0.1, 0.06), new THREE.Vector3(0, -0.09, -0.2), sleeve);
+  const h = hands(g, new THREE.Vector3(0.002, -0.1, 0.09), new THREE.Vector3(0, -0.11, -0.2), sleeve);
   const gun = {
-    group: g, sight: 0.083, muzzle: new THREE.Vector3(0, 0.02, -0.34), mag, magHome: mag.position.clone(), charge,
+    group: g, sight: 0.083, muzzle: new THREE.Vector3(0, 0.012, -0.35), mag, magHome: mag.position.clone(), charge,
     chargeHome: charge.position.clone(), hands: h,
     hip: new THREE.Vector3(0.15, -0.15, -0.38), ads: new THREE.Vector3(0, -0.083, -0.3), kind: 'mag',
   };
   return attachable(gun, sets, { optic: 'irons', muzzle: 'none', mag: 'normal', laser: 'none', grip: 'none', barrel: 'normal' });
 }
 
-// the Rimah Carbine: flat-top upper, a quad-rail handguard, a fixed front
-// sight post, a collapsible stock on a buffer tube
+// the Rimah Carbine: flat-top upper with the port cover and forward assist, a
+// round ribbed handguard behind a delta ring, an A-frame front sight, a curved
+// magazine, a collapsible stock on its buffer tube
 function buildCarbine(sleeve) {
   const g = new THREE.Group();
-  box(g, 0.05, 0.06, 0.2, MAT.dark, 0, 0.02, 0.0);                       // upper receiver
-  box(g, 0.045, 0.05, 0.16, MAT.dark, 0, -0.03, 0.02);                    // lower receiver
-  box(g, 0.045, 0.012, 0.2, MAT.dark, 0, 0.056, 0.0);                     // flat-top rail
-  box(g, 0.03, 0.1, 0.035, MAT.polymer, 0, -0.1, 0.07, -0.35);            // grip
-  box(g, 0.012, 0.035, 0.05, MAT.dark, 0, -0.065, 0.0);                   // trigger guard
-  box(g, 0.05, 0.05, 0.2, MAT.polymer, 0, 0.015, -0.2);                   // the handguard
-  for (const z of [-0.14, -0.2, -0.26]) {
-    box(g, 0.054, 0.006, 0.008, MAT.dark, 0, 0.015, z);
-    box(g, 0.006, 0.054, 0.008, MAT.dark, 0, 0.015, z);
-  }
-  cyl(g, 0.03, 0.03, MAT.dark, 0, 0.015, -0.1, 12);                       // delta ring
-  box(g, 0.02, 0.04, 0.03, MAT.dark, 0, 0.045, -0.32);                    // the front sight base, over the gas block
-  cyl(g, 0.016, 0.2, MAT.dark, 0, 0.02, 0.2, 10);                         // buffer tube
-  box(g, 0.035, 0.06, 0.1, MAT.polymer, 0, 0.0, 0.27);                    // stock
-  box(g, 0.04, 0.09, 0.02, MAT.polymer, 0, -0.005, 0.32);
-  const charge = box(g, 0.03, 0.01, 0.03, MAT.dark, 0, 0.048, 0.1);
+  box(g, 0.05, 0.055, 0.2, MAT.dark, 0, 0.022, 0.0);                    // upper receiver
+  box(g, 0.045, 0.012, 0.2, MAT.dark, 0, 0.056, 0.0);                    // flat-top rail
+  box(g, 0.008, 0.024, 0.05, MAT.steel, 0.028, 0.016, -0.02);            // ejection port cover
+  box(g, 0.012, 0.03, 0.012, MAT.dark, 0.03, 0.01, 0.02, 0, 0, 0.3);     // brass deflector
+  const fa = cyl(g, 0.009, 0.02, MAT.dark, 0.032, 0.02, 0.05, 8);         // forward assist
+  fa.rotation.set(0, 0, Math.PI / 2);
+  box(g, 0.045, 0.05, 0.16, MAT.dark, 0, -0.03, 0.03);                    // lower receiver
+  box(g, 0.042, 0.045, 0.04, MAT.dark, 0, -0.07, -0.02);                  // magazine well
+  box(g, 0.03, 0.1, 0.035, MAT.polymer, 0, -0.1, 0.085, -0.35);           // grip
+  box(g, 0.012, 0.03, 0.05, MAT.dark, 0, -0.06, 0.025);                   // trigger guard
+  cyl(g, 0.027, 0.2, MAT.polymer, 0, 0.018, -0.2, 12, 0.023);             // the round handguard, tapering forward
+  for (let z = -0.13; z > -0.28; z -= 0.02) cyl(g, 0.029, 0.005, MAT.polymer, 0, 0.018, z, 12, 0.029);   // its ribs
+  cyl(g, 0.032, 0.025, MAT.dark, 0, 0.018, -0.1, 12);                     // delta ring
+  cyl(g, 0.03, 0.02, MAT.dark, 0, 0.018, -0.3, 12, 0.026);                // handguard cap
+  box(g, 0.02, 0.05, 0.03, MAT.dark, 0, 0.045, -0.33);                    // the front sight base
+  box(g, 0.005, 0.03, 0.02, MAT.dark, -0.012, 0.078, -0.33, 0, 0, 0.35);  // its A-frame ears
+  box(g, 0.005, 0.03, 0.02, MAT.dark, 0.012, 0.078, -0.33, 0, 0, -0.35);
+  cyl(g, 0.016, 0.2, MAT.dark, 0, 0.025, 0.2, 10);                        // buffer tube
+  box(g, 0.036, 0.05, 0.12, MAT.polymer, 0, 0.005, 0.24);                 // the stock riding it
+  box(g, 0.036, 0.09, 0.025, MAT.polymer, 0, -0.01, 0.31);                // butt
+  box(g, 0.02, 0.03, 0.1, MAT.polymer, 0, -0.03, 0.24, 0.3);              // the stock's angled lower arm
+  const charge = box(g, 0.03, 0.01, 0.035, MAT.dark, 0, 0.05, 0.11);
   const mag = new THREE.Group();
-  mag.position.set(0, -0.055, -0.03);
+  mag.position.set(0, -0.09, -0.02);
   g.add(mag);
   const { sets, add } = partSet(g);
   const rail = 0.062;
-  add('optic', 'irons', { S: 0.085, adsZ: -0.28 }, (o) => irons(o, 0.085, -0.32, 0.08, 0.065, rail));
+  add('optic', 'irons', { S: 0.09, adsZ: -0.28 }, (o) => irons(o, 0.09, -0.33, 0.08, 0.07, rail));
   add('optic', 'reddot', { S: 0.093, adsZ: -0.28 }, (o) => reflex(o, 0.093, -0.02, rail));
   add('optic', 'holo', { S: 0.115, adsZ: -0.2 }, (o) => holo(o, 0.115, -0.02, rail));
   add('optic', 'acog', { S: 0.107, adsZ: -0.16 }, (o) => {
@@ -889,25 +901,30 @@ function buildCarbine(sleeve) {
     box(o, 0.03, 0.02, 0.14, MAT.dark, 0, 0.068, -0.01);
     scopeTube(o, 0.111, 0.3, -0.01, MAT.dark, MAT.steel);
   });
-  barrelParts(add, 0.02, -0.3, 0.011, { normal: 0.14, ext: 0.24, short: 0.08 });
-  muzzleDevices(add, 0.02, -0.44, 0.011, ['none', 'brake', 'suppressor', 'longbrake']);
-  laserModules(add, 0.038, 0.0, -0.22);
-  gripModules(add, -0.01, -0.2);
-  add('mag', 'normal', {}, (m) => box(m, 0.028, 0.17, 0.05, MAT.dark, 0, -0.085, 0, 0.15), mag);
+  barrelParts(add, 0.018, -0.3, 0.011, { normal: 0.14, ext: 0.24, short: 0.08 });
+  muzzleDevices(add, 0.018, -0.44, 0.011, ['none', 'brake', 'suppressor', 'longbrake']);
+  laserModules(add, 0.038, 0.012, -0.22);
+  gripModules(add, -0.008, -0.2);
+  // the curved thirty-round magazine: two lengths, the lower one swept forward
+  const stanag = (m, long) => {
+    box(m, 0.028, 0.08, 0.05, MAT.dark, 0, -0.04, 0, 0.1);
+    box(m, 0.028, long ? 0.16 : 0.09, 0.05, MAT.dark, 0, long ? -0.15 : -0.115, -0.012, 0.32);
+  };
+  add('mag', 'normal', {}, (m) => stanag(m, false), mag);
   add('mag', 'fast', {}, (m) => {
-    box(m, 0.028, 0.17, 0.05, MAT.dark, 0, -0.085, 0, 0.15);
-    box(m, 0.034, 0.05, 0.054, MAT.tan, 0, -0.11, 0.006, 0.15);
-    box(m, 0.03, 0.02, 0.052, MAT.brass, 0, -0.165, 0.016, 0.15);
+    stanag(m, false);
+    box(m, 0.034, 0.04, 0.054, MAT.tan, 0, -0.1, -0.01, 0.32);
+    box(m, 0.03, 0.016, 0.052, MAT.brass, 0, -0.155, -0.026, 0.32);
   }, mag);
   add('mag', 'large', {}, (m) => {
-    box(m, 0.03, 0.26, 0.052, MAT.dark, 0, -0.13, 0.01, 0.15);
-    box(m, 0.032, 0.02, 0.054, MAT.steel, 0, -0.045, -0.004, 0.15);
+    stanag(m, true);
+    box(m, 0.032, 0.018, 0.054, MAT.steel, 0, -0.085, -0.004, 0.32);
   }, mag);
-  const h = hands(g, new THREE.Vector3(0.002, -0.1, 0.07), new THREE.Vector3(0, -0.03, -0.2), sleeve);
+  const h = hands(g, new THREE.Vector3(0.002, -0.1, 0.085), new THREE.Vector3(0, -0.03, -0.2), sleeve);
   const gun = {
-    group: g, sight: 0.085, muzzle: new THREE.Vector3(0, 0.02, -0.44), mag, magHome: mag.position.clone(), charge,
+    group: g, sight: 0.09, muzzle: new THREE.Vector3(0, 0.018, -0.44), mag, magHome: mag.position.clone(), charge,
     chargeHome: charge.position.clone(), hands: h,
-    hip: new THREE.Vector3(0.15, -0.15, -0.4), ads: new THREE.Vector3(0, -0.085, -0.28), kind: 'mag',
+    hip: new THREE.Vector3(0.15, -0.15, -0.4), ads: new THREE.Vector3(0, -0.09, -0.28), kind: 'mag',
   };
   return attachable(gun, sets, { optic: 'irons', muzzle: 'none', mag: 'normal', laser: 'none', grip: 'none', barrel: 'normal' });
 }
@@ -978,14 +995,31 @@ function buildNadeHand(sleeve) {
   const g = new THREE.Group();
   box(g, 0.05, 0.06, 0.07, MAT.glove, 0, 0, 0);
   box(g, 0.07, 0.07, 0.34, sleeve, 0.02, -0.04, 0.2, 0.25, 0.1, 0);
-  const n = new THREE.Group();
+  // a frag: the pineapple with its lever
+  const frag = new THREE.Group();
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 10), MAT.nade);
   body.scale.set(1, 1.25, 1);
-  n.add(body);
-  box(n, 0.015, 0.02, 0.015, MAT.steel, 0, 0.04, 0);
-  box(n, 0.01, 0.05, 0.012, MAT.steel, 0.012, 0.02, 0, 0, 0, 0.2);
-  n.position.set(0, 0.04, -0.01);
-  g.add(n);
+  frag.add(body);
+  box(frag, 0.015, 0.02, 0.015, MAT.steel, 0, 0.04, 0);
+  box(frag, 0.01, 0.05, 0.012, MAT.steel, 0.012, 0.02, 0, 0, 0, 0.2);
+  frag.position.set(0, 0.04, -0.01);
+  g.add(frag);
+  // a molotov: a bottle with a rag in its neck
+  const molotov = new THREE.Group();
+  cyl(molotov, 0.022, 0.09, MAT.bottle, 0, 0, 0, 12).rotation.x = 0;
+  cyl(molotov, 0.009, 0.04, MAT.bottle, 0, 0.06, 0, 10).rotation.x = 0;
+  cyl(molotov, 0.012, 0.03, MAT.rag, 0, 0.085, 0, 8).rotation.x = 0;
+  box(molotov, 0.02, 0.03, 0.006, MAT.rag, 0.012, 0.09, 0.008, 0.3, 0, -0.5);
+  molotov.position.set(0, 0.05, -0.01);
+  g.add(molotov);
+  // a canister: smoke or flash
+  const can = new THREE.Group();
+  cyl(can, 0.02, 0.09, MAT.steel, 0, 0, 0, 12).rotation.x = 0;
+  cyl(can, 0.012, 0.02, MAT.dark, 0, 0.055, 0, 10).rotation.x = 0;
+  box(can, 0.01, 0.05, 0.012, MAT.steel, 0.012, 0.03, 0, 0, 0, 0.2);
+  can.position.set(0, 0.04, -0.01);
+  g.add(can);
+  g.kinds = { frag, molotov, can };
   return g;
 }
 
@@ -1152,8 +1186,14 @@ export class ViewModel {
     this.jetT = 0.06;
   }
 
-  throwNade() {
+  throwNade(kind = 'frag') {
     this.nadeAnim = 0;
+    const K = this.nadeHand.kinds;
+    if (K) {
+      K.frag.visible = kind === 'frag';
+      K.molotov.visible = kind === 'molotov';
+      K.can.visible = kind === 'smoke' || kind === 'flash';
+    }
   }
 
   // the knife: wind up across the body, then slash down and across

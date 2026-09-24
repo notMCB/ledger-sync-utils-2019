@@ -119,8 +119,9 @@ def check_manor(seed):
         ('first floor corridor', (0.0, HZ - 11.1, F)),
         ('first floor balcony', (0.0, HZ + map_manor.HD + 0.8, F)),
         ('first floor west stair hall landing', (-22.0, HZ - 7.8, F)),
-        ('second floor west landing', (-15.8, HZ - 3.7, 2 * F)),
-        ('second floor east landing', (15.8, HZ - 3.7, 2 * F)),
+        ('second floor west landing', (-14.8, HZ - 3.7, 2 * F)),
+        ('second floor east landing', (14.8, HZ - 3.7, 2 * F)),
+        ('the main roof must NOT be reachable', (0.0, HZ - 8.0, 3 * F + 0.25)),
         ('second floor gallery', (5.5, HZ + 5.5, 2 * F)),
         ('second floor corridor', (0.0, HZ - 11.1, 2 * F)),
         ('second floor west bedroom', (-16.0, HZ + 4.0, 2 * F)),
@@ -128,7 +129,7 @@ def check_manor(seed):
     ]
     window = (-map_manor.HW - 4, map_manor.HW + 4, HZ - map_manor.HD - 2, HZ + map_manor.HD + 8)
     res, n = reach(m, start, targets, window)
-    bad = [name for (name, hit) in res if not hit]
+    bad = [name for (name, hit) in res if (not hit) != name.startswith('the main roof')]
     print('manor seed %d: %d standing spots reached; %s' % (seed, n, 'every floor reachable' if not bad else 'UNREACHABLE: ' + ', '.join(bad)))
     return not bad
 

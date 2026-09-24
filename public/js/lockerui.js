@@ -178,7 +178,8 @@ function renderLoadouts(host) {
       `<span class="ld-perk">${PERKS[locker.perkFor(i)].name}</span>${i === inUse ? '<span class="lk-inuse">In use</span>' : ''}`;
     b.addEventListener('click', () => {
       ldSel = i;
-      selected = { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) };
+      const w = locker.primaryFor(i);
+      selected = { kind: 'gun', weapon: w, finish: locker.equippedGun(w) };
       showModel(selected);
       render();
     });
@@ -222,7 +223,11 @@ function renderLoadouts(host) {
   };
   const primary = locker.primaryFor(L.id);
   const prim = section(`Primary · ${WEAPONS[primary].name}`, L.weapons.length > 1 ? 'Pick a gun, then its skin' : 'Gun skin');
-  gunChooser(prim, L.weapons, primary, (id) => locker.setPrimary(L.id, id));
+  gunChooser(prim, L.weapons, primary, (id) => {
+    locker.setPrimary(L.id, id);
+    selected = { kind: 'gun', weapon: id, finish: locker.equippedGun(id) };
+    showModel(selected);
+  });
   prim.appendChild(finishRow(primary, locker.equippedGun(primary), (f) => locker.equipGun(primary, f)));
   detail.appendChild(prim);
   if (slotsFor(primary).length) attachSection(detail, primary);
@@ -302,7 +307,7 @@ function renderLoadouts(host) {
 
 // attachments for one gun, with everything you haven't unlocked yet greyed out
 const GUN_BLURB = {
-  smg: '30 rounds, fast and steady', pdw: '17 rounds gone in a second and a half. Brutal up close, hopeless at range', carbine: '30 rounds, the all-rounder',
+  smg: '30 rounds, fast and steady', pdw: '17 rounds gone in under a second. Brutal up close, hopeless at range', carbine: '30 rounds, the all-rounder',
   lmg: '100 rounds, heavy and slow to reload',
   shotgun: 'Pump action, nine pellets a shell', flamer: 'Six metres of fire, 100 fuel at five a second',
   sniper: 'Bolt action, 6× scope, one headshot', heavy: 'One round, one kill, slow and loud',
@@ -537,7 +542,8 @@ function wire() {
   document.querySelectorAll('.lk-tab').forEach((t) => t.addEventListener('click', () => {
     tab = t.dataset.tab;
     const L = LOADOUTS[ldSel];
-    selected = tab === 'loadouts' ? { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
+    const w = locker.primaryFor(ldSel);
+    selected = tab === 'loadouts' ? { kind: 'gun', weapon: w, finish: locker.equippedGun(w) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
     showModel(selected);
     render();
   }));

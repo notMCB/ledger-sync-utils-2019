@@ -2,9 +2,22 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.10.0';
+export const VERSION = '2.10.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.10.1',
+    date: '25 September 2026',
+    title: 'Manor fixes, a faster PDW, quicker carts',
+    notes: [
+      'The Barq PDW fires half as fast again: 1050 rounds a minute, the magazine gone in under a second. Its body is redrawn closer to the gun it takes after: a long flat upper, a deep slab of a lower under the front, the magazine ahead of the trigger, the grip right at the back, a skeleton stock.',
+      'The Rimah Carbine is redrawn too: port cover and forward assist on the upper, a round ribbed handguard behind a delta ring, an A-frame front sight, a curved magazine, a collapsible stock on its buffer tube.',
+      'The Manor: the roof is out of reach, the end stair halls are roomier with their flights well clear of the walls, chandeliers hang from their own ceilings instead of poking a chain up through the floor above, furniture and paintings are off the windows and doorways, chairs face their tables, tree crowns sit on their trunks and are solid, the court lines and overlapping paths no longer flicker, and the pond is a swimming pool with loungers and a diving board.',
+      'The grenade in your hand is the one you carry: a bottle for a molotov, a canister for smoke and flash.',
+      'The Locker’s spinning preview shows the primary you have chosen for a loadout, not just the first one.',
+      'Golf carts are twice as quick as the forklift.',
+    ],
+  },
   {
     version: '2.10.0',
     date: '25 September 2026',

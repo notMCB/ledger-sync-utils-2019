@@ -511,7 +511,7 @@ export class World {
       } else if (d.k === 'crane') {
         this.addCrane(steel, paint, d);
       } else if (d.k === 'lines') {
-        paint.box(d.x, 0.02, d.z, 0.07, 0.008, d.l / 2, d.yaw || 0, colorOf('#f3f1e6'), 1);
+        paint.box(d.x, d.y || 0.02, d.z, 0.07, 0.008, d.l / 2, d.yaw || 0, colorOf('#f3f1e6'), 1);
       } else if (d.k === 'helipad') {
         const g = new THREE.CircleGeometry(d.r, 40);
         g.rotateX(-Math.PI / 2);
@@ -675,6 +675,20 @@ export class World {
         rim.position.set(d.x, 0.035, d.z);
         rim.receiveShadow = true;
         root.add(rim);
+      } else if (d.k === 'pool') {
+        // pale tiles under clear blue water, lane lines down the middle
+        const tiles = new THREE.Mesh(new THREE.PlaneGeometry(d.w, d.d), new THREE.MeshLambertMaterial({ map: tx.tiles, color: '#bfe2ea' }));
+        tiles.material.map = tx.tiles.clone();
+        tiles.material.map.repeat.set(d.w / 1.5, d.d / 1.5);
+        tiles.material.map.needsUpdate = true;
+        tiles.rotation.x = -Math.PI / 2;
+        tiles.position.set(d.x, 0.035, d.z);
+        root.add(tiles);
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(d.w, d.d), new THREE.MeshPhongMaterial({ color: '#3f9fd0', shininess: 110, specular: '#dff6ff', transparent: true, opacity: 0.72 }));
+        water.rotation.x = -Math.PI / 2;
+        water.position.set(d.x, 0.07, d.z);
+        root.add(water);
+        for (const dz of [-d.d / 4, 0, d.d / 4]) paint.box(d.x, 0.045, d.z + dz, d.w / 2 - 0.3, 0.005, 0.06, 0, colorOf('#1f4f80'), 1);
       } else if (d.k === 'paving' || d.k === 'scorch' || d.k === 'rug') {
         this.addDecal(root, d);
       } else if (d.k === 'well') {
@@ -1117,10 +1131,11 @@ export class World {
   addTree(trunks, canopies, trunkSeg, canopyGeo, d) {
     const greens = ['#3f7a35', '#4d8a3c', '#35662f'];
     const h = d.h || 4.5, r = d.r || 2.6;
-    trunks.push({ geo: trunkSeg, matrix: mtx(d.x, h * 0.35, d.z, 0, 0, 0, 1.3, h * 0.7, 1.3), color: colorOf('#5a3f2a') });
-    canopies.push({ geo: canopyGeo, matrix: mtx(d.x, h + r * 0.5, d.z, 0, 0, 0, r, r * 0.85, r), color: colorOf(greens[(d.c || 0) % 3]) });
-    canopies.push({ geo: canopyGeo, matrix: mtx(d.x + r * 0.4, h + r * 0.35, d.z - r * 0.3, 0, 0, 0, r * 0.7, r * 0.6, r * 0.7), color: colorOf(greens[((d.c || 0) + 1) % 3]) });
-    canopies.push({ geo: canopyGeo, matrix: mtx(d.x - r * 0.35, h + r * 0.4, d.z + r * 0.35, 0, 0, 0, r * 0.65, r * 0.6, r * 0.65), color: colorOf(greens[((d.c || 0) + 2) % 3]) });
+    trunks.push({ geo: trunkSeg, matrix: mtx(d.x, h * 0.5 + 0.2, d.z, 0, 0, 0, 1.3, h + 0.4, 1.3), color: colorOf('#5a3f2a') });
+    // the crown sits on the trunk: its underside is well below the trunk's top
+    canopies.push({ geo: canopyGeo, matrix: mtx(d.x, h + r * 0.3, d.z, 0, 0, 0, r, r * 0.85, r), color: colorOf(greens[(d.c || 0) % 3]) });
+    canopies.push({ geo: canopyGeo, matrix: mtx(d.x + r * 0.4, h + r * 0.2, d.z - r * 0.3, 0, 0, 0, r * 0.7, r * 0.6, r * 0.7), color: colorOf(greens[((d.c || 0) + 1) % 3]) });
+    canopies.push({ geo: canopyGeo, matrix: mtx(d.x - r * 0.35, h + r * 0.25, d.z + r * 0.35, 0, 0, 0, r * 0.65, r * 0.6, r * 0.65), color: colorOf(greens[((d.c || 0) + 2) % 3]) });
   }
 
   // a marble figure on its plinth: a standing form, head and shoulders, one of four poses
@@ -1182,17 +1197,20 @@ export class World {
   addChandelier(brass, glow, d) {
     const r = d.r || 1.0;
     const y = d.y || 3.0;
+    const top = d.top || y + 0.5;
     if (!this._chGeo) {
       this._chGeo = {
-        chain: new THREE.CylinderGeometry(0.02, 0.02, 1.2, 5), ring: new THREE.TorusGeometry(1, 0.04, 6, 24),
+        chain: new THREE.CylinderGeometry(0.02, 0.02, 1, 5), rings: {},
         stem: new THREE.CylinderGeometry(0.06, 0.1, 0.5, 8), candle: new THREE.CylinderGeometry(0.03, 0.03, 0.22, 6),
         flame: new THREE.SphereGeometry(0.045, 6, 5),
       };
     }
     const G = this._chGeo;
+    const ring = G.rings[r] || (G.rings[r] = new THREE.TorusGeometry(r * 0.6, 0.035, 6, 24));
     const gold = colorOf('#c9a13b');
-    brass.push({ geo: G.chain, matrix: mtx(d.x, y + 0.6, d.z), color: colorOf('#3a3a3a') });
-    brass.push({ geo: G.ring, matrix: mtx(d.x, y, d.z, Math.PI / 2, 0, 0, r * 0.6, r * 0.6, 1), color: gold });
+    const len = Math.max(0.1, top - y);
+    brass.push({ geo: G.chain, matrix: mtx(d.x, y + len / 2, d.z, 0, 0, 0, 1, len, 1), color: colorOf('#3a3a3a') });
+    brass.push({ geo: ring, matrix: mtx(d.x, y, d.z, Math.PI / 2, 0, 0), color: gold });
     brass.push({ geo: G.stem, matrix: mtx(d.x, y - 0.2, d.z), color: gold });
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
@@ -1268,7 +1286,7 @@ export class World {
     let along = 0;
     for (let i = 0; i < pts.length; i++) {
       const [x, z, ry] = pts[i];
-      const y = (ry || 0) + 0.02;   // roads over stepped ground carry their own height
+      const y = (ry || 0) + 0.02 + (d.h || 0);   // roads over stepped ground carry their own height; overlapping ones are stacked a hair apart
       const p = pts[Math.max(0, i - 1)], n = pts[Math.min(pts.length - 1, i + 1)];
       let tx = n[0] - p[0], tz = n[1] - p[1];
       const L = Math.hypot(tx, tz) || 1;

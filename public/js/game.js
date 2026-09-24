@@ -40,6 +40,7 @@ const DRONE_SPEED = 14;      // keep in step with DRONE_SPEED in server/server.p
 const DRONE_R = 0.5;         // how big a target it is
 // forklifts: a slow drive about the yard, nothing more
 const FK_SPEED = 5.5, FK_REVERSE = 2.8, FK_TURN = 1.5, FK_R = 1.0, FK_H = 2.1;
+const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, forward and back
 const SITE_R = 4.8;
 const HILL_R = 6.0;
 
@@ -407,9 +408,10 @@ export class Game {
     const r = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
     // steer only while rolling, like a real truck
     F.speed = F.speed || 0;
-    const want = f > 0 ? FK_SPEED : f < 0 ? -FK_REVERSE : 0;
+    const mul = F.kind === 'golfcart' ? CART_MUL : 1;
+    const want = f > 0 ? FK_SPEED * mul : f < 0 ? -FK_REVERSE * mul : 0;
     F.speed += (want - F.speed) * Math.min(1, dt * 3);
-    if (Math.abs(F.speed) > 0.3) F.yaw -= r * FK_TURN * dt * Math.sign(F.speed) * Math.min(1, Math.abs(F.speed) / 2.5);
+    if (Math.abs(F.speed) > 0.3) F.yaw -= r * FK_TURN * dt * Math.sign(F.speed) * Math.min(1, Math.abs(F.speed) / (2.5 * mul));
     // forward is local +x
     const fx = Math.cos(F.yaw), fz = -Math.sin(F.yaw);
     const body = { pos: F.pos, vel: F.vel || (F.vel = new THREE.Vector3()), grounded: F.grounded !== false, radius: FK_R, height: FK_H, landed: 0 };
@@ -1799,7 +1801,7 @@ export class Game {
       me.nadeBusy = 0.6;
       ws.reloading = false;
       vm.cancelReload();
-      vm.throwNade();
+      vm.throwNade(me.nadeKind);
       setTimeout(() => this.releaseNade(), 280);
     }
 
