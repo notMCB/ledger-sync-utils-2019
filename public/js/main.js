@@ -111,6 +111,10 @@ function onMessage(m) {
     toast(m.m);
     return;
   }
+  if (m.t === 'bugok') {
+    onBugOk(m);
+    return;
+  }
   if (m.t === 'kicked') {
     if (game.inRoom) {
       game.leave();
@@ -503,6 +507,37 @@ function openNotes() {
 }
 
 $('btn-notes').addEventListener('click', openNotes);
+// -- bug reports: a name and a description, kept on the server for the owner to read --
+$('btn-bug').addEventListener('click', () => {
+  uiBlip();
+  $('bug-name').value = $('bug-name').value || currentName();
+  $('bug-hint').textContent = '';
+  $('bug-send').disabled = false;
+  $('bugpanel').hidden = false;
+  $('bug-text').focus();
+});
+$('bug-close').addEventListener('click', () => { $('bugpanel').hidden = true; });
+$('bug-send').addEventListener('click', () => {
+  const name = $('bug-name').value.trim();
+  const text = $('bug-text').value.trim();
+  if (!name) { $('bug-hint').textContent = 'Put your name in first.'; return; }
+  if (text.length < 5) { $('bug-hint').textContent = 'Describe the bug: what happened and where.'; return; }
+  if (status !== 'online') { $('bug-hint').textContent = 'Not connected to the server right now. Try again in a moment.'; return; }
+  sayHello();
+  net.send({ t: 'bug', name, text });
+  $('bug-send').disabled = true;
+  $('bug-hint').textContent = 'Sending…';
+});
+function onBugOk(m) {
+  if (m.ok) {
+    $('bug-text').value = '';
+    $('bugpanel').hidden = true;
+    toast('Thanks. Your report is in: an agent will fix it for the next patch.');
+  } else {
+    $('bug-send').disabled = false;
+    $('bug-hint').textContent = m.m || 'Could not send that.';
+  }
+}
 $('btn-notes-close').addEventListener('click', () => {
   $('notes').hidden = true;
   unlockAudio();

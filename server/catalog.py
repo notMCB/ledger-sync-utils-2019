@@ -6,7 +6,7 @@ tools/test_catalog.py checks the two lists agree.
 
 import random
 
-GUNS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife']
+GUNS = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife', 'heavy', 'revolver', 'flamer']
 
 RARITY_WEIGHTS = {'common': 55, 'uncommon': 25, 'rare': 13, 'epic': 5.5, 'legendary': 1.5}
 # the Bazaar Case has no commons and better odds at the top
@@ -137,15 +137,16 @@ def roll(kind, rng=random):
 STARTING_DINARS = 300
 
 
-GUN_ATTACH_SLOTS = ('optic', 'muzzle', 'mag', 'ammo', 'trigger', 'laser')
+GUN_ATTACH_SLOTS = ('optic', 'muzzle', 'mag', 'ammo', 'trigger', 'laser', 'grip', 'barrel')
 # the choices a loadout has (keyed by loadout number as a string); the first is the default
 NADE_CHOICES = {'0': ('frag',), '1': ('frag', 'smoke'), '2': ('frag', 'flash'), '3': ('frag',)}
 PERK_CHOICES = {'0': ('ammo',), '1': ('med', 'wall'), '2': ('ladder',), '3': ('beacon', 'drone')}
+PRIMARY_CHOICES = {'0': ('smg',), '1': ('lmg',), '2': ('shotgun', 'flamer'), '3': ('sniper', 'heavy')}
 
 
 def new_locker():
     return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {},
-            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}}, 'opened': 0}
+            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}}, 'opened': 0}
 
 
 def clean_locker(d, dinar_cap=None):
@@ -188,13 +189,13 @@ def clean_locker(d, dinar_cap=None):
 
 def clean_equip(e, locker):
     """Equipped items, dropping anything the locker doesn't own."""
-    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}}
+    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}}
     if not isinstance(e, dict):
         return res
     if e.get('outfit') in locker['outfits']:
         res['outfit'] = e['outfit']
     g = e.get('guns') if isinstance(e.get('guns'), dict) else {}
-    for w in ('smg', 'lmg', 'shotgun', 'sniper', 'knife'):
+    for w in ('smg', 'lmg', 'shotgun', 'sniper', 'knife', 'heavy', 'revolver', 'flamer'):
         f = g.get(w)
         if isinstance(f, str) and '%s:%s' % (w, f) in locker['guns']:
             res['guns'][w] = f
@@ -211,6 +212,14 @@ def clean_equip(e, locker):
     for ld, opts in PERK_CHOICES.items():
         if pk.get(ld) in opts:
             res['perk'][ld] = pk[ld]
+    pw = e.get('primary') if isinstance(e.get('primary'), dict) else {}
+    for ld, opts in PRIMARY_CHOICES.items():
+        if pw.get(ld) in opts:
+            res['primary'][ld] = pw[ld]
+    sw = e.get('secondary') if isinstance(e.get('secondary'), dict) else {}
+    for ld in ('0', '1', '2', '3'):
+        if sw.get(ld) in ('pistol', 'revolver'):
+            res['secondary'][ld] = sw[ld]
     # fitted attachments: ids are checked against the kills the player has in the game
     at = e.get('attach') if isinstance(e.get('attach'), dict) else {}
     for wpn, fitted in at.items():

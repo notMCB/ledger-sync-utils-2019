@@ -53,7 +53,35 @@ export const WEAPONS = {
     recoilUp: 0.02, recoilSide: 0.006, kick: 0.07,
     tracer: 0xffd27a, sound: 'pistol',
   },
+  // the Marksman's other rifle: one round, one kill, and the whole town hears it
+  heavy: {
+    id: 'heavy', name: 'Kabir .50', short: 'Heavy', auto: false, rpm: 30, mag: 1, reserve: 8,
+    reload: 3.4, pellets: 1, dmg: 130, range: 400, bolt: true, oneShot: true,
+    base: 8.0, bloomShot: 5, bloomMax: 8, recover: 4, move: 6, air: 10,
+    adsMul: 0.003, sight: 'scope', zoom: 8.0, adsTime: 0.6, moveMul: 0.72, turnMul: 0.85, reticle: 'tri',
+    recoilUp: 0.11, recoilSide: 0.015, kick: 0.22,
+    tracer: 0xfff2c0, sound: 'heavy',
+  },
+  // the other secondary: a silver six-shooter that reaches out
+  revolver: {
+    id: 'revolver', name: 'Asad .44', short: 'Revolver', auto: false, rpm: 150, mag: 6, reserve: 24,
+    reload: 2.4, pellets: 1, dmg: 40, range: 160,
+    base: 0.75, bloomShot: 0.7, bloomMax: 3.0, recover: 7, move: 1.0, air: 4,
+    adsMul: 0.3, sight: 'irons', zoom: 1.25, adsTime: 0.15, moveMul: 1.05,
+    recoilUp: 0.032, recoilSide: 0.007, kick: 0.1,
+    tracer: 0xffe0a0, sound: 'revolver',
+  },
+  // the Breacher's other primary: a flamethrower, fuel instead of rounds
+  flamer: {
+    id: 'flamer', name: 'Nar Flamethrower', short: 'Flamer', auto: true, rpm: 400, mag: 100, reserve: 0,
+    reload: 0, pellets: 3, dmg: 3, range: 4, flame: true, fuelPerShot: 0.45,
+    base: 3.0, bloomShot: 0, bloomMax: 0, recover: 9, move: 0.5, air: 1,
+    adsMul: 1.0, sight: 'irons', zoom: 1.05, adsTime: 0.14, moveMul: 0.9, crosshair: 'circle',
+    recoilUp: 0.0, recoilSide: 0.0, kick: 0.01,
+    tracer: 0xff9a4a, sound: 'flamer',
+  },
 };
+WEAPONS.shotgun.crosshair = 'circle';
 
 // Each loadout's perk. Uses are per life.
 export const PERKS = {
@@ -66,19 +94,23 @@ export const PERKS = {
 };
 
 export const LOADOUTS = [
-  { id: 0, weapon: 'smg', perk: 'ammo', perks: ['ammo'], nadeKinds: ['frag'], nades: 3, title: 'Assault', blurb: 'Fast-firing SMG and three grenades. Quick to aim, strong up close. Kills with it unlock attachments.' },
-  { id: 1, weapon: 'lmg', perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
-  { id: 2, weapon: 'shotgun', perk: 'ladder', perks: ['ladder'], nadeKinds: ['frag', 'flash'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun, devastating in rooms and doorways. Frag or flash grenades.' },
-  { id: 3, weapon: 'sniper', perk: 'beacon', perks: ['beacon', 'drone'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope. One headshot kills. Drops a recon beacon, or flies a bomb drone.' },
+  { id: 0, weapon: 'smg', weapons: ['smg'], perk: 'ammo', perks: ['ammo'], nadeKinds: ['frag', 'molotov'], nades: 3, title: 'Assault', blurb: 'Fast-firing SMG and three grenades, or two molotovs. Quick to aim, strong up close. Kills with it unlock attachments.' },
+  { id: 1, weapon: 'lmg', weapons: ['lmg'], perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
+  { id: 2, weapon: 'shotgun', weapons: ['shotgun', 'flamer'], perk: 'ladder', perks: ['ladder'], nadeKinds: ['frag', 'flash', 'molotov'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun or a flamethrower, devastating in rooms and doorways. Frag, flash or molotov.' },
+  { id: 3, weapon: 'sniper', weapons: ['sniper', 'heavy'], perk: 'beacon', perks: ['beacon', 'drone'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope, or the one-shot .50. Drops a recon beacon, or flies a bomb drone.' },
 ];
 
 export const NADES_PER_LIFE = 2;
-export const nadesFor = (ld, kind = 'frag') => (LOADOUTS[ld] ? LOADOUTS[ld].nades : 2);
+// molotovs come two to a life whoever carries them
+export const nadesFor = (ld, kind = 'frag') => (kind === 'molotov' ? 2 : LOADOUTS[ld] ? LOADOUTS[ld].nades : 2);
 export const NADE_INFO = {
   frag: { id: 'frag', name: 'Frag', blurb: 'Explodes — up to 125 damage' },
   flash: { id: 'flash', name: 'Flash', blurb: 'Blinds anyone looking — no damage' },
   smoke: { id: 'smoke', name: 'Smoke', blurb: 'A thick cloud, fifteen metres across, for 15 seconds — no damage' },
+  molotov: { id: 'molotov', name: 'Molotov', blurb: 'Half a frag’s blast, then 3 m of fire for 15 seconds. Anyone it touches burns for 10 seconds after — 5 a second. Two a life.' },
 };
+// the secondaries every loadout may carry
+export const SECONDARIES = ['pistol', 'revolver'];
 
 // nothing is suppressed out of the box any more: fit a suppressor to a gun
 // in the Locker and it turns quiet, flashes less and keeps you off enemy minimaps

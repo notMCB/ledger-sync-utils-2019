@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { locker, CRATES, roll } from './locker.js';
 import { FINISHES, FINISH, OUTFITS, OUTFIT, RARITY, swatch, tickSkins } from './skins.js';
-import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, nadesFor } from './weapons.js';
+import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, SECONDARIES, nadesFor } from './weapons.js';
 import { buildPreviewGun } from './viewmodel.js';
 import { Avatar } from './avatars.js';
 import { settings, saveSettings, keyName } from './settings.js';
@@ -174,7 +174,7 @@ function renderLoadouts(host) {
   LOADOUTS.forEach((L, i) => {
     const b = document.createElement('button');
     b.className = 'lk-ld' + (i === ldSel ? ' on' : '');
-    b.innerHTML = `<span class="ld-title">${L.title}</span><span class="ld-gun">${WEAPONS[L.weapon].name}</span>` +
+    b.innerHTML = `<span class="ld-title">${L.title}</span><span class="ld-gun">${WEAPONS[locker.primaryFor(i)].name}</span>` +
       `<span class="ld-perk">${PERKS[locker.perkFor(i)].name}</span>${i === inUse ? '<span class="lk-inuse">In use</span>' : ''}`;
     b.addEventListener('click', () => {
       ldSel = i;
@@ -206,17 +206,35 @@ function renderLoadouts(host) {
   head.appendChild(use);
   detail.appendChild(head);
 
-  const prim = section(`Primary · ${WEAPONS[L.weapon].name}`, 'Gun skin');
-  prim.appendChild(finishRow(L.weapon, locker.equippedGun(L.weapon), (f) => locker.equipGun(L.weapon, f)));
+  // a choice of guns for some loadouts: buttons like the perk choice
+  const gunChooser = (host, ids, cur, onPick) => {
+    if (ids.length < 2) return;
+    const row = document.createElement('div');
+    row.className = 'lk-nades';
+    for (const id of ids) {
+      const b = document.createElement('button');
+      b.className = 'lk-nade' + (id === cur ? ' on' : '');
+      b.innerHTML = `<b>${esc(WEAPONS[id].name)}</b><small>${esc(GUN_BLURB[id] || '')}</small>`;
+      b.addEventListener('click', () => { onPick(id); uiBlip(); render(); });
+      row.appendChild(b);
+    }
+    host.appendChild(row);
+  };
+  const primary = locker.primaryFor(L.id);
+  const prim = section(`Primary · ${WEAPONS[primary].name}`, L.weapons.length > 1 ? 'Pick a gun, then its skin' : 'Gun skin');
+  gunChooser(prim, L.weapons, primary, (id) => locker.setPrimary(L.id, id));
+  prim.appendChild(finishRow(primary, locker.equippedGun(primary), (f) => locker.equipGun(primary, f)));
   detail.appendChild(prim);
+  if (slotsFor(primary).length) attachSection(detail, primary);
 
-  attachSection(detail, L.weapon);
-
-  const sec = section('Secondary · Nimr 9mm', 'Pistol skin for this loadout');
-  sec.appendChild(finishRow('pistol', locker.equippedPistol(ldSel), (f) => locker.equipPistol(ldSel, f)));
+  const secondary = locker.secondaryFor(L.id);
+  const sec = section(`Secondary · ${WEAPONS[secondary].name}`, 'Pick a sidearm, then its skin for this loadout');
+  gunChooser(sec, SECONDARIES, secondary, (id) => locker.setSecondary(L.id, id));
+  if (secondary === 'revolver') sec.appendChild(finishRow('revolver', locker.equippedGun('revolver'), (f) => locker.equipGun('revolver', f)));
+  else sec.appendChild(finishRow('pistol', locker.equippedPistol(ldSel), (f) => locker.equipPistol(ldSel, f)));
   detail.appendChild(sec);
-  // the pistol is the same gun for every class, so its attachments follow you
-  attachSection(detail, 'pistol', 'The same pistol for every class — these follow you.');
+  // the sidearm is the same gun for every class, so its attachments follow you
+  attachSection(detail, secondary, 'The same sidearm for every class — these follow you.');
 
   const kn = section(`Melee · ${WEAPONS.knife.name}`, `Two hits up close · draw it with ${keyName(settings.binds.melee)}`);
   kn.appendChild(finishRow('knife', locker.equippedGun('knife'), (f) => locker.equipGun('knife', f)));
@@ -283,6 +301,13 @@ function renderLoadouts(host) {
 }
 
 // attachments for one gun, with everything you haven't unlocked yet greyed out
+const GUN_BLURB = {
+  shotgun: 'Pump action, nine pellets a shell', flamer: 'Four metres of fire, 100 fuel',
+  sniper: 'Bolt action, 6× scope, one headshot', heavy: 'One round, one kill, slow and loud',
+  pistol: '12 rounds, quick and light', revolver: 'Six rounds, long reach, three to kill',
+  smg: '', lmg: '',
+};
+
 function attachSection(detail, weapon, note) {
   if (!ATTACHMENTS[weapon]) return;
   const kills = locker.killsWith(weapon);

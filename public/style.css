@@ -219,6 +219,16 @@ button { cursor: pointer; }
 #crosshair .l, #crosshair .r { height: 2px; width: 9px; top: -1px; }
 #crosshair .dot { position: absolute; width: 2px; height: 2px; left: -1px; top: -1px; background: #f4f0e6; }
 #crosshair.enemy .ch, #crosshair.enemy .dot { background: #ff6a55; }
+#crosshair .ring { display: none; position: absolute; border: 2px solid #f4f0e6; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.55); }
+#crosshair.circle .ring { display: block; }
+#crosshair.circle .ch { display: none; }
+#crosshair.enemy .ring { border-color: #ff6a55; }
+#burn { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.15s; background: radial-gradient(ellipse at center, transparent 35%, rgba(255, 110, 20, 0.55) 80%, rgba(255, 60, 0, 0.85) 100%); }
+#scope .scope-tri { display: none; position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -14px 0 0 -9px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 16px solid rgba(60, 255, 90, 0.95); filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
+#scope.tri .scope-tri { display: block; }
+#scope.tri .scope-h, #scope.tri .scope-v, #scope.tri .scope-mils { display: none; }
+.bug-panel { width: min(560px, 100%); display: grid; gap: 10px; }
+.bug-panel textarea { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border-radius: 4px; border: 1px solid rgba(239, 228, 207, 0.25); background: rgba(18, 21, 28, 0.6); color: var(--plaster); resize: vertical; }
 #hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; transition: opacity 0.2s; }
 #hitmarker i { position: absolute; width: 11px; height: 2px; background: #fff; box-shadow: 0 0 2px #000; }
 #hitmarker i:nth-child(1) { transform: translate(-15px, -10px) rotate(45deg); }

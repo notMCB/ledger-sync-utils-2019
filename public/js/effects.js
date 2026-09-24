@@ -42,6 +42,9 @@ export class Effects {
     this.nadeMat = new THREE.MeshStandardMaterial({ color: '#4a5236', roughness: 0.7, metalness: 0.2 });
     this.flashNadeMat = new THREE.MeshStandardMaterial({ color: '#c9ccd1', roughness: 0.4, metalness: 0.5 });
     this.smokeNadeMat = new THREE.MeshStandardMaterial({ color: '#6f7a6a', roughness: 0.8, metalness: 0.3 });
+    this.bottleMat = new THREE.MeshStandardMaterial({ color: '#3f6b3a', roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 });
+    this.ragMat = new THREE.MeshBasicMaterial({ color: '#ffb03a' });
+    this.fires = [];       // burning patches: { pos, t, life }
     this.nades = [];
     this.shake = 0;
   }
@@ -52,7 +55,7 @@ export class Effects {
     for (const h of this.holes) this.group.remove(h);
     for (const n of this.nades) this.group.remove(n.mesh);
     for (const f of this.flashes) this.group.remove(f.s);
-    this.tracers = []; this.particles = []; this.holes = []; this.nades = []; this.flashes = [];
+    this.tracers = []; this.particles = []; this.holes = []; this.nades = []; this.flashes = []; this.fires = [];
   }
 
   tracer(from, to, color = 0xffd27a, width = 1) {
@@ -101,6 +104,38 @@ export class Effects {
     this.group.add(s);
     // hold: the fraction of its life a particle stays at full strength before fading
     this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity, hold });
+  }
+
+  // a burning patch about three metres across, fed with flame and smoke for `life` seconds
+  fireZone(pos, life) {
+    this.fires.push({ pos: pos.clone(), t: 0, life, next: 0 });
+    this.light(pos.clone().add(new THREE.Vector3(0, 0.6, 0)), 30, 0xff8030, 0.5);
+    for (let i = 0; i < 12; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.6 + 0.2, Math.random() - 0.5).multiplyScalar(6);
+      this.particle(this.fireTex, pos.clone().add(new THREE.Vector3(0, 0.2, 0)), v, 0.7, 2.5, 0.5 + Math.random() * 0.3, -1, 1, true);
+    }
+  }
+
+  // the tongue of a flamethrower: a burst of fire particles along the lance
+  flame(origin, dir, len) {
+    for (let i = 0; i < 4; i++) {
+      const d = dir.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.2 + 0.05, (Math.random() - 0.5) * 0.25)).normalize();
+      const v = d.multiplyScalar(len * 2.2 + Math.random() * 2);
+      this.particle(this.fireTex, origin.clone().addScaledVector(dir, 0.2), v, 0.35, 5, 0.45, -3, 0.95, true);
+    }
+    if (Math.random() < 0.35) {
+      const v = dir.clone().multiplyScalar(len * 1.4).add(new THREE.Vector3(0, 1.2, 0));
+      this.particle(this.smokeTex, origin.clone().addScaledVector(dir, 0.6), v, 0.5, 4, 1.4, -0.3, 0.5);
+    }
+  }
+
+  // flames licking round someone who is on fire
+  burning(pos) {
+    for (let i = 0; i < 2; i++) {
+      const start = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.3 + Math.random() * 1.2, (Math.random() - 0.5) * 0.5));
+      const v = new THREE.Vector3((Math.random() - 0.5) * 0.6, 1.5 + Math.random(), (Math.random() - 0.5) * 0.6);
+      this.particle(this.fireTex, start, v, 0.3, 2, 0.35 + Math.random() * 0.2, -2, 1, true);
+    }
   }
 
   // a smoke grenade: a thick cloud about fifteen metres across that hangs for 15 seconds
@@ -185,7 +220,22 @@ export class Effects {
   // grenades are simulated the same way on every screen from the thrower's
   // starting point and velocity; the thrower's copy decides where it goes off
   throwNade(owner, nid, origin, vel, local, onBoom, kind = 'frag') {
-    const mesh = new THREE.Mesh(this.nadeGeo, kind === 'flash' ? this.flashNadeMat : kind === 'smoke' ? this.smokeNadeMat : this.nadeMat);
+    let mesh;
+    if (kind === 'molotov') {
+      // a bottle with a burning rag
+      mesh = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.16, 10), this.bottleMat);
+      mesh.add(body);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.02, 0.07, 8), this.bottleMat);
+      neck.position.y = 0.11;
+      mesh.add(neck);
+      const rag = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.05, 0.03), this.ragMat);
+      rag.position.y = 0.16;
+      mesh.add(rag);
+      mesh.rotation.z = 0.8;
+    } else {
+      mesh = new THREE.Mesh(this.nadeGeo, kind === 'flash' ? this.flashNadeMat : kind === 'smoke' ? this.smokeNadeMat : this.nadeMat);
+    }
     mesh.position.copy(origin);
     mesh.castShadow = false;
     this.group.add(mesh);
@@ -204,6 +254,27 @@ export class Effects {
   }
 
   update(dt, physics, camera, fuse) {
+    // burning patches keep feeding flames
+    for (let i = this.fires.length - 1; i >= 0; i--) {
+      const f = this.fires[i];
+      f.t += dt;
+      if (f.t >= f.life) { this.fires.splice(i, 1); continue; }
+      f.next -= dt;
+      const dying = f.t > f.life - 3 ? (f.life - f.t) / 3 : 1;
+      while (f.next <= 0) {
+        f.next += 0.05;
+        for (let k = 0; k < 2; k++) {
+          const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 1.45 * dying;
+          const start = f.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.05, Math.sin(a) * r));
+          const v = new THREE.Vector3((Math.random() - 0.5) * 0.5, 1.6 + Math.random() * 1.6, (Math.random() - 0.5) * 0.5);
+          this.particle(this.fireTex, start, v, 0.45 + Math.random() * 0.4, 1.8, 0.45 + Math.random() * 0.3, -2, dying, true);
+        }
+        if (Math.random() < 0.5) {
+          const a = Math.random() * Math.PI * 2, r = Math.random() * 1.2;
+          this.particle(this.smokeTex, f.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0.8, Math.sin(a) * r)), new THREE.Vector3(0, 1.4, 0), 0.7, 3, 2.2, -0.2, 0.55 * dying);
+        }
+      }
+    }
     // tracers
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const tr = this.tracers[i];

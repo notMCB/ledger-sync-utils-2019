@@ -66,7 +66,7 @@ export class Hud {
     this.lastAmmo = key;
     const m = $('ammo-mag');
     const melee = !!ws.def.melee;
-    m.textContent = melee ? '—' : ws.mag;
+    m.textContent = melee ? '—' : ws.def.flame ? `${Math.ceil(ws.mag)}%` : ws.mag;
     document.querySelector('.ammo .sep').style.visibility = melee ? 'hidden' : '';
     m.classList.toggle('low', !melee && ws.mag <= Math.ceil(ws.def.mag * 0.25));
     $('ammo-res').textContent = melee ? '' : ws.reserve;
@@ -105,7 +105,7 @@ export class Hud {
     }
   }
 
-  crosshair(gapPx, visible, enemy) {
+  crosshair(gapPx, visible, enemy, style = 'lines') {
     this.ch.style.display = visible ? '' : 'none';
     if (!visible) return;
     const g = Math.round(Math.max(3, Math.min(160, gapPx)));
@@ -115,6 +115,21 @@ export class Hud {
     l.style.left = `${-g - 9}px`;
     r.style.left = `${g}px`;
     this.ch.classList.toggle('enemy', enemy);
+    // a ring with a dot for the spread guns: its radius is the spread
+    this.ch.classList.toggle('circle', style === 'circle');
+    if (style === 'circle') {
+      const ring = this.ch.querySelector('.ring');
+      const d = g * 2 + 8;
+      ring.style.width = ring.style.height = `${d}px`;
+      ring.style.left = ring.style.top = `${-d / 2}px`;
+    }
+  }
+
+  // being on fire: the edges of the screen glow
+  burn(k) {
+    const el = $('burn');
+    const o = Math.max(0, Math.min(1, k)).toFixed(2);
+    if (el.style.opacity !== o) el.style.opacity = o;
   }
 
   hit(kill, head, blocked) {
@@ -139,7 +154,8 @@ export class Hud {
   feedKill(ev, myId) {
     const row = document.createElement('div');
     row.className = 'kf' + (ev.k === myId || ev.v === myId ? ' me' : '');
-    const wname = ev.w === 'nade' ? 'grenade' : ev.w === 'bomb' ? 'bomb' : (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
+    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', fire: 'fire', molotov: 'molotov' };
+    const wname = names[ev.w] || (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {
       const helpers = ev.as && ev.as.length ? `<span class="as" style="color:${kc}">+ ${esc(ev.as.join(', '))}</span>` : '';
@@ -196,8 +212,9 @@ export class Hud {
     p.querySelector('.bar').style.visibility = progress === undefined ? 'hidden' : 'visible';
   }
 
-  scope(on) {
+  scope(on, reticle = 'cross') {
     $('scope').hidden = !on;
+    $('scope').classList.toggle('tri', reticle === 'tri');
   }
 
   top(g, myTeam, myId, roster, localTime) {

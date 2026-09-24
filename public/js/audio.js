@@ -105,16 +105,19 @@ const GUN = {
   shotgun: { crack: [1400, 200, 0.22, 1.0], body: [90, 35, 0.2, 1.0], tail: 0.6 },
   sniper:  { crack: [3200, 300, 0.2, 1.0], body: [80, 30, 0.25, 1.0], tail: 0.9 },
   pistol:  { crack: [2900, 800, 0.08, 0.75], body: [160, 70, 0.07, 0.45], tail: 0.22 },
+  heavy:   { crack: [2400, 150, 0.4, 1.0], body: [55, 18, 0.6, 1.0], tail: 1.8 },
+  revolver: { crack: [2500, 600, 0.13, 0.9], body: [120, 45, 0.13, 0.75], tail: 0.45 },
 };
 
 export function gunshot(weapon, pos, local, suppressed = false) {
   if (!ensure()) return;
   if (suppressed) return suppressedShot(weapon, pos, local);
-  const sp = spatial(pos, weapon === 'sniper' ? 160 : 110);
+  // the .50 carries across the whole town
+  const sp = spatial(pos, weapon === 'heavy' ? 420 : weapon === 'sniper' ? 160 : 110);
   if (!sp) return;
   const g = GUN[weapon] || GUN.smg;
   const t = ctx.currentTime;
-  sp.input.gain.value = sp.gain * (local ? 0.55 : 0.8);
+  sp.input.gain.value = sp.gain * (local ? 0.55 : 0.8) * (weapon === 'heavy' ? 1.3 : 1);
   sp.output.connect(master);
   const [c0, c1, cd, cv] = g.crack;
   noiseBurst(sp.input, t, cd, c0 * (0.95 + Math.random() * 0.1), c1, 0.7, cv);
@@ -326,6 +329,23 @@ export function flashPop(pos) {
   const t = ctx.currentTime;
   noiseBurst(sp.input, t, 0.35, 4000, 600, 0.4, 1.0);
   thump(sp.input, t, 140, 50, 0.25, 0.7);
+}
+
+// a flamethrower's roar: a short low rush, called every tick while it fires
+export function flame(pos, local) {
+  if (!ensure()) return;
+  const sp = spatial(pos, 60);
+  if (!sp) return;
+  sp.input.gain.value = sp.gain * (local ? 0.35 : 0.5);
+  sp.output.connect(master);
+  noiseBurst(sp.input, ctx.currentTime, 0.16, 500 + Math.random() * 200, 180, 0.6, 0.5, 'lowpass');
+}
+
+// the crackle of being on fire
+export function burnCrackle() {
+  if (!ensure()) return;
+  const t = ctx.currentTime;
+  noiseBurst(master, t, 0.12, 2400, 900, 1.2, 0.18, 'bandpass');
 }
 
 // a smoke grenade: a pop, then a long hiss as it pours out

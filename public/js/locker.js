@@ -7,7 +7,7 @@
 
 import { RARITIES, FINISHES, OUTFITS, GUN_IDS, FINISH, OUTFIT } from './skins.js';
 import { clean as cleanAttach, HAS_ATTACHMENTS } from './attachments.js';
-import { LOADOUTS, PERKS } from './weapons.js';
+import { LOADOUTS, PERKS, SECONDARIES } from './weapons.js';
 
 export const CRATES = {
   gun: { id: 'gun', name: 'Armory Crate', price: 100, blurb: 'One random gun finish for one of your five guns.' },
@@ -45,6 +45,8 @@ function normalise(s) {
   s.equip.nade = s.equip.nade || {};
   s.equip.attach = s.equip.attach || {};
   s.equip.perk = s.equip.perk || {};
+  s.equip.primary = s.equip.primary || {};
+  s.equip.secondary = s.equip.secondary || {};
   s.kills = s.kills && typeof s.kills === 'object' ? s.kills : {};
   // older guest lockers kept one pistol finish for every loadout
   if (s.equip.guns.pistol) {
@@ -341,9 +343,36 @@ export const locker = {
     this.saved();
   },
 
+  // the primary this loadout carries, out of the guns it may choose from
+  primaryFor(ld) {
+    const L = LOADOUTS[ld];
+    if (!L) return 'smg';
+    const want = state().equip.primary[String(ld)];
+    return L.weapons.includes(want) ? want : L.weapons[0];
+  },
+
+  setPrimary(ld, id) {
+    const L = LOADOUTS[ld];
+    if (!L || !L.weapons.includes(id)) return;
+    state().equip.primary[String(ld)] = id;
+    this.saved();
+  },
+
+  // the secondary: the same choice for every loadout, but remembered per loadout
+  secondaryFor(ld) {
+    const want = state().equip.secondary[String(ld)];
+    return SECONDARIES.includes(want) ? want : SECONDARIES[0];
+  },
+
+  setSecondary(ld, id) {
+    if (!SECONDARIES.includes(id)) return;
+    state().equip.secondary[String(ld)] = id;
+    this.saved();
+  },
+
   // what the server needs to know about a loadout beyond its number
   picks(ld) {
-    return { pk: this.perkFor(ld), nk: this.nadeFor(ld) };
+    return { pk: this.perkFor(ld), nk: this.nadeFor(ld), pw: this.primaryFor(ld), sw: this.secondaryFor(ld) };
   },
 
   equipGun(weapon, finish) {
@@ -383,11 +412,16 @@ export const locker = {
   // what other players should see for a loadout, sent to the server
   cosmetics(ld = 0) {
     const g = {};
-    const primary = PRIMARY[ld] || 'smg';
+    const primary = this.primaryFor(ld);
     const f = this.equippedGun(primary);
     if (f) g[primary] = f;
-    const p = this.equippedPistol(ld);
-    if (p) g.pistol = p;
+    if (this.secondaryFor(ld) === 'revolver') {
+      const r = this.equippedGun('revolver');
+      if (r) g.revolver = r;
+    } else {
+      const p = this.equippedPistol(ld);
+      if (p) g.pistol = p;
+    }
     const k = this.equippedGun('knife');
     if (k) g.knife = k;
     return { o: this.equippedOutfit(), g };

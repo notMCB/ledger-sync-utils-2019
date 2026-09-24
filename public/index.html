@@ -31,7 +31,8 @@
   <div id="area"></div>
   <div id="fullmap" hidden><canvas id="fullmap-canvas" width="900" height="900"></canvas><div id="fullmap-hint"></div></div>
   <div id="markers"></div>
-  <div id="crosshair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="dot"></i></div>
+  <div id="crosshair"><i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="ring"></i><i class="dot"></i></div>
+  <div id="burn"></div>
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
   <div id="dmgdirs"></div>
   <div id="vignette"></div>
@@ -40,6 +41,7 @@
     <div class="scope-ring"></div>
     <div class="scope-h"></div><div class="scope-v"></div>
     <div class="scope-mils"></div>
+    <div class="scope-tri"></div>
   </div>
   <div id="center"><div id="center-big"></div><div id="center-small"></div></div>
   <div id="prompt" hidden><div id="prompt-text"></div><div class="bar"><i id="prompt-bar"></i></div></div>
@@ -121,6 +123,20 @@
       <button class="btn ghost" id="btn-loadout">Loadout</button>
       <button class="btn ghost" id="btn-settings">Settings</button>
       <button class="btn ghost" id="btn-notes">Patch notes</button>
+      <button class="btn ghost" id="btn-bug">Report a bug</button>
+    </div>
+  </div>
+  <div class="overlay dim" id="bugpanel" hidden>
+    <div class="panel bug-panel">
+      <h2>Report a bug</h2>
+      <p class="panel-sub">Tell us what went wrong and where. Once you submit it, an agent will fix it for the next patch.</p>
+      <label class="field"><span>Your name</span><input id="bug-name" maxlength="40" autocomplete="off" spellcheck="false" placeholder="So we can credit the find"></label>
+      <label class="field"><span>The bug</span><textarea id="bug-text" maxlength="2000" rows="6" placeholder="What happened, what you expected, which map and mode, and how to make it happen again"></textarea></label>
+      <p class="auth-hint" id="bug-hint"></p>
+      <div class="panel-buttons">
+        <button class="btn" id="bug-send">Submit</button>
+        <button class="btn ghost" id="bug-close">Cancel</button>
+      </div>
     </div>
   </div>
   <aside class="browser">

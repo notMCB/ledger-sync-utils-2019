@@ -253,6 +253,9 @@ export class Game {
       case 'supply': return this.onCrate(m);
       case 'wall': return this.onWall(m);
       case 'drone': return this.onDrone(m);
+      case 'fire':
+        if (!m.off && m.p) this.fx.fireZone(new THREE.Vector3(...m.p), m.life || 15);
+        return;
       case 'fk': {
         const wasMine = this.driving === m.id;
         this.onForklift(m);
@@ -428,6 +431,18 @@ export class Game {
     me.grounded = true;
     F.mesh.position.copy(F.pos);
     F.mesh.rotation.y = F.yaw;
+    // roadkill: anyone the truck runs into goes under it
+    const teamMode = this.isTeamMode() && !this.warmup();
+    for (const a of this.avatars.map.values()) {
+      if (!a.alive || (teamMode && a.team === me.team)) continue;
+      if (Math.hypot(a.pos.x - F.pos.x, a.pos.z - F.pos.z) < 1.7 && Math.abs(a.pos.y - F.pos.y) < 1.5) {
+        F.hitAt = F.hitAt || new Map();
+        if (this.clock - (F.hitAt.get(a.id) || -9) > 1.0) {
+          F.hitAt.set(a.id, this.clock);
+          if (!this.offline) this.send({ t: 'roadkill', id: a.id });
+        }
+      }
+    }
     F.sendT = (F.sendT || 0) - dt;
     if (F.sendT <= 0 && !this.offline) {
       F.sendT = 1 / SEND_HZ;
@@ -530,16 +545,17 @@ export class Game {
     me.nadeKind = locker.nadeFor(ld);
     me.perkLeft = PERKS[locker.perkFor(ld)].uses;
     me.nades = Math.min(me.nades, nadesFor(ld, me.nadeKind));
-    const primary = LOADOUTS[ld].weapon;
+    const primary = locker.primaryFor(ld);
+    const secondary = locker.secondaryFor(ld);
     const fitted = locker.attachFor(primary);
-    const pistolFit = locker.attachFor('pistol');
+    const pistolFit = locker.attachFor(secondary);
     me.weapons = {
       primary: makeWeaponState(primary, fitted),
-      pistol: makeWeaponState('pistol', pistolFit),
+      pistol: makeWeaponState(secondary, pistolFit),
       knife: makeWeaponState('knife'),
     };
     this.vm.setAttachments(primary, fitted);
-    this.vm.setAttachments('pistol', pistolFit);
+    this.vm.setAttachments(secondary, pistolFit);
     me.slot = 'primary';
     this.vm.setSkins(locker.cosmetics(ld).g);
     this.vm.setWeapon(primary);
@@ -771,6 +787,12 @@ export class Game {
   }
 
   detonate(p, kind) {
+    if (kind === 'molotov') {
+      this.fx.explosion(p);
+      sfx.explosion(p);
+      this.shakeFrom(p, 10);
+      return;   // the burning patch itself comes from the server
+    }
     if (kind === 'smoke') {
       this.fx.smoke(p);
       sfx.smokePop(p);
@@ -1176,6 +1198,13 @@ export class Game {
         this.placeForklift(F);
       }
     }
+    // being on fire: the screen glows at the edges until the flames go out
+    this.burnT = Math.max(0, (this.burnT || 0) - dt);
+    this.hud.burn(this.me.alive ? this.burnT : 0);
+    // flames on anyone who is burning
+    for (const a of this.avatars.map.values()) {
+      if (a.alive && a.burning && Math.random() < dt * 30) this.fx.burning(a.pos);
+    }
     for (const D of this.drones.values()) {
       D.t += dt;
       if (!(this.drone && D.owner === this.myId)) D.pos.lerp(D.target, Math.min(1, dt * 10));
@@ -1213,6 +1242,10 @@ export class Game {
   }
 
   onHurt(m) {
+    if (m.fire) {
+      this.burnT = 1.2;
+      if (!this.burnTick || this.clock - this.burnTick > 0.5) { this.burnTick = this.clock; sfx.burnCrackle(); }
+    }
     this.me.hp = m.hp;
     this.hud.setHP(m.hp);
     let angle = null;
@@ -1278,7 +1311,7 @@ export class Game {
       const adsMul = 1 + (settings.adsSens / Math.max(1, zoom * 0.9) - 1) * me.adsK;
       // aim help: slow the turn a little while the crosshair is over an enemy
       const help = settings.aimAssist && this.aimCached && !this.drone ? 0.62 : 1;
-      const k = 0.0022 * settings.sens * adsMul * help;
+      const k = 0.0022 * settings.sens * adsMul * help * (ws && ws.def.turnMul && !this.drone ? ws.def.turnMul : 1);
       const who = this.drone || me;   // flying the drone turns the drone, not you
       who.yaw -= mx * k;
       who.pitch -= my * k * (settings.invertY ? -1 : 1);
@@ -1731,7 +1764,7 @@ export class Game {
     me.adsK = Math.max(0, Math.min(1, me.adsK + (canAim ? 1 : -1) * dt / d.adsTime));
     const scoped = d.sight === 'scope' && me.adsK > 0.92;
     vm.scoped = scoped;
-    this.hud.scope(scoped);
+    this.hud.scope(scoped, d.reticle || 'cross');
 
     // bloom recovers once you let go
     if (now - ws.lastShot > (60 / d.rpm) * 1.4) ws.bloom = Math.max(0, ws.bloom - d.recover * dt);
@@ -1800,6 +1833,9 @@ export class Game {
       }
     } else if (input.pressed('reload') && ws.mag < d.mag && ws.reserve > 0 && me.nadeBusy <= 0) {
       this.startReload(ws);
+    } else if (me.autoReloadAt && now >= me.autoReloadAt) {
+      me.autoReloadAt = 0;
+      if (ws.mag < d.mag && ws.reserve > 0 && !ws.reloading) this.startReload(ws);
     }
 
     // firing
@@ -1827,6 +1863,8 @@ export class Game {
         this.fire(ws);
         if (d.bolt && ws.mag > 0) me.boltPending = now + 0.18;
         if (d.perShell && ws.mag > 0) me.pumpPending = now + 0.14;
+        // one round, then the whole reload, every time
+        if (d.oneShot && ws.mag <= 0 && ws.reserve > 0) me.autoReloadAt = now + 0.55;
       }
     }
   }
@@ -1934,6 +1972,7 @@ export class Game {
     const d = ws.def;
     const cam = this.camera;
     cam.updateMatrixWorld();
+    if (d.flame) return this.fireFlame(ws);
     ws.mag--;
     ws.lastShot = this.clock;
     me.lastFire = this.clock;
@@ -2016,6 +2055,48 @@ export class Game {
     if (pr.length) msg.pr = pr;
     if (droneHits.length) msg.dh = droneHits;
     this.send(msg);
+  }
+
+  // the flamethrower: a fan of short rays, everyone they touch is burned this tick
+  fireFlame(ws) {
+    const me = this.me;
+    const d = ws.def;
+    const cam = this.camera;
+    ws.mag = Math.max(0, ws.mag - d.fuelPerShot);
+    ws.lastShot = this.clock;
+    me.lastFire = this.clock;
+    const origin = cam.position.clone();
+    const fwd = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const right = V().set(1, 0, 0).applyQuaternion(cam.quaternion);
+    const up = V().set(0, 1, 0).applyQuaternion(cam.quaternion);
+    const muzzle = this.vm.muzzleWorld(cam, V());
+    const phys = this.world.physics;
+    const teamMode = this.isTeamMode() && !this.warmup();
+    const skip = (a) => teamMode && a.team === me.team;
+    const hits = [];
+    const seen = new Set();
+    for (let i = 0; i < 7; i++) {
+      const a = i === 0 ? 0 : (i / 6) * Math.PI * 2;
+      const t = i === 0 ? 0 : Math.tan(THREE.MathUtils.degToRad(9));
+      const dir = fwd.clone().addScaledVector(right, Math.cos(a) * t).addScaledVector(up, Math.sin(a) * t).normalize();
+      const wh = phys.raycast(origin, dir, d.range + 0.5);
+      const wt = wh ? wh.t : d.range + 0.5;
+      const ph = this.avatars.raycast(origin, dir, wt, skip);
+      if (ph && !seen.has(ph.id) && hits.length < 3) {
+        seen.add(ph.id);
+        hits.push([ph.id, 'b']);
+        ph.avatar.showName = 1.0;
+      }
+    }
+    this.fx.flame(muzzle, fwd, d.range);
+    this.fx.light(muzzle.clone().addScaledVector(fwd, 1.5), 6, 0xff8030, 0.08);
+    sfx.flame(null, true);
+    this.vm.fire(0.004, true);
+    if (hits.length) this.send({ t: 'shot', w: d.id, q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: [], h: hits });
+    else if ((ws.flameT = (ws.flameT || 0) + 1) % 4 === 0) {
+      // let others see the flame now and then even when it hits nothing
+      this.send({ t: 'shot', w: d.id, q: 1, f: 0, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)), e: [[+(origin.x + fwd.x * d.range).toFixed(2), +(origin.y + fwd.y * d.range).toFixed(2), +(origin.z + fwd.z * d.range).toFixed(2)]], h: [] });
+    }
   }
 
   // plant or defuse while the key is held
@@ -2257,7 +2338,7 @@ export class Game {
       const spread = THREE.MathUtils.degToRad(ws.def.pelletSpread ? ws.def.pelletSpread * (1 + (0.72 - 1) * me.adsK) + ws.bloom * 0.3 : this.spreadDeg(ws));
       const px = (Math.tan(spread) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) * (window.innerHeight / 2);
       const onEnemy = this.aimTarget();
-      hud.crosshair(px, me.adsK < 0.5 && !this.vm.scoped && !this.drone, onEnemy);
+      hud.crosshair(px, me.adsK < 0.5 && !this.vm.scoped && !this.drone, onEnemy, ws.def.crosshair || 'lines');
     } else hud.crosshair(0, false, false);
     // held messages
     if (g) {

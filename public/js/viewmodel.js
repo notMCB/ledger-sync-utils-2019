@@ -9,6 +9,7 @@ import { gunMaterials } from './skins.js';
 
 const std = (color, rough = 0.6, metal = 0.3) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 const MAT = {
+  silver: std('#c9ced4', 0.28, 0.9),
   steel: std('#5a5f66', 0.45, 0.35),
   dark: std('#3c3f44', 0.55, 0.3),
   polymer: std('#5b5c55', 0.8, 0.05),
@@ -213,8 +214,19 @@ function laserModules(add, x, y, z) {
   }
 }
 
+// fore-end grips for any long gun: a straight post, an angled wedge or a stubby one
+function gripModules(add, y, z, which = ['none', 'straight', 'angled', 'short']) {
+  const kinds = {
+    none: () => {},
+    straight: (m) => box(m, 0.024, 0.055, 0.03, MAT.polymer, 0, y - 0.027, z),
+    angled: (m) => { box(m, 0.024, 0.04, 0.05, MAT.polymer, 0, y - 0.02, z - 0.01, 0.55); },
+    short: (m) => box(m, 0.03, 0.035, 0.034, MAT.polymer, 0, y - 0.017, z),
+  };
+  for (const id of which) add('grip', id, {}, kinds[id]);
+}
+
 function partSet(g) {
-  const sets = { optic: {}, muzzle: {}, mag: {}, ammo: {}, trigger: {}, laser: {} };
+  const sets = { optic: {}, muzzle: {}, mag: {}, ammo: {}, trigger: {}, laser: {}, grip: {}, barrel: {} };
   const add = (kind, id, data, build, parent) => {
     const o = new THREE.Group();
     build(o);
@@ -246,6 +258,15 @@ function attachable(gun, sets, defaults) {
     pick('ammo');
     pick('trigger');
     pick('laser');
+    pick('grip');
+    const b = pick('barrel');
+    if (b && b.userData.tip !== undefined) {
+      gun.muzzle.set(0, b.userData.my !== undefined ? b.userData.my : gun.muzzle.y, b.userData.tip);
+      if (gun.flash) {
+        gun.flash.position.copy(gun.muzzle);
+        gun.flash.position.z -= 0.03;
+      }
+    }
     if (o && o.userData.S !== undefined) {
       gun.sight = o.userData.S;
       gun.ads.set(0, -o.userData.S, o.userData.adsZ);
@@ -355,11 +376,13 @@ function buildSMG(sleeve) {
   });
   mag.position.set(0, -0.035, -0.09);
   g.add(mag);
-  const lasers = {};
+  const lasers = {}, gripsS = {};
   {
     const { sets, add } = partSet(g);
     laserModules(add, 0, -0.072, -0.2);
+    gripModules(add, -0.06, -0.15);
     Object.assign(lasers, sets.laser);
+    Object.assign(gripsS, sets.grip);
   }
 
   const h = hands(g, new THREE.Vector3(0.002, -0.085, 0.045), new THREE.Vector3(0, -0.06, -0.17), sleeve);
@@ -374,10 +397,12 @@ function buildSMG(sleeve) {
     const m = muzzles[(fitted && fitted.muzzle) || 'none'] || muzzles.none;
     const k = mags[(fitted && fitted.mag) || 'normal'] || mags.normal;
     const l = lasers[(fitted && fitted.laser) || 'none'] || lasers.none;
+    const gr = gripsS[(fitted && fitted.grip) || 'none'] || gripsS.none;
     for (const id in optics) optics[id].visible = optics[id] === o;
     for (const id in muzzles) muzzles[id].visible = muzzles[id] === m;
     for (const id in mags) mags[id].visible = mags[id] === k;
     for (const id in lasers) lasers[id].visible = lasers[id] === l;
+    for (const id in gripsS) gripsS[id].visible = gripsS[id] === gr;
     gun.sight = o.userData.S;
     gun.ads.set(0, -o.userData.S, o.userData.adsZ);
     gun.muzzle.set(0, 0.012, m.userData.tip);
@@ -457,6 +482,7 @@ function buildLMG(sleeve) {
   });
   muzzleDevices(add, 0.005, -0.73, 0.014);
   laserModules(add, 0.048, -0.005, -0.38);
+  gripModules(add, -0.042, -0.3);
   add('mag', 'normal', {}, (m) => {
     box(m, 0.1, 0.12, 0.13, MAT.tan, 0, -0.06, 0);
     box(m, 0.1, 0.02, 0.02, MAT.dark, 0, -0.11, 0.05);
@@ -501,6 +527,7 @@ function buildShotgun(sleeve) {
   add('optic', 'holo', { S: 0.092, adsZ: -0.24 }, (o) => holo(o, 0.092, -0.02, 0.035));
   muzzleDevices(add, 0.02, -0.67, 0.015, ['none', 'suppressor']);
   laserModules(add, 0.036, -0.004, -0.45);
+  gripModules(add, -0.04, -0.52);
   // buckshot or a single slug in the chamber window
   add('ammo', 'buck', {}, () => {});
   add('ammo', 'slug', {}, (a) => {
@@ -549,6 +576,7 @@ function buildSniper(sleeve) {
   add('optic', 'reddot', { S: 0.072, adsZ: -0.26 }, (o) => reflex(o, 0.072, -0.05, 0.05));
   muzzleDevices(add, 0.012, -0.78, 0.015);
   laserModules(add, 0.036, 0.0, -0.5);
+  gripModules(add, -0.065, -0.3);
   add('mag', 'normal', {}, (m) => box(m, 0.03, 0.08, 0.07, MAT.dark, 0, -0.04, 0), mag);
   add('mag', 'fast', {}, (m) => {
     box(m, 0.03, 0.08, 0.07, MAT.dark, 0, -0.04, 0);
@@ -613,6 +641,136 @@ function buildPistol(sleeve) {
 }
 
 // a tactical fighting knife: straight clip-point blade, textured grip
+// the Kabir .50: a long, heavy anti-materiel rifle with a big brake and a folded bipod
+function buildHeavy(sleeve) {
+  const g = new THREE.Group();
+  box(g, 0.075, 0.095, 0.5, MAT.dark, 0, 0, -0.05);                      // receiver
+  box(g, 0.07, 0.02, 0.36, MAT.dark, 0, 0.055, -0.08);                    // top rail
+  cyl(g, 0.02, 0.75, MAT.steel, 0, 0.012, -0.66, 14);                     // barrel
+  cyl(g, 0.026, 0.14, MAT.dark, 0, 0.012, -0.98, 10);                     // the brake
+  for (const dz of [-0.94, -0.98, -1.02]) box(g, 0.064, 0.012, 0.008, MAT.dark, 0, 0.012, dz);
+  for (const sx of [-1, 1]) {                                             // folded bipod legs
+    box(g, 0.01, 0.01, 0.3, MAT.dark, sx * 0.03, -0.045, -0.5, 0.08, 0, sx * 0.1);
+  }
+  box(g, 0.05, 0.03, 0.25, MAT.polymer, 0, -0.06, -0.38);                // fore-end
+  box(g, 0.032, 0.11, 0.045, MAT.polymer, 0, -0.1, 0.11, -0.3);           // grip
+  box(g, 0.05, 0.1, 0.32, MAT.polymer, 0, -0.03, 0.36);                   // stock
+  box(g, 0.04, 0.04, 0.14, MAT.polymer, 0, 0.045, 0.36);                  // cheek rest
+  box(g, 0.012, 0.09, 0.012, MAT.dark, 0, -0.1, 0.46);                    // monopod
+  const bolt = new THREE.Group();
+  cyl(bolt, 0.009, 0.05, MAT.steel, 0.02, 0, 0, 8).rotation.set(0, 0, Math.PI / 2);
+  sphere(bolt, 0.013, MAT.steel, 0.05, 0, 0);
+  bolt.position.set(0.03, 0.03, 0.12);
+  g.add(bolt);
+  const mag = new THREE.Group();
+  mag.position.set(0, -0.045, 0.0);
+  g.add(mag);
+  const { sets, add } = partSet(g);
+  add('optic', 'scope8', { S: 0.108, adsZ: -0.1 }, (o) => {
+    tubeWithGlass(o, 0.108, -0.04, 0.36, 0.026, MAT.dark);
+    cyl(o, 0.036, 0.09, MAT.dark, 0, 0.108, -0.25, 16, 0.03);
+    cyl(o, 0.03, 0.07, MAT.dark, 0, 0.108, 0.14, 16, 0.026);
+    box(o, 0.03, 0.024, 0.03, MAT.dark, 0, 0.14, -0.06);
+    box(o, 0.03, 0.018, 0.03, MAT.dark, 0.03, 0.108, -0.06);
+  });
+  add('optic', 'reddot', { S: 0.086, adsZ: -0.26 }, (o) => reflex(o, 0.086, -0.06, 0.065));
+  muzzleDevices(add, 0.012, -1.05, 0.02, ['none', 'suppressor']);
+  laserModules(add, 0.045, 0.0, -0.55);
+  gripModules(add, -0.075, -0.4, ['none', 'angled']);
+  add('mag', 'normal', {}, (m) => box(m, 0.036, 0.09, 0.09, MAT.dark, 0, -0.045, 0), mag);
+  add('mag', 'fast', {}, (m) => {
+    box(m, 0.036, 0.09, 0.09, MAT.dark, 0, -0.045, 0);
+    box(m, 0.04, 0.03, 0.04, MAT.tan, 0, -0.07, 0.03);
+  }, mag);
+  const h = hands(g, new THREE.Vector3(0.002, -0.1, 0.12), new THREE.Vector3(0, -0.075, -0.35), sleeve);
+  const gun = {
+    group: g, sight: 0.108, muzzle: new THREE.Vector3(0, 0.012, -1.05), mag, magHome: mag.position.clone(), bolt,
+    boltHome: bolt.position.clone(), hands: h, hip: new THREE.Vector3(0.16, -0.17, -0.44), ads: new THREE.Vector3(0, -0.108, -0.1),
+    kind: 'bolt',
+  };
+  return attachable(gun, sets, { optic: 'scope8', muzzle: 'none', mag: 'normal', laser: 'none', grip: 'none' });
+}
+
+// the Asad .44: a silver six-shooter with a wooden grip; the cylinder is its magazine
+function buildRevolver(sleeve) {
+  const g = new THREE.Group();
+  box(g, 0.026, 0.036, 0.09, MAT.silver, 0, 0.012, -0.005);                // frame
+  box(g, 0.02, 0.012, 0.02, MAT.silver, 0, 0.032, 0.03);                   // top strap / hammer seat
+  box(g, 0.008, 0.03, 0.012, MAT.dark, 0, 0.044, 0.045, 0.4);             // hammer
+  box(g, 0.026, 0.09, 0.04, MAT.tan, 0, -0.05, 0.03, -0.3);               // wooden grip
+  box(g, 0.01, 0.028, 0.04, MAT.silver, 0, -0.012, -0.015);               // trigger guard
+  box(g, 0.004, 0.014, 0.006, MAT.dark, 0, -0.006, -0.01, 0.3);           // trigger
+  const mag = new THREE.Group();                                           // the cylinder
+  mag.position.set(0, 0.012, -0.03);
+  g.add(mag);
+  const { sets, add } = partSet(g);
+  add('mag', 'normal', {}, (m) => {
+    cyl(m, 0.02, 0.046, MAT.silver, 0, 0, 0, 12);
+    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; cyl(m, 0.004, 0.048, MAT.dark, Math.cos(a) * 0.013, Math.sin(a) * 0.013, 0, 6); }
+  }, mag);
+  add('mag', 'cyl8', {}, (m) => {
+    cyl(m, 0.024, 0.05, MAT.silver, 0, 0, 0, 16);
+    for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; cyl(m, 0.004, 0.052, MAT.dark, Math.cos(a) * 0.016, Math.sin(a) * 0.016, 0, 6); }
+  }, mag);
+  add('mag', 'fast', {}, (m) => {
+    cyl(m, 0.02, 0.046, MAT.silver, 0, 0, 0, 12);
+    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; cyl(m, 0.004, 0.048, MAT.brass, Math.cos(a) * 0.013, Math.sin(a) * 0.013, 0, 6); }
+  }, mag);
+  // barrels: the muzzle moves with the barrel's length
+  const barrel = (id, len, tip) => add('barrel', id, { tip, my: 0.03 }, (b) => {
+    cyl(b, 0.011, len, MAT.silver, 0, 0.03, -0.06 - len / 2, 12);
+    box(b, 0.016, 0.014, len - 0.02, MAT.silver, 0, 0.012, -0.06 - len / 2);   // ejector rod housing
+  });
+  barrel('medium', 0.13, -0.19);
+  barrel('long', 0.2, -0.26);
+  barrel('short', 0.07, -0.13);
+  add('optic', 'irons', { S: 0.052, adsZ: -0.34 }, (o) => irons(o, 0.052, -0.13, 0.03, 0.04, 0.04));
+  add('optic', 'reddot', { S: 0.076, adsZ: -0.32 }, (o) => {
+    box(o, 0.026, 0.012, 0.05, MAT.dark, 0, 0.044, 0.0);
+    reflex(o, 0.076, -0.01, 0.05);
+  });
+  add('optic', 'acog', { S: 0.086, adsZ: -0.2 }, (o) => {
+    box(o, 0.026, 0.012, 0.06, MAT.dark, 0, 0.044, 0.0);
+    acogBody(o, 0.086, 0.0, MAT.dark);
+  });
+  add('optic', 'scope6', { S: 0.09, adsZ: -0.16 }, (o) => {
+    box(o, 0.026, 0.012, 0.07, MAT.dark, 0, 0.044, 0.0);
+    scopeTube(o, 0.09, 0.2, 0.0, MAT.dark, MAT.silver);
+  });
+  laserModules(add, 0, -0.008, -0.1);
+  const h = hands(g, new THREE.Vector3(0.002, -0.06, 0.035), new THREE.Vector3(-0.012, -0.07, 0.02), sleeve);
+  h.left.rotation.set(0, 0.3, 0);
+  const gun = {
+    group: g, sight: 0.052, muzzle: new THREE.Vector3(0, 0.03, -0.19), mag, magHome: mag.position.clone(),
+    hands: h, hip: new THREE.Vector3(0.13, -0.14, -0.38), ads: new THREE.Vector3(0, -0.052, -0.34),
+    kind: 'revolver',
+  };
+  return attachable(gun, sets, { optic: 'irons', mag: 'normal', laser: 'none', barrel: 'medium' });
+}
+
+// the Nar flamethrower: a tank and hose behind, a long nozzle with a pilot light ahead
+function buildFlamer(sleeve) {
+  const g = new THREE.Group();
+  box(g, 0.06, 0.07, 0.28, MAT.dark, 0, 0, 0.0);                          // body
+  cyl(g, 0.012, 0.42, MAT.steel, 0, 0.012, -0.34, 10);                    // the lance
+  cyl(g, 0.02, 0.05, MAT.dark, 0, 0.012, -0.55, 10);                      // nozzle
+  const pilot = sphere(g, 0.012, MAT.red, 0, 0.012, -0.585);               // the pilot light
+  cyl(g, 0.03, 0.14, MAT.steel, 0, -0.01, -0.16, 12);                      // the mixing chamber
+  box(g, 0.03, 0.1, 0.04, MAT.polymer, 0, -0.085, 0.06, -0.3);            // grip
+  box(g, 0.02, 0.05, 0.08, MAT.polymer, 0, -0.06, -0.24);                 // fore grip
+  box(g, 0.025, 0.02, 0.05, MAT.dark, 0.02, 0.046, 0.02);                 // gauge housing
+  box(g, 0.02, 0.006, 0.02, MAT.brass, 0.02, 0.058, 0.02);
+  cyl(g, 0.02, 0.5, MAT.tan, 0, -0.03, 0.4, 10);                          // the hose running back
+  const { sets, add } = partSet(g);
+  add('optic', 'irons', { S: 0.052, adsZ: -0.3 }, (o) => irons(o, 0.052, -0.3, 0.06, 0.038, 0.038));
+  const h = hands(g, new THREE.Vector3(0.002, -0.09, 0.06), new THREE.Vector3(0, -0.075, -0.24), sleeve);
+  const gun = {
+    group: g, sight: 0.052, muzzle: new THREE.Vector3(0, 0.012, -0.6), hands: h, pilot,
+    hip: new THREE.Vector3(0.15, -0.15, -0.4), ads: new THREE.Vector3(0, -0.052, -0.3), kind: 'flame',
+  };
+  return attachable(gun, sets, { optic: 'irons' });
+}
+
 function buildKnife(sleeve) {
   const root = new THREE.Group();
   // the whole knife is built pointing forward, then held point-up and
@@ -660,7 +818,7 @@ function buildNadeHand(sleeve) {
   return g;
 }
 
-export const GUN_BUILDERS = { smg: buildSMG, lmg: buildLMG, shotgun: buildShotgun, sniper: buildSniper, pistol: buildPistol, knife: buildKnife };
+export const GUN_BUILDERS = { smg: buildSMG, lmg: buildLMG, shotgun: buildShotgun, sniper: buildSniper, pistol: buildPistol, knife: buildKnife, heavy: buildHeavy, revolver: buildRevolver, flamer: buildFlamer };
 
 // a gun on its own, for the locker preview
 export function buildPreviewGun(id, finishId, fitted) {
@@ -693,6 +851,7 @@ export class ViewModel {
     this.guns = {
       smg: buildSMG(this.sleeve), lmg: buildLMG(this.sleeve), shotgun: buildShotgun(this.sleeve),
       sniper: buildSniper(this.sleeve), pistol: buildPistol(this.sleeve), knife: buildKnife(this.sleeve),
+      heavy: buildHeavy(this.sleeve), revolver: buildRevolver(this.sleeve), flamer: buildFlamer(this.sleeve),
     };
     this.root = new THREE.Group();
     this.scene.add(this.root);
@@ -994,7 +1153,7 @@ export class ViewModel {
       return;
     }
     const t = Math.min(1, r.t / r.dur);
-    if (g.kind === 'mag' || g.kind === 'pistol' || g.kind === 'bolt') {
+    if (g.kind === 'mag' || g.kind === 'pistol' || g.kind === 'bolt' || g.kind === 'revolver') {
       // out: 0.12–0.3, new mag up: 0.35–0.62, seat: 0.62–0.7
       const out = seg(t, 0.14, 0.3);
       const inn = seg(t, 0.36, 0.62);

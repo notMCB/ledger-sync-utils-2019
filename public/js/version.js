@@ -2,9 +2,25 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.8.0';
+export const VERSION = '2.9.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.9.0',
+    date: '24 September 2026',
+    title: 'The .50, the revolver, the flamethrower, molotovs, grips',
+    notes: [
+      'Marksman: the Kabir .50, chosen in the Locker in place of the Saqr. One round, one kill, anywhere on the body. Twice as slow to aim, a full reload after every shot, the slowest walk in the game and a slower turn, and the whole town hears it. It comes with an 8× scope and a green chevron. Attachments: red laser at 75 kills, red dot at 150, green laser at 225, quick mag and angled grip at 300, suppressor at 450.',
+      'A second secondary for everyone: the Asad .44, a silver six-shooter, chosen per loadout in the Locker. Long reach, three body shots or two headshots. It takes every skin. Attachments: red dot at 15 kills, 3× and a red laser at 38, 8-round cylinder and long barrel at 75, fast cylinder and green laser at 113, 6× scope and short barrel at 150.',
+      'Breacher: the Nar flamethrower, chosen in place of the shotgun. Four metres of fire that kills in four seconds of contact and leaves anyone it touches burning for ten seconds after, five a second. 100 fuel, three a second, no attachments.',
+      'Molotov cocktails for the Assault and the Breacher, two a life in place of frags: half a frag’s blast, then three metres of fire for fifteen seconds. Step in it and you burn for ten seconds after you step out.',
+      'Grips for the SMG, LMG, shotgun and sniper: a Straight Grip (a little less spread and recoil), an Angled Grip (tighter from the hip, a touch quicker on your feet) and a Short Grip (much less spread and recoil). Pistols take none.',
+      'Every attachment now takes half as many kills again to unlock.',
+      'The shotgun and the flamethrower aim through a ring: its size is your spread.',
+      'Roadkill: drive the forklift into someone and they go under it. Any speed, any direction.',
+      'Report a bug from the menu: your name and what happened. Every report reaches the team and an agent fixes it for the next patch.',
+    ],
+  },
   {
     version: '2.8.0',
     date: '24 September 2026',

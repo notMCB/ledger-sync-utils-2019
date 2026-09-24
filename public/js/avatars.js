@@ -18,6 +18,7 @@ const DELAY = 0.1; // render other players this far in the past, so there is alw
 
 const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
 const SHARED = {
+  silver: new THREE.MeshStandardMaterial({ color: '#c9ced4', roughness: 0.3, metalness: 0.85 }),
   skin: lam('#b58461'),
   boots: lam('#3a2f24'),
   pants: lam('#6d6452'),
@@ -120,7 +121,7 @@ function ghillieGeometry() {
 
 const GUN_SIZES = {
   smg: [0.06, 0.1, 0.5], lmg: [0.09, 0.13, 0.85], shotgun: [0.06, 0.08, 0.85], sniper: [0.06, 0.09, 1.05], pistol: [0.04, 0.08, 0.2],
-  knife: [0.03, 0.04, 0.28],
+  knife: [0.03, 0.04, 0.28], heavy: [0.08, 0.11, 1.35], revolver: [0.035, 0.08, 0.28], flamer: [0.07, 0.1, 0.8],
 };
 
 // the flash of sun off a scope lens, shared by every avatar
@@ -374,7 +375,7 @@ export class Avatar {
     this.gunMesh.scale.set(s[0] / 0.06, s[1] / 0.1, s[2] / 0.6);
     this.gunMesh.position.z = -s[2] / 2 + 0.1;
     const skin = this.gunSkins[w] && gunMaterials(this.gunSkins[w], true);
-    this.gunMesh.material = skin ? skin.body : w === 'sniper' || w === 'lmg' ? SHARED.gunTan : SHARED.gun;
+    this.gunMesh.material = skin ? skin.body : w === 'sniper' || w === 'lmg' ? SHARED.gunTan : w === 'revolver' ? SHARED.silver : SHARED.gun;
     this.muzzleLocal.set(0, 0.02, -s[2] + 0.1);
     const quiet = w === 'sniper' || (w === 'pistol' && (this.loadout === 2 || this.loadout === 3));
     this.can.visible = quiet;
@@ -451,6 +452,7 @@ export class Avatar {
     // flying a drone: the body stands where it was, head down over the controller
     this.piloting = !!(this.flags & 2048);
     this.driving = !!(this.flags & 16384);
+    this.burning = !!(this.flags & 32768);
     g.visible = alive;
     if (!alive) return;
     const pk = this.proneK, bk = this.backK;
@@ -664,7 +666,10 @@ export class Avatars {
         a.gunId = null;
       }
       a.slot = slot;
-      a.setGun(slot === 2 ? 'knife' : slot === 1 ? 'pistol' : ['smg', 'lmg', 'shotgun', 'sniper'][ld] || 'smg');
+      const rr = this.roster.get(id);
+      const primary = (rr && rr.pw) || ['smg', 'lmg', 'shotgun', 'sniper'][ld] || 'smg';
+      const secondary = (rr && rr.sw) || 'pistol';
+      a.setGun(slot === 2 ? 'knife' : slot === 1 ? secondary : primary);
       a.push(t, x, y, z, yaw, pitch, flags, typeof byaw === 'number' ? byaw : yaw);
     }
   }

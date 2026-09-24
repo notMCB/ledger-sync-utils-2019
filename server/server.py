@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.8.0'
+VERSION = '2.9.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -63,7 +63,18 @@ WEAPONS = {
     'sniper':  {'dmg': 95, 'head': 2.5, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 45, 'pellets': 1, 'range': 300},
     'pistol':  {'dmg': 34, 'head': 2.0, 'near': 20, 'far': 50, 'min': 0.7,  'rpm': 380, 'pellets': 1, 'range': 120},
     'knife':   {'dmg': 55, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 110, 'pellets': 1, 'range': 2.6},
+    # the Marksman's .50: one hit anywhere; the revolver; the flamethrower's ticks (three targets a tick)
+    'heavy':   {'dmg': 130, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 30, 'pellets': 1, 'range': 400},
+    'revolver': {'dmg': 40, 'head': 1.5, 'near': 30, 'far': 80, 'min': 0.75, 'rpm': 150, 'pellets': 1, 'range': 160},
+    'flamer':  {'dmg': 3, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 400, 'pellets': 3, 'range': 4},
 }
+# the guns a loadout may carry: the first is the default
+PRIMARY_OPTIONS = [('smg',), ('lmg',), ('shotgun', 'flamer'), ('sniper', 'heavy')]
+SECONDARY_OPTIONS = ('pistol', 'revolver')
+BURN_TIME = 10.0        # seconds on fire after the last touch of flame
+BURN_DPS = 5.0
+FIRE_LIFE = 15.0        # a molotov's fire
+FIRE_R = 1.6            # roughly three metres across
 # the shotgun firing slugs is a different gun as far as damage goes
 SLUG = {'dmg': 85, 'head': 1.5, 'near': 30, 'far': 90, 'min': 0.55, 'rpm': 70, 'pellets': 1, 'range': 200}
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
@@ -71,7 +82,7 @@ LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 PERKS = ['ammo', 'med', 'ladder', 'beacon']
 # the perks a loadout may pick from (first is the default), and the grenades
 PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('beacon', 'drone')]
-NADE_OPTIONS = [('frag',), ('frag', 'smoke'), ('frag', 'flash'), ('frag',)]
+NADE_OPTIONS = [('frag', 'molotov'), ('frag', 'smoke'), ('frag', 'flash', 'molotov'), ('frag',)]
 PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1}
 WALL_HP = 900
 WALL_LIFE = 90.0
@@ -206,7 +217,14 @@ class Player:
         self.deaths = 0
         self.score = 0
         self.perk = 'ammo'       # the perk this loadout uses (some loadouts choose)
+        self.primary = 'smg'     # the guns this loadout carries
+        self.secondary = 'pistol'
         self.vehicle = None      # the forklift being driven, if any
+        self.burn_until = 0.0    # on fire until then
+        self.burn_by = None
+        self.burn_acc = 0.0
+        self.roadkill_at = {}    # victim id -> last roadkill time
+        self.last_bug = 0.0
         self.nade_kind = 'frag'
         self.last_fire = {}      # weapon -> the virtual clock its rate limit runs on
         self.rejects = {}        # why shots were dropped, counted (for the log)
@@ -242,9 +260,12 @@ class Player:
             self.perk = opts[0]
         kinds = NADE_OPTIONS[self.loadout]
         self.nade_kind = m.get('nk') if m.get('nk') in kinds else kinds[0]
+        guns = PRIMARY_OPTIONS[self.loadout]
+        self.primary = m.get('pw') if m.get('pw') in guns else guns[0]
+        self.secondary = m.get('sw') if m.get('sw') in SECONDARY_OPTIONS else SECONDARY_OPTIONS[0]
 
     def nades_for(self):
-        return NADES[self.loadout]
+        return 2 if self.nade_kind == 'molotov' else NADES[self.loadout]
 
     def reset_stats(self):
         self.kills = self.deaths = self.score = self.assists = 0
@@ -289,6 +310,8 @@ class Room:
         self.walls = {}
         self.wall_seq = 0
         self.drones = {}
+        self.fires = {}
+        self.fire_seq = 0
 
     # -- map --
 
@@ -334,6 +357,7 @@ class Room:
         self.crate_seq = 0
         self.walls = {}
         self.drones = {}
+        self.fires = {}
 
     # -- membership --
 
@@ -373,6 +397,8 @@ class Room:
             p.send({'t': 'drone', 'id': oid, 'p': D['p'], 'tm': D['team'], 'life': round(D['until'] - now(), 1), 'hp': D['hp']})
         for fid in self.forklifts:
             p.send(self.fk_msg(fid))
+        for fid, F in self.fires.items():
+            p.send({'t': 'fire', 'id': fid, 'p': F['p'], 'life': round(F['until'] - now(), 1)})
         self.roster_dirty = True
         self.event({'e': 'join', 'id': p.id, 'n': p.name})
         if self.phase in ('waiting', 'countdown'):
@@ -471,6 +497,7 @@ class Room:
         p.hp = 100
         p.alive = True
         p.hurt_by = {}
+        p.burn_until = 0.0
         p.nades = p.nades_for()
         p.perk_left = PERK_USES[p.perk]
         p.sc += 1
@@ -694,7 +721,7 @@ class Room:
         if not p.alive or self.phase in ('freeze', 'post', 'ended'):
             return
         w = m.get('w')
-        if w not in WEAPONS or w not in (LOADOUTS[p.loadout], 'pistol', 'knife'):
+        if w not in WEAPONS or w not in (p.primary, p.secondary, 'knife'):
             return
         spec = SLUG if (w == 'shotgun' and p.slug) else WEAPONS[w]
         t = now()
@@ -800,11 +827,14 @@ class Room:
     def damage(self, q, attacker, dmg, w, head):
         if not q.alive or dmg <= 0:
             return
+        if w in ('flamer', 'molotov'):
+            q.burn_until = now() + BURN_TIME
+            q.burn_by = attacker
         q.hp -= dmg
         if attacker and attacker is not q:
             q.hurt_by[attacker.id] = q.hurt_by.get(attacker.id, 0) + dmg
         src = attacker.pos if attacker else None
-        q.send({'t': 'hurt', 'd': dmg, 'hp': max(0, q.hp), 'from': src})
+        q.send({'t': 'hurt', 'd': dmg, 'hp': max(0, q.hp), 'from': src, 'fire': 1 if w in ('flamer', 'molotov', 'fire') else 0})
         if attacker and attacker is not q:
             attacker.send({'t': 'hitok', 'd': dmg, 'k': q.hp <= 0, 'hs': head})
         if q.hp <= 0:
@@ -880,9 +910,41 @@ class Room:
         self.broadcast({'t': 'boom', 'id': p.id, 'n': nid, 'p': pos, 'k': kind}, skip=p)
         if kind in ('flash', 'smoke'):
             return  # blinding and smoke are worked out on each screen; no damage
+        if kind == 'molotov':
+            self.explode(p, pos, 0.5, 'molotov')
+            self.fire_seq += 1
+            fid = self.fire_seq
+            self.fires[fid] = {'p': pos, 'until': now() + FIRE_LIFE, 'owner': p.id}
+            self.broadcast({'t': 'fire', 'id': fid, 'p': pos, 'life': FIRE_LIFE})
+            return
         self.explode(p, pos)
 
-    def explode(self, p, pos):
+    def update_fires(self, t):
+        for fid, F in list(self.fires.items()):
+            if t >= F['until']:
+                del self.fires[fid]
+                self.broadcast({'t': 'fire', 'id': fid, 'off': 1})
+                continue
+            owner = self.players.get(F['owner'])
+            for q in self.players.values():
+                if not q.alive or (owner and q is not owner and not self.enemies(owner, q)):
+                    continue
+                if dist2(q.pos, F['p']) < FIRE_R and abs(q.pos[1] - F['p'][1]) < 1.6:
+                    q.burn_until = t + BURN_TIME
+                    q.burn_by = owner
+        # burning players lose five a second, credited to whoever lit them
+        for q in self.players.values():
+            if not q.alive or t >= q.burn_until:
+                q.burn_acc = 0.0
+                continue
+            q.burn_acc += BURN_DPS * TICK
+            if q.burn_acc >= 1.0:
+                n = int(q.burn_acc)
+                q.burn_acc -= n
+                by = q.burn_by if q.burn_by in self.players.values() else None
+                self.damage(q, by, n, 'fire', False)
+
+    def explode(self, p, pos, mul=1.0, w='nade'):
         """A frag-sized blast at pos, credited to p: players in reach and any cover walls."""
         if self.phase in ('post', 'ended'):
             return
@@ -902,12 +964,12 @@ class Room:
             src = [pos[0], pos[1] + 0.2, pos[2]]
             if self.solid.blocked(src, chest) and self.solid.blocked(src, [q.pos[0], q.pos[1] + 1.6, q.pos[2]]):
                 continue
-            dmg = NADE_DMG * (1 - d / NADE_RADIUS) ** 1.2
+            dmg = NADE_DMG * mul * (1 - d / NADE_RADIUS) ** 1.2
             if q is p:
                 dmg *= 0.6
             if t_protected(q):
                 continue
-            self.damage(q, p, int(dmg), 'nade', False)
+            self.damage(q, p, int(dmg), w, False)
 
     # -- perks --
 
@@ -1041,6 +1103,22 @@ class Room:
             F['p'] = pos
             F['y'] = num(m.get('y'))
 
+    def handle_roadkill(self, p, m):
+        """The driver's client saw someone under the forklift."""
+        if p.vehicle is None or not p.alive:
+            return
+        F = self.forklifts.get(p.vehicle)
+        q = self.players.get(int(num(m.get('id'))))
+        if not F or F['driver'] != p.id or not q or not q.alive or not self.enemies(p, q):
+            return
+        if dist3(F['p'], q.pos) > 2.6 or t_protected(q):
+            return
+        t = now()
+        if t - p.roadkill_at.get(q.id, -9) < 1.0:
+            return
+        p.roadkill_at[q.id] = t
+        self.damage(q, p, 999, 'forklift', False)
+
     def leave_vehicle(self, p):
         """A driver who died or left: the forklift stays where it is."""
         if p.vehicle is None:
@@ -1156,6 +1234,7 @@ class Room:
     def update(self, t):
         n = self.count()
         self.update_devices(t)
+        self.update_fires(t)
         # idlers go back to the menu so they don't hold a slot or a team place
         for p in list(self.players.values()):
             if t - p.last_active > IDLE_KICK:
@@ -1349,6 +1428,8 @@ class Room:
                 f |= 128
             if p.id in self.drones:
                 f |= 2048   # flying a drone: the body stands still, head down over the controller
+            if p.alive and t < p.burn_until:
+                f |= 32768  # on fire
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
                        round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp), round(p.byaw, 3)])
         snap = {'t': 'snap', 'g': self.game_state(t), 'p': pl}
@@ -1362,7 +1443,7 @@ class Room:
 
     def roster(self):
         return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths, 'a': p.assists,
-                                       's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': p.cos}
+                                       's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': p.cos, 'pw': p.primary, 'sw': p.secondary}
                                       for p in self.players.values()]}
 
     def summary(self):
@@ -1646,6 +1727,28 @@ class Conn:
             lk['equip'] = catalog.clean_equip(m.get('equip'), lk)
             accounts.save_locker(p.account['id'], lk)
             self.send({'t': 'locker', 'locker': lk})
+        elif t == 'bug':
+            # a bug report from the menu: name and text, kept for the owner to read
+            tnow = now()
+            if tnow - p.last_bug < 30:
+                return self.send({'t': 'bugok', 'ok': False, 'm': 'One report every 30 seconds, please.'})
+            who = ''.join(ch for ch in str(m.get('name') or '') if ch.isprintable()).strip()[:40]
+            text = ''.join(ch for ch in str(m.get('text') or '') if ch.isprintable() or ch == '\n').strip()[:2000]
+            if not who or len(text) < 5:
+                return self.send({'t': 'bugok', 'ok': False, 'm': 'Give your name and describe the bug.'})
+            p.last_bug = tnow
+            try:
+                os.makedirs(accounts.DATA_DIR, exist_ok=True)
+                with open(os.path.join(accounts.DATA_DIR, 'bugs.jsonl'), 'a') as f:
+                    f.write(json.dumps({'when': time.strftime('%Y-%m-%d %H:%M:%S'), 'name': who, 'player': p.name,
+                                        'account': p.account['username'] if p.account else None, 'version': VERSION,
+                                        'room': p.room.name if p.room else None, 'map': p.room.map.get('name') if p.room else None,
+                                        'text': text}) + '\n')
+            except OSError as e:
+                print('bug report error: %r' % (e,), flush=True)
+                return self.send({'t': 'bugok', 'ok': False, 'm': 'Could not save that. Try again.'})
+            print('BUG REPORT from %s (%s): %s' % (who, p.name, text[:200]), flush=True)
+            self.send({'t': 'bugok', 'ok': True})
         elif p.room is None:
             return
         elif t == 'st':
@@ -1691,7 +1794,7 @@ class Conn:
                 p.send({'t': 'perkleft', 'k': p.perk, 'n': p.perk_left})
         elif t == 'picks':
             # a perk or grenade chosen in the Locker mid-match: counts from the next spawn
-            p.pick({'pk': m.get('pk'), 'nk': m.get('nk')})
+            p.pick({'pk': m.get('pk'), 'nk': m.get('nk'), 'pw': m.get('pw'), 'sw': m.get('sw')})
         elif t == 'dr':
             p.room.handle_drone(p, m)
         elif t == 'drboom':
@@ -1700,6 +1803,8 @@ class Conn:
             p.room.handle_drone_stop(p, m)
         elif t in ('fkin', 'fkout', 'fk'):
             p.room.handle_forklift(p, m)
+        elif t == 'roadkill':
+            p.room.handle_roadkill(p, m)
         elif t == 'cos':
             p.cos = owned_cos(p, clean_cos(m.get('cos')))
             p.room.roster_dirty = True

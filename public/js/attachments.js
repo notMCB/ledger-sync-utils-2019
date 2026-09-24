@@ -14,6 +14,8 @@ export const SLOT_NAMES = {
   ammo: 'Ammo',
   trigger: 'Trigger',
   laser: 'Laser',
+  grip: 'Grip',
+  barrel: 'Barrel',
 };
 
 // mods: mag (x capacity), reload (x time), spread (x), recoil (x),
@@ -34,6 +36,12 @@ const noLaser = { id: 'none', name: 'No Laser', unlock: 0, blurb: 'Nothing under
 const redLaser = (unlock) => ({ id: 'red', name: 'Red Laser', unlock, blurb: 'Hip fire 30% tighter. Enemies can see the beam.', mods: { hip: 0.7, laser: 'red' } });
 const greenLaser = (unlock) => ({ id: 'green', name: 'Green Laser', unlock, blurb: 'Hip fire 70% tighter. Enemies can see the beam.', mods: { hip: 0.3, laser: 'green' } });
 const lasers = (red, green) => [noLaser, redLaser(red), greenLaser(green)];
+// grips: a hand on the fore-end
+const noGrip = { id: 'none', name: 'No Grip', unlock: 0, blurb: 'Bare fore-end.', mods: {} };
+const angledGrip = (unlock) => ({ id: 'angled', name: 'Angled Grip', unlock, blurb: 'Tighter from the hip, and a little quicker on your feet.', mods: { hip: 0.85, move: 1.04 } });
+const straightGrip = (unlock) => ({ id: 'straight', name: 'Straight Grip', unlock, blurb: 'A little less spread and recoil.', mods: { spread: 0.94, recoil: 0.94 } });
+const shortGrip = (unlock) => ({ id: 'short', name: 'Short Grip', unlock, blurb: 'Noticeably less spread and recoil.', mods: { spread: 0.85, recoil: 0.85 } });
+const grips = (straight, angled, short) => [noGrip, straightGrip(straight), angledGrip(angled), shortGrip(short)];
 
 export const ATTACHMENTS = {
   smg: {
@@ -51,6 +59,7 @@ export const ATTACHMENTS = {
       { id: 'large', name: 'Large Mag', unlock: 100, blurb: '50% more rounds: 45 a magazine.', mods: { mag: 1.5 } },
     ],
     laser: lasers(15, 50),
+    grip: grips(20, 25, 100),
   },
   lmg: {
     optic: [
@@ -67,6 +76,7 @@ export const ATTACHMENTS = {
       { id: 'large', name: 'Large Box', unlock: 100, blurb: '50% more rounds: 150 a box.', mods: { mag: 1.5 } },
     ],
     laser: lasers(15, 50),
+    grip: grips(20, 25, 100),
   },
   shotgun: {
     optic: [
@@ -84,6 +94,7 @@ export const ATTACHMENTS = {
     ],
     muzzle: [noMuzzle, suppressor(50)],
     laser: lasers(25, 50),
+    grip: grips(10, 25, 50),
   },
   sniper: {
     optic: [
@@ -98,6 +109,20 @@ export const ATTACHMENTS = {
       { id: 'ext', name: 'Extended Mag', unlock: 50, blurb: 'Eight rounds a magazine.', mods: { mag: 1.6 } },
     ],
     laser: lasers(25, 75),
+    grip: grips(10, 25, 50),
+  },
+  heavy: {
+    optic: [
+      { id: 'scope8', name: '8× Scope', unlock: 0, blurb: 'The Kabir’s own long scope, with a green chevron.', mods: {} },
+      { ...reddot(100), blurb: 'No magnification at all. For a very brave quickscoper.', mods: { sight: 'reddot', zoom: 1.1, adsTime: 0.3 } },
+    ],
+    muzzle: [noMuzzle, suppressor(300)],
+    mag: [
+      { id: 'normal', name: 'Single Round', unlock: 0, blurb: 'One round, then a full reload.', mods: {} },
+      { ...fastMag(200, 1), name: 'Quick Mag', blurb: 'Still one round, but 10% quicker to reload.' },
+    ],
+    laser: [noLaser, redLaser(50), greenLaser(150)],
+    grip: [noGrip, angledGrip(200)],
   },
   pistol: {
     optic: [
@@ -116,7 +141,33 @@ export const ATTACHMENTS = {
     ],
     laser: lasers(25, 75),
   },
+  revolver: {
+    optic: [
+      { id: 'irons', name: 'Iron Sights', unlock: 0, blurb: 'A blade and a notch.', mods: {} },
+      reddot(10),
+      { ...acog(25), blurb: 'A 3× sight on a revolver. Why not.', mods: { sight: 'scope', zoom: 3.0, adsTime: 0.24 } },
+      { id: 'scope6', name: '6× Scope', unlock: 100, blurb: 'A 6× scope on a revolver. Slowest to aim.', mods: { sight: 'scope', zoom: 6.0, adsTime: 0.3 } },
+    ],
+    mag: [
+      { id: 'normal', name: '6-Round Cylinder', unlock: 0, blurb: 'Six rounds.', mods: {} },
+      { id: 'cyl8', name: '8-Round Cylinder', unlock: 50, blurb: 'Eight rounds.', mods: { mag: 1.334 } },
+      { id: 'fast', name: 'Fast Cylinder', unlock: 75, blurb: 'Six rounds, 10% quicker to reload with a speedloader.', mods: { reload: 0.9 } },
+    ],
+    laser: lasers(25, 75),
+    barrel: [
+      { id: 'medium', name: 'Medium Barrel', unlock: 0, blurb: 'The barrel it comes with.', mods: {} },
+      { id: 'long', name: 'Long Barrel', unlock: 50, blurb: 'Even more accurate shots.', mods: { spread: 0.8, recoil: 0.9 } },
+      { id: 'short', name: 'Short Barrel', unlock: 100, blurb: 'Normal accuracy, tighter from the hip.', mods: { hip: 0.75 } },
+    ],
+  },
 };
+
+// attachments are earned: every unlock takes half as many kills again
+for (const w in ATTACHMENTS) {
+  for (const slot in ATTACHMENTS[w]) {
+    ATTACHMENTS[w][slot] = ATTACHMENTS[w][slot].map((a) => ({ ...a, unlock: Math.round(a.unlock * 1.5) }));
+  }
+}
 
 export const HAS_ATTACHMENTS = Object.keys(ATTACHMENTS);
 
