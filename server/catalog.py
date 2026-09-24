@@ -71,6 +71,8 @@ OUTFITS = [
     ('desertops', 'uncommon', 'camo'), ('woodlandops', 'uncommon', 'camo'),
     ('arcticops', 'rare', 'camo'), ('urbanops', 'rare', 'camo'),
     ('multiterrain', 'epic', 'camo'), ('ghillie', 'legendary', 'camo'),
+    # Souk Royale: only a winner gets this one; no crate holds it
+    ('royale1', 'legendary', 'royale'),
 ]
 # the outfits that hide you: recon beacons miss them, aim help ignores them
 CAMO_OUTFITS = {o[0] for o in OUTFITS if o[2] == 'camo'}
@@ -80,6 +82,12 @@ FINISH_IDS = {f[0] for f in FINISHES}
 OUTFIT_IDS = {o[0] for o in OUTFITS}
 RARITY_OF_FINISH = {f[0]: f[1] for f in FINISHES}
 RARITY_OF_OUTFIT = {o[0]: o[1] for o in OUTFITS}
+
+
+def finish_for(rarity, rng=random):
+    """A gun finish of this rarity for the battle royale's loot ('default' is the bare gun)."""
+    pool = [f[0] for f in FINISHES if f[1] == rarity and f[2] != 'blade']
+    return rng.choice(pool) if pool else None
 
 
 def _pick_rarity(weights, rng):

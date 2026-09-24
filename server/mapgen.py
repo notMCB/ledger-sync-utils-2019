@@ -127,6 +127,7 @@ class Town:
         self.pits = []       # [x0, z0, x1, z1] the whole tunnel network, in plan
         self.shafts = []     # the hatch shafts: the only places the ground opens up
         self.hatches = []    # [x, z, yaw] a ladder down through a building floor
+        self.open = False    # no wall round the edge: this town is one quarter of a bigger map
 
     # -- primitives -------------------------------------------------------
 
@@ -519,11 +520,12 @@ class Town:
                     self.areas.append({'n': 'Grand Mosque', 'x': round(x, 1), 'z': round(z, 1), 'r': round(max(hw, hd) + 5, 1)})
 
         # the town wall
-        wh = 6.0
-        self.box(0, wh / 2, -self.bz - 0.5, self.bx + 1, wh / 2, 0.5, 0, 'stone')
-        self.box(0, wh / 2, self.bz + 0.5, self.bx + 1, wh / 2, 0.5, 0, 'stone')
-        self.box(-self.bx - 0.5, wh / 2, 0, 0.5, wh / 2, self.bz, 0, 'stone')
-        self.box(self.bx + 0.5, wh / 2, 0, 0.5, wh / 2, self.bz, 0, 'stone')
+        if not self.open:
+            wh = 6.0
+            self.box(0, wh / 2, -self.bz - 0.5, self.bx + 1, wh / 2, 0.5, 0, 'stone')
+            self.box(0, wh / 2, self.bz + 0.5, self.bx + 1, wh / 2, 0.5, 0, 'stone')
+            self.box(-self.bx - 0.5, wh / 2, 0, 0.5, wh / 2, self.bz, 0, 'stone')
+            self.box(self.bx + 0.5, wh / 2, 0, 0.5, wh / 2, self.bz, 0, 'stone')
 
         for (kind, x, z, r) in self.landmarks:
             getattr(self, 'lm_' + kind)(x, z)
@@ -1249,6 +1251,52 @@ class Town:
 
         self.team_spawns = [zone(*self.spawn_w), zone(*self.spawn_e)]
 
+    def ground(self, x, z):
+        """The ground height at a point: flat towns are level; terrain maps override this."""
+        return 0.0
+
+    def loot_spots(self, n_in, n_out):
+        """Places a loot chest could stand: on the floor of a room, on any storey,
+        or outside within a few metres of a building or some cover. Returns
+        [(x, y, z)], spread out so no two are close together."""
+        rng = self.rng
+        out = []
+
+        def far(x, z, y):
+            return all(math.hypot(x - a, z - c) > 6.0 or abs(y - b) > 2.5 for (a, b, c) in out)
+
+        # floors: slabs and tiles of any building, thin and wide
+        floors = [b for b in self.boxes if b[7] in ('tile', 'concrete') and b[4] <= 0.13 and b[3] >= 1.2 and b[5] >= 1.2 and b[1] + b[4] < 12]
+        rng.shuffle(floors)
+        tries = 0
+        while len(out) < n_in and tries < n_in * 40 and floors:
+            tries += 1
+            (cx, cy, cz, hx, hy, hz, yaw, mat, tint) = floors[tries % len(floors)]
+            lx, lz = rng.uniform(-hx + 0.7, hx - 0.7), rng.uniform(-hz + 0.7, hz - 0.7)
+            wx, wz = rot(lx, lz, yaw)
+            x, z = cx + wx, cz + wz
+            top = cy + hy
+            if not self.clear_here(x, z, 0.65, top + 0.05, top + 1.7):
+                continue
+            # a floor above the ground needs to actually be there (holes, stairwells)
+            if not far(x, z, top):
+                continue
+            out.append((round(x, 2), round(top, 2), round(z, 2)))
+        # outside: near a wall or a piece of cover, never on a road or in a doorway
+        tries = 0
+        while len(out) < n_in + n_out and tries < n_out * 60:
+            tries += 1
+            x = rng.uniform(-self.bx + 3, self.bx - 3)
+            z = rng.uniform(-self.bz + 3, self.bz - 3)
+            near = any(circle_rect_dist(x, z, r) < 7.0 for r in self.rects) or any(math.hypot(x - px, z - pz) < pr + 3.5 for (px, pz, pr) in self.props)
+            if not near or not self.free(x, z, 0.7, 0.9, 0.5):
+                continue
+            y = self.ground(x, z)
+            if not far(x, z, y):
+                continue
+            out.append((round(x, 2), round(y, 2), round(z, 2)))
+        return out
+
     def to_json(self):
         return {
             'seed': self.seed,
@@ -1270,6 +1318,8 @@ class Town:
 
 
 MAP_KINDS = ('town', 'dock', 'alpine', 'manor')
+# the battle royale map is all four of them at once; it is never in the rotation
+ROYALE_KIND = 'royale'
 
 
 def generate(seed, kind='town'):
@@ -1283,6 +1333,9 @@ def generate(seed, kind='town'):
     elif kind == 'manor':
         import map_manor
         t = map_manor.Manor(seed)
+    elif kind == 'royale':
+        import map_royale
+        t = map_royale.Royale(seed)
     else:
         t = Town(seed)
     t.generate()

@@ -55,7 +55,7 @@ class Dockyard(Town):
         else:
             self.box(x, cy, z, hx, C_H / 2, C_HALF, yaw, 'container', t)
         # the trim that makes it read as a container: posts, rails, doors
-        self.deco.append({'k': 'cbox', 'x': round(x, 2), 'z': round(z, 2), 'yaw': round(yaw, 4), 'lv': level, 'l': hx, 't': t,
+        self.deco.append({'k': 'cbox', 'x': round(x, 2), 'y': round(self.base_y, 2), 'z': round(z, 2), 'yaw': round(yaw, 4), 'lv': level, 'l': hx, 't': t,
                           'open': 1 if (hollow and level == 0) else 0})
         if level == 0:
             self.rects.append((x, z, hx, C_HALF, yaw))
@@ -226,10 +226,11 @@ class Dockyard(Town):
         self.hills = [(0.0, 0.0), (-32.0, 11.0), (32.0, -11.0)]
 
         wh = 3.6
-        self.box(0, wh / 2, -bz - 0.5, bx + 1, wh / 2, 0.5, 0, 'concrete', 0)
-        self.box(0, wh / 2, bz + 0.5, bx + 1, wh / 2, 0.5, 0, 'concrete', 0)
-        self.box(-bx - 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'concrete', 0)
-        self.box(bx + 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'concrete', 0)
+        if not self.open:
+            self.box(0, wh / 2, -bz - 0.5, bx + 1, wh / 2, 0.5, 0, 'concrete', 0)
+            self.box(0, wh / 2, bz + 0.5, bx + 1, wh / 2, 0.5, 0, 'concrete', 0)
+            self.box(-bx - 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'concrete', 0)
+            self.box(bx + 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'concrete', 0)
 
         # the roads: the lane, and a crossing at each end between the blocks and the quays
         self.roads.append({'w': LANE_W, 'c': 'asphalt', 'pts': [(-bx, 0.0), (bx, 0.0)]})
@@ -357,11 +358,12 @@ class Dockyard(Town):
             for sz in (-1, 1):
                 self.deco.append({'k': 'lines', 'x': i * 3.0, 'z': sz * 6.0, 'l': 5.0, 'yaw': 0.0})
         # the roads run on into the dark: tunnel mouths in the perimeter
-        self.portal(-bx + 0.02, 0.0, math.pi / 2, LANE_W - 0.6, 3.3)
-        self.portal(bx - 0.02, 0.0, -math.pi / 2, LANE_W - 0.6, 3.3)
-        for cx in (-CROSS_X, CROSS_X):
-            self.portal(cx, -bz + 0.02, 0.0, CROSS_W - 0.6, 3.3)
-            self.portal(cx, bz - 0.02, math.pi, CROSS_W - 0.6, 3.3)
+        if not self.open:
+            self.portal(-bx + 0.02, 0.0, math.pi / 2, LANE_W - 0.6, 3.3)
+            self.portal(bx - 0.02, 0.0, -math.pi / 2, LANE_W - 0.6, 3.3)
+            for cx in (-CROSS_X, CROSS_X):
+                self.portal(cx, -bz + 0.02, 0.0, CROSS_W - 0.6, 3.3)
+                self.portal(cx, bz - 0.02, math.pi, CROSS_W - 0.6, 3.3)
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': 0.0, 'r': 10})
         self.areas.append({'n': 'East Gate', 'x': self.spawn_e[0], 'z': 0.0, 'r': 10})
         self.pick_spawns()

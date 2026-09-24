@@ -26,6 +26,8 @@ const THEMES = {
   concrete: { top: '#5a8dc4', mid: '#c2d4e0', bot: '#dcdad4', fog: '#d6d6d1', near: 70, far: 260, hemi: ['#dbe6ef', '#8c8c88', 1.5], sun: ['#fff6e8', 3.2, [40, 62, -30]] },
   snow: { top: '#6f8fb0', mid: '#d5dde6', bot: '#e6ebf0', fog: '#dfe5ec', near: 45, far: 210, hemi: ['#dbe6f2', '#b9c0c8', 1.2], sun: ['#fff8f0', 2.2, [-45, 40, 30]] },
   garden: { top: '#4f8fd0', mid: '#bcd6ea', bot: '#e4ecd8', fog: '#d6dfcf', near: 75, far: 270, hemi: ['#d6e6f2', '#5f7a3c', 1.15], sun: ['#fff4e0', 2.8, [50, 66, 40]] },
+  // the royale map is big and seen from a plane: the haze sits further off
+  royale: { top: '#5590c8', mid: '#bdd2e2', bot: '#e6d8bc', fog: '#d8cfba', near: 130, far: 460, hemi: ['#d2e0ec', '#9a8560', 1.15], sun: ['#fff0d6', 2.7, [55, 62, 35]] },
 };
 
 let texCache = null;
@@ -260,6 +262,25 @@ export class World {
     }
   }
 
+  // on a map too big for one shadow map, the sun's shadow box follows the camera
+  // about in big hops, re-rendering only when it moves
+  followShadows(pos) {
+    if (!this.map || !this.renderer.shadowMap.enabled) return;
+    const [bx, bz] = this.map.bounds;
+    if (Math.max(bx, bz) <= 100) return;
+    const c = this.shadowCentre || (this.shadowCentre = new THREE.Vector3(1e9, 0, 1e9));
+    if (Math.hypot(pos.x - c.x, pos.z - c.z) < 45) return;
+    c.set(pos.x, 0, pos.z);
+    const t = THEMES[this.map.theme] || THEMES.sand;
+    this.sun.target.position.set(pos.x, 0, pos.z);
+    this.sun.position.set(pos.x + t.sun[2][0], t.sun[2][1], pos.z + t.sun[2][2]);
+    this.sun.target.updateMatrixWorld();
+    const sc = this.sun.shadow.camera;
+    sc.left = -110; sc.right = 110; sc.top = 110; sc.bottom = -110; sc.far = 320;
+    sc.updateProjectionMatrix();
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
   setShadows(on) {
     this.renderer.shadowMap.enabled = on;
     this.sun.castShadow = on;
@@ -309,6 +330,10 @@ export class World {
       rock: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
       terrain: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
       terraintop: new THREE.MeshLambertMaterial({ map: map.theme === 'snow' ? tx.snow : map.theme === 'garden' ? tx.grass : tx.ground, vertexColors: true }),
+      // stepped ground can carry its own texture by tint: snow, grass or concrete
+      terraintop1: new THREE.MeshLambertMaterial({ map: tx.snow, vertexColors: true }),
+      terraintop2: new THREE.MeshLambertMaterial({ map: tx.grass, vertexColors: true }),
+      terraintop3: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
       marble: new THREE.MeshLambertMaterial({ map: tx.marble, vertexColors: true }),
       hedge: new THREE.MeshLambertMaterial({ map: tx.hedge, vertexColors: true }),
       velvet: new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }),
@@ -344,9 +369,9 @@ export class World {
       } else if (mat === 'container') {
         B('container').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CONTAINER_TINTS[tint % 6]), 3.4);
       } else if (mat === 'terrain') {
-        // stepped ground: snow on top (the snow texture), rock on the risers
-        B('terraintop').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 9.0, { faces: 'top' });
-        B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#9a9c9e'), 3.0, { faces: 'sides' });
+        // stepped ground: snow (or the tint's texture) on top, rock on the risers
+        B(tint ? 'terraintop' + (tint % 4) : 'terraintop').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(tint === 3 ? '#c9c8c2' : '#ffffff'), tint === 3 ? 2.5 : 9.0, { faces: 'top' });
+        if (hy > 0.04) B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(tint === 1 ? '#9a9c9e' : '#b8a888'), 3.0, { faces: 'sides' });
       } else if (mat === 'flatroof') {
         B('flatroof').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#7d7b76'), 3.0);
       } else if (mat === 'marble') {
@@ -665,6 +690,18 @@ export class World {
         root.add(plate);
       } else if (d.k === 'road') {
         this.addRoad(root, d);
+      } else if (d.k === 'ground') {
+        // a patch of different ground under a whole quarter of the royale map
+        const g = new THREE.PlaneGeometry(d.w, d.d);
+        g.rotateX(-Math.PI / 2);
+        const t = (d.c === 'concrete' ? tx.concrete : d.c === 'grass' ? tx.grass : d.c === 'snow' ? tx.snow : tx.ground).clone();
+        t.repeat.set(d.w / 9, d.d / 9);
+        t.needsUpdate = true;
+        const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, polygonOffset: true, polygonOffsetFactor: -0.5 }));
+        m.material.userData.own = true;
+        m.position.set(d.x, 0.012, d.z);
+        m.receiveShadow = true;
+        root.add(m);
       } else if (d.k === 'pond') {
         const water = new THREE.Mesh(new THREE.CircleGeometry(d.r, 48), new THREE.MeshPhongMaterial({ color: '#2f7f8f', shininess: 90, specular: '#cfefff', transparent: true, opacity: 0.88 }));
         water.rotation.x = -Math.PI / 2;
@@ -1405,8 +1442,8 @@ export class World {
   terrain() {
     const out = [];
     if (!this.map) return out;
-    for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of this.map.boxes) {
-      if ((mat === 'rock' || mat === 'terrain') && cy - hy <= 0.2) out.push({ x: cx, z: cz, hx, hz, yaw, h: cy + hy });
+    for (const [cx, cy, cz, hx, hy, hz, yaw, mat, tint] of this.map.boxes) {
+      if ((mat === 'rock' || mat === 'terrain') && cy - hy <= 0.2 && hx < 150) out.push({ x: cx, z: cz, hx, hz, yaw, h: cy + hy, tint: mat === 'terrain' ? tint : -1 });
     }
     return out;
   }

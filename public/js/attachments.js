@@ -220,6 +220,33 @@ for (const w in ATTACHMENTS) {
 
 export const HAS_ATTACHMENTS = Object.keys(ATTACHMENTS);
 
+// Souk Royale: a gun's rarity says how many attachments it comes with, one a
+// tier from common up. These are the slots filled, in order; a gun with fewer
+// slots than tiers tops out at legendary with the lot.
+const ROYALE_FITS = {
+  smg: [['optic', 'holo'], ['muzzle', 'suppressor'], ['grip', 'short'], ['mag', 'large'], ['laser', 'green'], ['barrel', 'ext']],
+  pdw: [['optic', 'reddot'], ['muzzle', 'suppressor'], ['grip', 'short'], ['mag', 'large'], ['laser', 'green'], ['barrel', 'short']],
+  carbine: [['optic', 'holo'], ['muzzle', 'suppressor'], ['grip', 'short'], ['mag', 'large'], ['laser', 'green'], ['barrel', 'ext']],
+  lmg: [['optic', 'holo'], ['muzzle', 'longbrake'], ['grip', 'short'], ['mag', 'large'], ['laser', 'green'], ['barrel', 'ext']],
+  shotgun: [['optic', 'holo'], ['muzzle', 'suppressor'], ['grip', 'short'], ['laser', 'green'], ['mag', 'small'], ['ammo', 'buck']],
+  sniper: [['optic', 'scope6'], ['muzzle', 'suppressor'], ['mag', 'ext'], ['grip', 'short'], ['laser', 'green'], ['barrel', 'ext']],
+  heavy: [['muzzle', 'suppressor'], ['mag', 'fast'], ['grip', 'angled'], ['laser', 'green'], ['optic', 'reddot']],
+  pistol: [['optic', 'reddot'], ['muzzle', 'suppressor'], ['mag', 'drum'], ['laser', 'green'], ['barrel', 'ext'], ['trigger', 'auto']],
+  revolver: [['optic', 'reddot'], ['barrel', 'long'], ['mag', 'cyl8'], ['laser', 'green']],
+};
+export const RARITY_TIER = { default: 0, common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
+
+export function royaleFit(weapon, rarity) {
+  const list = ROYALE_FITS[weapon];
+  if (!list) return null;
+  // a gun with fewer than five slots loses one attachment a tier below legendary
+  const n = Math.max(0, Math.min(list.length, list.length < 5 ? list.length - (5 - (RARITY_TIER[rarity] || 0)) : (RARITY_TIER[rarity] || 0)));
+  const fit = {};
+  for (const slot of slotsFor(weapon)) fit[slot.id] = slotList(weapon, slot.id)[0].id;
+  for (let i = 0; i < n; i++) fit[list[i][0]] = list[i][1];
+  return fit;
+}
+
 // the slots a gun has, in the order they're shown
 export function slotsFor(weapon) {
   const w = ATTACHMENTS[weapon];

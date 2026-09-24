@@ -446,10 +446,11 @@ class Alpine(Town):
         top = self.ridge_top()
         wh = 7.0
         self.base_y = 0.0
-        self.rock(0, (wh + 6) / 2, bz + 1.5, bx + 3, (wh + 6) / 2, 1.5)
-        self.rock(-bx - 1.5, (wh + 6) / 2, 0, 1.5, (wh + 6) / 2, bz + 3)
-        self.rock(bx + 1.5, (wh + 6) / 2, 0, 1.5, (wh + 6) / 2, bz + 3)
-        self.rock(0, (top + wh) / 2, -bz - 1.5, bx + 3, (top + wh) / 2, 1.5)
+        if not self.open:
+            self.rock(0, (wh + 6) / 2, bz + 1.5, bx + 3, (wh + 6) / 2, 1.5)
+            self.rock(-bx - 1.5, (wh + 6) / 2, 0, 1.5, (wh + 6) / 2, bz + 3)
+            self.rock(bx + 1.5, (wh + 6) / 2, 0, 1.5, (wh + 6) / 2, bz + 3)
+            self.rock(0, (top + wh) / 2, -bz - 1.5, bx + 3, (top + wh) / 2, 1.5)
 
         # the roads first: level across their width, following the land along their length
         # level pads for everything that needs one: the helipad, the gates, site B,
@@ -590,6 +591,8 @@ class Alpine(Town):
             road(pts, w)
 
         for (px, pz, yaw) in ((-bx + 0.02, 6.0, math.pi / 2), (bx - 0.02, 6.0, -math.pi / 2), (-24.0, bz - 0.02, math.pi), (38.0, bz - 0.02, math.pi)):
+            if self.open:
+                break
             self.base_y = self.ground(px, pz)
             self.portal(px, pz, yaw, 6.0 if abs(pz - 6.0) < 0.1 else 4.4, 4.2)
         self.base_y = 0.0

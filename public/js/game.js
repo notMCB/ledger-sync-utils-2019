@@ -8,8 +8,9 @@ import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
 import { Hud, MODE_INFO, isTeamMode } from './hud.js';
 import { input } from './input.js';
 import { settings, keyName } from './settings.js';
-import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor } from './weapons.js';
-import { serverFlags } from './attachments.js';
+import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor, AMMO_OF, AMMO_CAP } from './weapons.js';
+import { serverFlags, royaleFit } from './attachments.js';
+import { makePlane, makeChute, makeChest, openChest, makeItem, labelItem, makeGas, updateGas, fireworks, itemName, itemColor, rarityColor, RARITY_NAMES, AMMO_NAMES } from './royale.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
 import { tickSkins, OUTFIT, CAMO_OUTFITS } from './skins.js';
@@ -49,6 +50,16 @@ const NICHE_RULES = {
   oitc: { primary: null, pistol: 'pistol', nades: 0, attach: false, rounds: 1 },
 };   // a thrown knife: a level throw from eye height is on the ground by fifteen metres
 const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, forward and back
+// Souk Royale: the drop
+const FALL_SPEED = 26;      // metres a second, straight down, arms out
+const DIVE_EXTRA = 18;      // more when you look straight down
+const CHUTE_SPEED = 3.4;    // under the parachute
+const CHUTE_AT = 5.0;       // it opens this far above whatever is below you
+const STEER = 14;           // sideways speed in freefall
+const CHUTE_STEER = 6;
+const PICK_REACH = 2.2;     // how close you walk to a thing to have it
+const CHEST_REACH = 2.5;
+const VEST_TIME = 2.5;
 const SITE_R = 4.8;
 const HILL_R = 6.0;
 
@@ -62,7 +73,8 @@ export class Game {
   constructor(canvas, ui) {
     this.ui = ui;
     this.canvas = canvas;
-    const r = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    const r = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance',
+      preserveDrawingBuffer: location.hostname === 'localhost' && new URLSearchParams(location.search).has('autotest') });
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.05;
@@ -102,6 +114,7 @@ export class Game {
       nextNade: 1, interacting: false, deathPos: V(), killerId: 0, spawnT: 0, reloadEnd: 0, shellNext: 0,
       boltPending: 0, pumpPending: 0,
       slide: null, slideReady: 0, vault: null, climbing: false, perkLeft: 0, nadeKind: 'frag',
+      aboard: false, falling: null, applying: 0,
     };
     this.ladders = new Map();   // player id -> ladder
     this.beacons = new Map();   // player id -> beacon
@@ -112,6 +125,13 @@ export class Game {
     this.forklifts = new Map(); // forklift id -> { mesh, box, pos, yaw, driver }
     this.knives = [];           // thrown knives in flight or stuck in walls
     this.driving = null;        // the forklift I'm driving, if any
+    this.br = null;             // Souk Royale: my kit, the plane, the gas, what is on the ground
+    this.chestMeshes = new Map();
+    this.itemMeshes = new Map();
+    this.gasMesh = makeGas();
+    this.scene.add(this.gasMesh);
+    this.planeMesh = null;
+    this.myChute = null;
     this.flashT = 0;
     this.flashMax = 1;
     this.chat = null;
@@ -252,6 +272,15 @@ export class Game {
       case 'dead': return this.onDead(m);
       case 'team': this.me.team = m.team; return this.updateTeamLook();
       case 'ldnow': return this.applyLoadout(m.ld);
+      case 'plane': return this.onPlane(m);
+      case 'jumped': return this.onJumped(m);
+      case 'inv': return this.applyInv(m);
+      case 'items': return this.onItems(m);
+      case 'chest': return this.onChest(m);
+      case 'brstats': return this.onStats(m);
+      case 'brwin':
+        locker.grantOutfit(m.outfit, m.locker);
+        return;
       case 'oitc': {
         const pw = this.me.weapons && this.me.weapons.pistol;
         if (pw) { pw.mag = m.r; pw.reserve = 0; pw.reloading = false; }
@@ -262,11 +291,13 @@ export class Game {
       case 'heal':
         this.me.hp = m.hp;
         this.hud.setHP(m.hp);
+        if (m.quiet) return;         // a medkit ticking up: no fanfare
         sfx.heal();
         this.hud.center('Healed', m.by ? `From ${m.by}’s medic crate` : `${m.hp} health`, '', 1.6, 1);
         return;
       case 'perkok':
-        if (m.k === 'ammo') this.refillAmmo(m.by);
+        if (m.k === 'ammo' && !this.br) this.refillAmmo(m.by);
+        else if (m.k === 'ammo') { sfx.reloadSound('smg', 0.8, false, null); this.hud.center('Restocked', 'Ammo pools full', '', 1.6, 1); }
         return;
       case 'supply': return this.onCrate(m);
       case 'wall': return this.onWall(m);
@@ -284,6 +315,11 @@ export class Game {
       }
       case 'perkleft':
         this.me.perkLeft = m.n;
+        if (this.br) {
+          if (m.k === null || m.k === undefined) this.br.perk = null;
+          this.br.perkCd = m.cd || 0;
+          if (m.cd === 0 && m.n > 0 && this.br.perk) this.hud.center(`${this.perkName()} ready`, '', '', 1.2, 1);
+        }
         return;
       case 'ladder': return this.onLadder(m);
       case 'throw': if (m.id !== this.myId) this.spawnKnife(new THREE.Vector3(...m.o), new THREE.Vector3(...m.v), false, m.id); return;
@@ -313,6 +349,7 @@ export class Game {
     this.clearDevices();
     this.addHatchLadders(map);
     this.addForklifts(map);
+    this.addChests(map);
     this.hasMap = true;
     if (this.inRoom && map.name) this.hud.center(map.name, 'Next map', '', 3, 2);
   }
@@ -489,6 +526,9 @@ export class Game {
     this.myId = m.you;
     this.me.team = m.team;
     this.me.alive = false;
+    this.me.aboard = false;
+    this.me.falling = null;
+    this.br = m.room.mode === 'royale' ? this.newBr() : null;
     this.g = null;
     this.roster = new Map();
     this.avatars.clear();
@@ -515,6 +555,10 @@ export class Game {
     this.hud.show(false);
     this.bombMesh.visible = false;
     this.hill.visible = false;
+    this.clearRoyale();
+    this.br = null;
+    this.me.aboard = false;
+    this.me.falling = null;
     this.vm.scoped = false;
     this.hud.scope(false);
     document.getElementById('death').hidden = true;
@@ -531,8 +575,13 @@ export class Game {
   }
 
   maxNades() {
+    if (this.br) return 3;
     const r = this.modeRules();
     return r ? r.nades : nadesFor(this.me.loadout, this.me.nadeKind);
+  }
+
+  isRoyale() {
+    return !!this.br;
   }
 
   warmup() {
@@ -563,6 +612,12 @@ export class Game {
   // after equipping something in the locker
   refreshCosmetics() {
     const ld = this.me.loadout;
+    if (this.br) {
+      this.vm.setSkins(this.brSkins());
+      this.updateTeamLook();
+      if (this.inRoom && this.net) this.send({ t: 'cos', cos: locker.cosmetics(ld) });
+      return;
+    }
     this.vm.setSkins(locker.cosmetics(ld).g);
     this.me.nadeKind = locker.nadeFor(ld);
     this.updateTeamLook();
@@ -575,6 +630,18 @@ export class Game {
   applyLoadout(ld) {
     const me = this.me;
     me.loadout = ld;
+    if (this.br) {
+      // the royale: you start with the knife and whatever the server says you have
+      me.weapons = { primary: null, pistol: null, knife: makeWeaponState('knife') };
+      me.slot = 'knife';
+      me.nades = 0;
+      me.perkLeft = 0;
+      this.vm.setSkins(this.brSkins());
+      this.vm.setWeapon('knife');
+      if (this.inRoom && this.net) this.send({ t: 'cos', cos: locker.cosmetics(ld) });
+      this.hud.lastAmmo = '';
+      return;
+    }
     me.nadeKind = locker.nadeFor(ld);
     me.perkLeft = PERKS[locker.perkFor(ld)].uses;
     me.nades = Math.min(me.nades, nadesFor(ld, me.nadeKind));
@@ -642,7 +709,15 @@ export class Game {
     me.interacting = false;
     me.spawnT = this.clock;
     me.grounded = true;
+    me.aboard = !!m.aboard;
+    me.falling = null;
+    me.applying = 0;
+    if (this.br) { this.br.shield = 0; this.br.vests = 0; this.br.healT = 0; }
     this.applyLoadout(m.ld);
+    if (me.aboard) {
+      this.endMyChute();
+      this.hud.center('Souk Royale', `${keyName(settings.binds.jump)} to jump when you are over where you want to land`, '', 6, 3);
+    }
     if (m.lv !== undefined && this.room && this.room.mode === 'oitc') this.hud.center(`${m.lv} ${m.lv === 1 ? 'life' : 'lives'}`, 'One round in the chamber. A kill loads another', '', 2.2, 2);
     this.updateTeamLook();
     this.hud.setHP(100);
@@ -666,9 +741,13 @@ export class Game {
     this.vm.scoped = false;
     this.hud.scope(false);
     if (me.slot && me.weapons) me.weapons[me.slot].reloading = false;
-    let by = m.by && m.by !== this.myId ? `Killed by <b>${escapeHtml(m.byn)}</b>` : m.w === 'bomb' ? 'Caught in the blast' : 'You died';
+    me.aboard = false;
+    me.falling = null;
+    this.endMyChute();
+    let by = m.by && m.by !== this.myId ? `Killed by <b>${escapeHtml(m.byn)}</b>` : m.w === 'bomb' ? 'Caught in the blast' : m.w === 'gas' ? 'Lost to the gas' : 'You died';
+    if (m.late) by = 'A match is under way';
     if (m.lv !== undefined && m.lv >= 0) by += m.lv > 0 ? ` · ${m.lv} ${m.lv === 1 ? 'life' : 'lives'} left` : ' · no lives left, most kills wins';
-    this.ui.showDeath(by, me.respawnAt);
+    this.ui.showDeath(by, me.respawnAt, !!m.late);
   }
 
   onSnap(m) {
@@ -678,10 +757,12 @@ export class Game {
     for (const p of m.p) {
       if (p[0] === this.myId) {
         this.me.hp = p[9];
+        if (this.br && typeof p[11] === 'number') this.br.shield = p[11];
         const alive = !!(p[6] & 1);
         if (!alive && this.me.alive) this.me.alive = false;
       }
     }
+    if (this.br && this.g.gs) this.onGasState(this.g.gs);
     this.avatars.sync(m.p, this.myId, t);
     if (m.dr) this.syncDrones(m.dr);
     if (m.fk) this.syncForklifts(m.fk);
@@ -690,7 +771,8 @@ export class Game {
 
   onPhase(prev, ph) {
     const g = this.g;
-    if (ph === 'waiting') this.hud.center('Warm-up', 'The match starts when a second player joins', '', 3, 1);
+    if (ph === 'waiting') this.hud.center('Warm-up', this.br ? 'The plane leaves when a second player joins' : 'The match starts when a second player joins', '', 3, 1);
+    if (ph === 'ended' && this.br) { this.me.aboard = false; this.me.falling = null; this.endMyChute(); }
     if (ph === 'live' && g.mode !== 'bomb') {
       this.hud.center(MODE_INFO[g.mode].name, this.goalText(), '', 3.5, 2);
     }
@@ -706,6 +788,7 @@ export class Game {
     if (m === 'knives') return 'Knives only. First to 25 kills wins';
     if (m === 'firefight') return 'Flamethrowers and molotovs only. First to 25 kills wins';
     if (m === 'oitc') return 'One round, three lives. Most kills wins';
+    if (m === 'royale') return 'One life. Loot the chests, stay out of the gas. Last one standing wins';
     if (m === 'koth') return 'Hold the hill with nobody from the other team on it';
     return '';
   }
@@ -782,6 +865,15 @@ export class Game {
       }
       case 'matchend': {
         let big, cls = '';
+        if (g.mode === 'royale') {
+          const won = m.w === this.myId;
+          big = won ? 'Souk Royale' : m.w > 0 ? `${this.nameOf(m.w)} takes the Souk Royale` : 'Nobody left standing';
+          this.hud.center(big, won ? 'You are the last one standing' : 'Next drop in a moment', won ? 'gold' : '', 12, 5);
+          this.showScores = true;
+          setTimeout(() => { this.showScores = false; }, 11000);
+          if (m.w > 0) this.startFireworks(m.w);
+          break;
+        }
         if (!isTeamMode(g.mode)) {
           big = m.w === this.myId ? 'You win' : `${this.nameOf(m.w)} wins`;
         } else if (m.w === -1) {
@@ -796,6 +888,16 @@ export class Game {
         break;
       }
       case 'hillmove': this.hud.center('The hill has moved', 'Follow the marker', '', 2.5, 2); break;
+      case 'gas':
+        if (m.ph === 'close') {
+          this.hud.center('The gas is closing in', 'Get inside the circle', 'warn', 4, 3);
+          sfx.siren();
+        } else {
+          this.hud.center('The next circle is marked', `The gas moves in ${Math.round(m.in)} seconds`, '', 3, 2);
+          sfx.beep(700, 0.25, 0.3);
+        }
+        break;
+      case 'healing': this.hud.center('Medkit', '50 health over five seconds', '', 1.6, 1); break;
       default:
     }
   }
@@ -900,9 +1002,18 @@ export class Game {
 
   usePerk() {
     const me = this.me;
-    const perk = locker.perkFor(me.loadout);
+    let perk = locker.perkFor(me.loadout);
     if (this.modeRules()) return;          // no perks in the niche modes
-    if (me.perkLeft <= 0) {
+    if (this.br) {
+      perk = this.br.perk;
+      if (!perk) return this.hud.center('No perk', 'Perks and medkits are in chests', '', 1.4, 1);
+      if (perk === 'medkit') {
+        if (me.hp >= 100) return this.hud.center('Full health', 'Save the medkit', '', 1.2, 1);
+        this.send({ t: 'perk', k: 'medkit' });
+        return;
+      }
+      if (me.perkLeft <= 0) return this.hud.center(`${this.perkName()} recharging`, `${Math.ceil(this.br.perkCd || 0)} seconds`, '', 1.4, 1);
+    } else if (me.perkLeft <= 0) {
       this.hud.center(`No ${PERKS[perk].name} left`, 'You get more when you respawn', '', 1.6, 1);
       return;
     }
@@ -1471,8 +1582,12 @@ export class Game {
     }
     this.lookDelta = [mx, my];
 
-    this.aimWant = act && !this.drone && this.readAim();
-    if (act && this.drone) {
+    this.aimWant = act && !this.drone && !me.aboard && !me.falling && this.readAim();
+    if (act && me.aboard) {
+      this.updateAboard(dt);
+    } else if (act && me.falling) {
+      this.updateFalling(dt);
+    } else if (act && this.drone) {
       this.updateDrone(dt);
     } else if (act && this.driving) {
       this.updateDriving(dt);
@@ -1487,7 +1602,8 @@ export class Game {
     // switch to spectating a teammate by clicking while dead
     if (!me.alive && this.inRoom && input.pressed('fire')) this.spectateIdx++;
 
-    if (this.inRoom && input.pressed('loadout')) this.ui.openLoadout();
+    if (this.inRoom && input.pressed('loadout') && !this.br) this.ui.openLoadout();
+    if (this.inRoom && input.pressed('map')) this.mapOpen = !this.mapOpen;
     if (this.range) {
       if (input.pressed('interact')) {
         this.range.reset();
@@ -1504,9 +1620,10 @@ export class Game {
 
     // network
     this.sendT -= dt;
-    if (this.inRoom && me.alive && this.sendT <= 0) {
+    if (this.inRoom && me.alive && !me.aboard && this.sendT <= 0) {
       this.sendT = 1 / SEND_HZ;
       let f = 0;
+      if (me.falling) f |= me.falling.chute ? 131072 | 65536 : 65536;
       if (me.crouch) f |= 2;
       if (me.prone) f |= 512;
       if (me.onBack) f |= 1024;
@@ -1520,9 +1637,11 @@ export class Game {
       if (me.sprinting) f |= 32;
       // a scoped optic catches the sun: other players get a chance to spot it
       if (this.vm.scoped || (ws && ws.def.sight === 'scope' && me.adsK > 0.6)) f |= 64;
-      this.send({ t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +me.yaw.toFixed(4),
+      const st = { t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +me.yaw.toFixed(4),
         pi: +me.pitch.toFixed(4), f, sl: me.slot === 'knife' ? 2 : me.slot === 'pistol' ? 1 : 0, sc: me.sc,
-        by: +(me.prone ? me.bodyYaw : me.yaw).toFixed(4) });
+        by: +(me.prone ? me.bodyYaw : me.yaw).toFixed(4) };
+      if (this.br && me.weapons && me.weapons.primary && me.weapons.primary.id === 'flamer') st.fu = +me.weapons.primary.mag.toFixed(1);
+      this.send(st);
     }
   }
 
@@ -1813,6 +1932,417 @@ export class Game {
     if (me.pos.y < -12) me.pos.y = 0;
   }
 
+  // -- Souk Royale ---------------------------------------------------------------
+
+  newBr() {
+    return { ammo: { light: 0, medium: 0, shells: 0, heavy: 0, pistol: 0 }, vests: 0, shield: 0, perk: null, perkCd: 0,
+      items: { primary: null, pistol: null }, plane: null, gas: null, stats: null, pickT: new Map(), fireT: 0, fireN: 0, fireAt: null, gasStage: -1 };
+  }
+
+  clearRoyale() {
+    for (const C of this.chestMeshes.values()) this.scene.remove(C.mesh);
+    this.chestMeshes.clear();
+    for (const I of this.itemMeshes.values()) this.scene.remove(I.mesh);
+    this.itemMeshes.clear();
+    if (this.planeMesh) { this.scene.remove(this.planeMesh); this.planeMesh = null; }
+    this.gasMesh.visible = false;
+    this.endMyChute();
+    sfx.planeHum(false);
+    this.hud.setShield(0, 0, false);
+    this.hud.royaleBar(null, '', false);
+    document.getElementById('gas').style.opacity = '0';
+    document.getElementById('prompt-text').style.color = '';
+  }
+
+  perkName() {
+    const p = this.br && this.br.perk;
+    return p === 'medkit' ? 'Medkit' : p && PERKS[p] ? PERKS[p].name : 'No perk';
+  }
+
+  brSkins() {
+    const g = {};
+    const it = this.br ? this.br.items : {};
+    for (const slot of ['primary', 'pistol']) if (it[slot] && it[slot].f) g[it[slot].w] = it[slot].f;
+    const k = locker.equippedGun('knife');
+    if (k) g.knife = k;
+    return g;
+  }
+
+  // the chests the map put down, all closed
+  addChests(map) {
+    for (const C of this.chestMeshes.values()) this.scene.remove(C.mesh);
+    this.chestMeshes.clear();
+    for (const I of this.itemMeshes.values()) this.scene.remove(I.mesh);
+    this.itemMeshes.clear();
+    if (!map.chests) return;
+    map.chests.forEach((c, i) => {
+      const mesh = makeChest();
+      mesh.position.set(c[0], c[1], c[2]);
+      mesh.rotation.y = c[3] || 0;
+      this.scene.add(mesh);
+      this.chestMeshes.set(i + 1, { mesh, x: c[0], y: c[1], z: c[2], open: false });
+    });
+  }
+
+  onChest(m) {
+    if (m.reset) {
+      for (const C of this.chestMeshes.values()) {
+        if (C.open) { this.scene.remove(C.mesh); C.mesh = makeChest(); C.mesh.position.set(C.x, C.y, C.z); this.scene.add(C.mesh); C.open = false; }
+      }
+      return;
+    }
+    const C = this.chestMeshes.get(m.id);
+    if (!C || C.open) return;
+    C.open = true;
+    openChest(C.mesh);
+    sfx.chestOpen(new THREE.Vector3(C.x, C.y, C.z));
+    if (m.by === this.myId) this.hud.center('Chest opened', 'Walk over what you want; E takes a gun', '', 1.6, 1);
+  }
+
+  onItems(m) {
+    for (const iid of m.del || []) {
+      const I = this.itemMeshes.get(iid);
+      if (I) { this.scene.remove(I.mesh); this.itemMeshes.delete(iid); }
+    }
+    for (const it of m.add || []) {
+      if (this.itemMeshes.has(it.id)) continue;
+      const mesh = makeItem(it);
+      mesh.position.set(it.p[0], it.p[1], it.p[2]);
+      this.scene.add(mesh);
+      this.itemMeshes.set(it.id, { mesh, it, x: it.p[0], y: it.p[1], z: it.p[2] });
+    }
+  }
+
+  // what the server says I am carrying
+  applyInv(m) {
+    const br = this.br, me = this.me;
+    if (!br || !me.weapons) return;
+    br.ammo = m.am || br.ammo;
+    br.vests = m.v || 0;
+    br.shield = m.sh || 0;
+    me.nades = m.n || 0;
+    me.nadeKind = m.nk || 'frag';
+    br.perk = m.pk || null;
+    me.perkLeft = m.pl || 0;
+    br.perkCd = m.cd || 0;
+    const same = (a, b) => (!a && !b) || (a && b && a.w === b.w && a.r === b.r && a.f === b.f);
+    for (const [key, slot] of [['pw', 'primary'], ['sw', 'pistol']]) {
+      const it = m[key] || null;
+      if (same(it, br.items[slot])) continue;
+      br.items[slot] = it;
+      if (!it) {
+        me.weapons[slot] = null;
+        continue;
+      }
+      const fitted = royaleFit(it.w, it.r || 'default');
+      const ws = makeWeaponState(it.w, fitted);
+      if (it.w === 'flamer') { ws.mag = it.fuel !== undefined ? it.fuel : 100; ws.reserve = 0; }
+      me.weapons[slot] = ws;
+      this.vm.setAttachments(it.w, fitted);
+      if (this.inRoom && this.net) this.send({ t: 'atch', a: serverFlags(it.w, fitted) });
+      sfx.pickup();
+      const name = `${WEAPONS[it.w].name} · ${RARITY_NAMES[it.r || 'default']}`;
+      this.hud.center(name, fitted && Object.values(fitted).some((v) => v !== 'none' && v !== 'irons' && v !== 'normal' && v !== 'buck' && v !== 'medium' && v !== 'scope6' && v !== 'scope8') ? 'With attachments' : '', '', 1.6, 1);
+      // a new gun comes up in the hand
+      if (me.slot === 'knife' || me.slot === slot) { me.slot = slot; this.vm.switchTo(it.w); }
+    }
+    if (!me.weapons[me.slot]) {
+      me.slot = me.weapons.primary ? 'primary' : me.weapons.pistol ? 'pistol' : 'knife';
+      this.vm.switchTo(me.weapons[me.slot].id);
+    }
+    this.syncAmmo();
+    this.vm.setSkins(this.brSkins());
+    this.hud.lastAmmo = '';
+    this.hud.setShield(br.shield, br.vests, true);
+  }
+
+  // every gun's spare rounds are the pool of its ammo type
+  syncAmmo() {
+    const br = this.br, me = this.me;
+    if (!br || !me.weapons) return;
+    for (const slot of ['primary', 'pistol']) {
+      const ws = me.weapons[slot];
+      if (!ws || ws.id === 'flamer') continue;
+      ws.reserve = br.ammo[AMMO_OF[ws.id]] || 0;
+    }
+  }
+
+  onStats(m) {
+    if (!this.br) return;
+    this.br.stats = m;
+    this.ui.showStats(m);
+  }
+
+  onGasState(gs) {
+    const br = this.br;
+    br.gas = gs;
+  }
+
+  // -- the plane --
+
+  onPlane(m) {
+    if (!this.br) return;
+    const el = m.el || 0;
+    this.br.plane = { a: m.a, b: m.b, y: m.y, v: m.v, t0: this.clock - el, len: Math.hypot(m.b[0] - m.a[0], m.b[1] - m.a[1]),
+      dir: [(m.b[0] - m.a[0]), (m.b[1] - m.a[1])], done: false };
+    const L = this.br.plane.len || 1;
+    this.br.plane.dir = [this.br.plane.dir[0] / L, this.br.plane.dir[1] / L];
+    if (!this.planeMesh) { this.planeMesh = makePlane(); this.scene.add(this.planeMesh); }
+    this.planeMesh.visible = true;
+    const d = this.br.plane.dir;
+    this.planeMesh.rotation.y = Math.atan2(-d[0], -d[1]);
+    if (this.me.aboard) this.me.yaw = this.planeMesh.rotation.y + Math.PI;
+  }
+
+  planePos(out) {
+    const P = this.br && this.br.plane;
+    if (!P) return null;
+    const d = Math.min(P.len, Math.max(0, this.clock - P.t0) * P.v);
+    return out.set(P.a[0] + P.dir[0] * d, P.y, P.a[1] + P.dir[1] * d);
+  }
+
+  overMap(x, z) {
+    const [bx, bz] = this.map.bounds;
+    return Math.abs(x) <= bx - 2 && Math.abs(z) <= bz - 2;
+  }
+
+  updateAboard(dt) {
+    const me = this.me;
+    me.adsK = 0;
+    const p = this.planePos(tmpA);
+    if (p) me.pos.copy(p);
+    if (input.pressed('jump') || input.pressed('interact')) {
+      if (p && this.overMap(p.x, p.z)) this.send({ t: 'jump' });
+      else this.hud.center('Not over the map yet', '', '', 1, 1);
+    }
+  }
+
+  onJumped(m) {
+    const me = this.me;
+    me.aboard = false;
+    me.pos.set(m.p[0], m.p[1], m.p[2]);
+    const P = this.br && this.br.plane;
+    // thrown out of the back: a shove backwards and down
+    me.vel.set(P ? -P.dir[0] * 6 : 0, -4, P ? -P.dir[1] * 6 : 0);
+    me.falling = { chute: false, t: 0 };
+    me.grounded = false;
+    this.hud.center('Jumped', 'Steer with the move keys · look down to dive', '', 2.5, 2);
+  }
+
+  updateFalling(dt) {
+    const me = this.me, F = me.falling;
+    const phys = this.world.physics;
+    F.t += dt;
+    me.adsK = 0;
+    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
+    const s = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
+    let wx = -sy * f + cy * s, wz = -cy * f - sy * s;
+    const wl = Math.hypot(wx, wz);
+    if (wl > 0) { wx /= wl; wz /= wl; }
+    const steer = F.chute ? CHUTE_STEER : STEER;
+    me.vel.x += (wx * steer - me.vel.x) * Math.min(1, dt * (F.chute ? 1.5 : 2.5));
+    me.vel.z += (wz * steer - me.vel.z) * Math.min(1, dt * (F.chute ? 1.5 : 2.5));
+    const dive = Math.max(0, -me.pitch) / 1.52;
+    const fall = F.chute ? CHUTE_SPEED : FALL_SPEED + DIVE_EXTRA * dive;
+    me.vel.y += (-fall - me.vel.y) * Math.min(1, dt * (F.chute ? 6 : 2));
+    me.pos.x += me.vel.x * dt;
+    me.pos.z += me.vel.z * dt;
+    const [bx, bz] = this.map.bounds;
+    me.pos.x = Math.max(-bx + 1, Math.min(bx - 1, me.pos.x));
+    me.pos.z = Math.max(-bz + 1, Math.min(bz - 1, me.pos.z));
+    const drop = -me.vel.y * dt;
+    // what is below: the chute opens five metres over it, and you land on it
+    const hit = phys.raycast(tmpA.set(me.pos.x, me.pos.y + 0.3, me.pos.z), DOWN, Math.max(CHUTE_AT + 1, drop + 1), null, true);
+    const below = hit ? hit.t - 0.3 : Infinity;
+    if (!F.chute && below <= CHUTE_AT) {
+      F.chute = true;
+      sfx.chutePop();
+      if (!this.myChute) { this.myChute = makeChute(); this.scene.add(this.myChute); }
+      this.myChute.visible = true;
+    }
+    if (below <= drop + 0.02) {
+      me.pos.y = hit.point.y + 0.01;
+      me.vel.set(me.vel.x * 0.3, 0, me.vel.z * 0.3);
+      me.falling = null;
+      me.grounded = true;
+      this.endMyChute();
+      sfx.footstep(null, 1.0);
+      this.hud.center('Down', 'Find a chest', '', 1.4, 1);
+      return;
+    }
+    me.pos.y -= drop;
+    if (this.myChute) this.myChute.position.set(me.pos.x, me.pos.y + 0.2, me.pos.z);
+  }
+
+  endMyChute() {
+    if (this.myChute) this.myChute.visible = false;
+  }
+
+  // -- vests --
+
+  applyVest() {
+    const me = this.me, br = this.br;
+    if (!br || !me.alive || me.applying > this.clock || me.aboard || me.falling) return;
+    if (br.vests <= 0) return this.hud.center('No vests', 'Vests are in chests', '', 1.2, 1);
+    if (br.shield >= 200) return this.hud.center('Vest at full strength', '', '', 1.2, 1);
+    me.applying = this.clock + VEST_TIME;
+    const ws = this.weapon();
+    if (ws) ws.reloading = false;
+    this.vm.cancelReload();
+    this.vm.applyVest(VEST_TIME);
+    sfx.vestOn();
+    setTimeout(() => { if (me.alive && this.br) this.send({ t: 'vest' }); }, VEST_TIME * 1000 - 300);
+  }
+
+  // -- chests and the ground --
+
+  nearestChest() {
+    const me = this.me;
+    let best = null, bd = CHEST_REACH;
+    for (const [id, C] of this.chestMeshes) {
+      if (C.open) continue;
+      const d = Math.hypot(C.x - me.pos.x, C.z - me.pos.z);
+      if (d < bd && Math.abs(C.y - me.pos.y) < 2.0) { best = { id, C }; bd = d; }
+    }
+    return best;
+  }
+
+  nearItems() {
+    const me = this.me;
+    const out = [];
+    for (const [id, I] of this.itemMeshes) {
+      const d = Math.hypot(I.x - me.pos.x, I.z - me.pos.z);
+      if (d < PICK_REACH && Math.abs(I.y - me.pos.y) < 1.6) out.push({ id, I, d });
+    }
+    out.sort((a, b) => a.d - b.d);
+    return out;
+  }
+
+  // can I just walk over this? (ammo, vests, a medkit or perk for an empty slot, grenades of my kind)
+  autoTake(it) {
+    const br = this.br, me = this.me;
+    if (it.k === 'ammo') return (br.ammo[it.a] || 0) < AMMO_CAP[it.a];
+    if (it.k === 'vest') return br.vests < 2;
+    if (it.k === 'med') return !br.perk;
+    if (it.k === 'perk') return !br.perk;
+    if (it.k === 'nade') return me.nades < 3 && (me.nades === 0 || me.nadeKind === it.nk);
+    return false;
+  }
+
+  // a thing I would take with the interact key, and what to say about it
+  handTake(it) {
+    const br = this.br, me = this.me;
+    if (it.k === 'gun') {
+      const slot = ['pistol', 'revolver'].includes(it.w) ? 'pistol' : 'primary';
+      const cur = br.items[slot];
+      return cur ? `Swap for ${itemName(it)}` : `Take ${itemName(it)}`;
+    }
+    if (it.k === 'nade' && me.nades > 0 && me.nadeKind !== it.nk) return `Swap to ${itemName(it)} (drops your ${(NADE_INFO[me.nadeKind] || NADE_INFO.frag).name.toLowerCase()}s)`;
+    if ((it.k === 'perk' || it.k === 'med') && br.perk && !(it.k === 'perk' && br.perk === it.pk) && !(it.k === 'med' && br.perk === 'medkit')) return `Swap ${this.perkName()} for ${itemName(it)}`;
+    return null;
+  }
+
+  pickItem(id) {
+    const br = this.br;
+    const last = br.pickT.get(id) || -9;
+    if (this.clock - last < 0.6) return;
+    br.pickT.set(id, this.clock);
+    const msg = { t: 'pick', id };
+    const pw = this.me.weapons && this.me.weapons.primary;
+    if (pw && pw.id === 'flamer') msg.fuel = +pw.mag.toFixed(1);
+    this.send(msg);
+  }
+
+  updateRoyaleInteract() {
+    const me = this.me;
+    if (!me.alive || me.aboard || me.falling || this.drone || this.driving) { this.brPrompt = null; return; }
+    const items = this.nearItems();
+    let prompt = null, act = null;
+    for (const { id, I } of items) {
+      if (this.autoTake(I.it)) this.pickItem(id);
+    }
+    for (const { id, I } of items) {
+      const say = this.handTake(I.it);
+      if (say) { prompt = { text: say, color: itemColor(I.it) }; act = () => this.pickItem(id); break; }
+    }
+    if (!prompt) {
+      const ch = this.nearestChest();
+      if (ch) { prompt = { text: 'Open the chest', color: '#7fc8ff' }; act = () => { if (this.clock - (this.openT || -9) > 0.5) { this.openT = this.clock; this.send({ t: 'open', id: ch.id }); } }; }
+    }
+    this.brPrompt = prompt;
+    if (act && input.pressed('interact')) act();
+    else if (!act && input.pressed('interact') && !this.drone) {
+      const fk = this.forkliftNear();
+      if (fk) this.enterForklift(fk);
+    }
+  }
+
+  // the winner's fireworks, for a few seconds
+  startFireworks(winnerId) {
+    const br = this.br;
+    if (!br) return;
+    const a = this.avatars.get(winnerId);
+    br.fireAt = winnerId === this.myId ? this.me.pos.clone() : a ? a.pos.clone() : this.camera.position.clone();
+    br.fireN = 14;
+    br.fireT = 0.2;
+  }
+
+  updateRoyale(dt) {
+    const br = this.br, me = this.me;
+    if (!br) return;
+    // chests glow and items bob; names show on the ones near you
+    const cam = this.camera.position;
+    for (const I of this.itemMeshes.values()) {
+      const u = I.mesh.userData;
+      u.spin += dt * 1.2;
+      u.body.rotation.y = u.spin;
+      u.body.position.y = 0.32 + Math.sin(u.spin * 2) * 0.04;
+      const d = Math.hypot(I.x - cam.x, I.z - cam.z);
+      const near = d < 14 && Math.abs(I.y - cam.y) < 8;
+      if (near && !u.labelled) labelItem(I.mesh);
+      u.tag.visible = near;
+    }
+    // the plane
+    if (br.plane && this.planeMesh) {
+      const p = this.planePos(tmpB);
+      const P = br.plane;
+      const d = Math.max(0, this.clock - P.t0) * P.v;
+      if (d >= P.len + 5 && !me.aboard) {
+        this.planeMesh.visible = false;
+        br.plane = null;
+        sfx.planeHum(false);
+      } else {
+        this.planeMesh.position.copy(p);
+        for (const pr of this.planeMesh.userData.props) pr.rotation.z += dt * 40;
+        this.planeMesh.userData.lamp.color.set(this.overMap(p.x, p.z) ? '#3fe05c' : '#ff3b2f');
+        sfx.planeHum(true, p);
+      }
+    } else sfx.planeHum(false);
+    // the gas
+    const gs = br.gas;
+    updateGas(this.gasMesh, this.g && this.g.ph === 'live' ? gs : null, dt, this.clock);
+    const el = document.getElementById('gas');
+    let inGas = false;
+    if (gs && me.alive && !me.aboard && this.g && this.g.ph === 'live') inGas = Math.hypot(me.pos.x - gs.c[0], me.pos.z - gs.c[1]) > gs.r;
+    const want = inGas ? '0.55' : '0';
+    if (el.style.opacity !== want) el.style.opacity = want;
+    if (inGas) { br.gasTick = (br.gasTick || 0) - dt; if (br.gasTick <= 0) { br.gasTick = 1.0; sfx.burnCrackle(); } }
+    // perk cooldown, for the counter
+    if (br.perkCd > 0) br.perkCd = Math.max(0, br.perkCd - dt);
+    // fireworks
+    if (br.fireN > 0) {
+      br.fireT -= dt;
+      if (br.fireT <= 0) {
+        br.fireT = 0.35 + Math.random() * 0.35;
+        br.fireN--;
+        fireworks(this.fx, br.fireAt, br.fireN);
+        sfx.firework(br.fireAt);
+      }
+    }
+    this.world.followShadows(this.camera.position);
+  }
+
   // -- vaulting: over windowsills, crates and low walls --
 
   tryVault(climbing, minLedge = -Infinity) {
@@ -1911,6 +2441,13 @@ export class Game {
       me.adsK = Math.min(me.adsK, 0.3);
       return;
     }
+    // Souk Royale: a vest goes on with its own key, and nothing else happens while it does
+    if (this.br && input.pressed('shield') && !this.frozen()) this.applyVest();
+    if (me.applying > now) {
+      me.adsK = Math.max(0, me.adsK - dt * 8);
+      me.sprinting = false;
+      return;
+    }
 
     // aim
     const aim = this.aimWant;
@@ -1931,8 +2468,6 @@ export class Game {
     }
     me.punch = Math.max(0, me.punch - dt * me.punch * 14 - dt * 0.002);
 
-    // the whole map
-    if (input.pressed('map')) this.mapOpen = !this.mapOpen;
 
     // perk
     if (input.pressed('perk') && !this.frozen()) this.usePerk();
@@ -1959,6 +2494,7 @@ export class Game {
           if (ws.mag < d.mag && ws.reserve > 0) {
             ws.mag++;
             ws.reserve--;
+            this.ammoTaken(ws, 1);
           }
           if (ws.mag >= d.mag || ws.reserve <= 0) {
             ws.reloading = false;
@@ -1985,6 +2521,7 @@ export class Game {
         ws.mag += take;
         ws.reserve -= take;
         ws.reloading = false;
+        this.ammoTaken(ws, take);
       }
     } else if (input.pressed('reload') && ws.mag < d.mag && ws.reserve > 0 && me.nadeBusy <= 0) {
       this.startReload(ws);
@@ -2023,6 +2560,17 @@ export class Game {
         if (d.oneShot && ws.mag <= 0 && ws.reserve > 0) me.autoReloadAt = now + 0.55;
       }
     }
+  }
+
+  // Souk Royale: rounds loaded come out of the shared pool, and the server keeps count
+  ammoTaken(ws, n) {
+    const br = this.br;
+    if (!br || n <= 0) return;
+    const a = AMMO_OF[ws.id];
+    if (!a) return;
+    br.ammo[a] = Math.max(0, ws.reserve);
+    this.syncAmmo();
+    this.send({ t: 'reload', w: ws.id, n });
   }
 
   // Aim intent. A key (F by default) is always hold-to-aim; a mouse or
@@ -2289,6 +2837,7 @@ export class Game {
   }
 
   updateInteract() {
+    if (this.br) return this.updateRoyaleInteract();
     const opt = this.interactOption();
     const held = input.down('interact');
     if (!opt && input.pressed('interact') && !this.drone) {
@@ -2319,6 +2868,12 @@ export class Game {
       const dr = this.drone;
       cam.position.copy(dr.pos);
       cam.rotation.set(dr.pitch, dr.yaw, Math.sin(this.clock * 9) * 0.004, 'YXZ');
+    } else if (this.inRoom && me.alive && me.aboard && this.planeMesh) {
+      // standing in the cargo bay, looking out of the back
+      this.planeMesh.updateMatrixWorld();
+      cam.position.copy(this.planeMesh.userData.seat).applyMatrix4(this.planeMesh.matrixWorld);
+      cam.position.y += EYE_STAND - 0.1;
+      cam.rotation.set(me.pitch, me.yaw, Math.sin(this.clock * 7) * 0.003, 'YXZ');
     } else if (this.inRoom && me.alive) {
       let eye = EYE_STAND + (EYE_CROUCH - EYE_STAND) * me.crouchK;
       eye += (EYE_PRONE - eye) * me.proneK;
@@ -2349,11 +2904,11 @@ export class Game {
     const cam = this.camera;
     const me = this.me;
     const g = this.g;
-    const bombRound = g && g.mode === 'bomb' && !this.warmup();
-    // in bomb rounds, dead players watch a living teammate
+    const bombRound = g && (g.mode === 'bomb' || g.mode === 'royale') && !this.warmup();
+    // in bomb rounds, dead players watch a living teammate; in the royale, anyone left
     if (bombRound) {
-      const mates = [...this.avatars.map.values()].filter((a) => a.alive && a.team === me.team);
-      const list = mates.length ? mates : [...this.avatars.map.values()].filter((a) => a.alive);
+      const mates = g.mode === 'royale' ? [] : [...this.avatars.map.values()].filter((a) => a.alive && a.team === me.team);
+      const list = mates.length ? mates : [...this.avatars.map.values()].filter((a) => a.alive && !a.aboard);
       if (list.length) {
         const a = list[this.spectateIdx % list.length];
         const back = tmpA.set(Math.sin(a.yaw), 0, Math.cos(a.yaw)).multiplyScalar(3.2);
@@ -2467,6 +3022,19 @@ export class Game {
         mmObj.push({ x, z, r: HILL_R, color: col, fill: 'rgba(255,255,255,0.15)' });
       }
     }
+    // the royale: the gas and the plane's line
+    if (this.br && g && g.ph === 'live') {
+      const gs = this.br.gas;
+      if (gs) {
+        mmObj.push({ gas: true, x: gs.c[0], z: gs.c[1], r: gs.r });
+        if (gs.ph === 'wait' && gs.nr > 0) mmObj.push({ x: gs.nc[0], z: gs.nc[1], r: gs.nr, color: '#ffffff', fill: 'rgba(255,255,255,0.06)' });
+      }
+      const P = this.br.plane;
+      if (P) {
+        const pp = this.planePos(tmpB);
+        mmObj.push({ plane: true, a: P.a, b: P.b, px: pp.x, pz: pp.z });
+      }
+    }
     // your team's recon beacons: the area they cover, sweeping on the map
     const teamMode = this.isTeamMode() && !this.warmup();
     for (const B of this.beacons.values()) {
@@ -2495,14 +3063,25 @@ export class Game {
     hud.update(dt);
     if (!this.inRoom) return;
     const ws = this.weapon();
-    if (ws) hud.setAmmo(ws, me.nades, this.maxNades(), keyName(settings.binds.reload));
-    const perk = PERKS[locker.perkFor(me.loadout)];
-    hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), (NADE_INFO[me.nadeKind] || NADE_INFO.frag).name);
+    const br = this.br;
+    if (br) {
+      const it = ws && br.items[me.slot];
+      if (ws) hud.setAmmo(ws, me.nades, 3, keyName(settings.binds.reload), it ? rarityColor(it.r) : null, ws.id === 'knife' ? '' : '');
+      hud.setPerk(this.perkName(), me.perkLeft, keyName(settings.binds.perk), me.nades ? (NADE_INFO[me.nadeKind] || NADE_INFO.frag).name : 'no grenades', br.perkCd);
+      hud.setShield(br.shield, br.vests, me.alive && !me.aboard);
+      const gs = g && g.ph === 'live' ? br.gas : null;
+      const gasText = !g || g.ph !== 'live' ? '' : gs ? (gs.ph === 'close' ? `Gas closing · ${Math.ceil(gs.tl)}s` : gs.ph === 'done' ? 'The gas has closed' : `Gas moves in ${Math.ceil(gs.tl)}s`) : '';
+      hud.royaleBar(g && g.ph !== 'waiting' && g.ph !== 'countdown' ? (g.al !== undefined ? g.al : 0) : (g ? g.n : 0), gasText, !!(gs && gs.ph === 'close'));
+    } else {
+      if (ws) hud.setAmmo(ws, me.nades, this.maxNades(), keyName(settings.binds.reload));
+      const perk = PERKS[locker.perkFor(me.loadout)];
+      hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), (NADE_INFO[me.nadeKind] || NADE_INFO.frag).name);
+    }
     hud.setHP(me.alive ? me.hp : 0);
     if (this.range) hud.rangeTop(this.range.stats);
     else hud.top(g, me.team, this.myId, this.roster, this.clock);
     // crosshair: its gap is the real spread cone at this field of view
-    if (ws && me.alive) {
+    if (ws && me.alive && !me.aboard && !me.falling) {
       const spread = THREE.MathUtils.degToRad(ws.def.pelletSpread ? ws.def.pelletSpread * (1 + (0.72 - 1) * me.adsK) + ws.bloom * 0.3 : this.spreadDeg(ws));
       const px = (Math.tan(spread) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) * (window.innerHeight / 2);
       const onEnemy = this.aimTarget();
@@ -2511,13 +3090,29 @@ export class Game {
     // held messages
     if (g) {
       if (g.ph === 'waiting') hud.holdCenter('Waiting for players', `${g.n} of 2 needed to start · warm-up`, '');
-      else if (g.ph === 'countdown') hud.holdCenter(`Match starts in ${Math.ceil(g.tl)}`, MODE_INFO[g.mode].name, '');
+      else if (g.ph === 'countdown') hud.holdCenter(`${br ? 'The plane leaves' : 'Match starts'} in ${Math.ceil(g.tl)}`, MODE_INFO[g.mode].name, '');
       else if (g.ph === 'freeze') hud.holdCenter(`${Math.ceil(g.tl)}`, g.att === me.team ? 'Attack — the round starts soon' : 'Defend — the round starts soon', '');
       else if (g.ph === 'ended') hud.holdCenter('Match over', `Next town in ${Math.ceil(g.tl)}`, '');
     }
     // interaction prompt
     const b = g && g.b;
-    if (me.interacting && b) {
+    if (br) {
+      if (me.aboard) {
+        const pp = this.planePos(tmpB);
+        hud.prompt(pp && this.overMap(pp.x, pp.z) ? `${keyName(settings.binds.jump)} to jump` : 'Over the map soon…', undefined);
+      } else if (me.falling) {
+        const h = Math.max(0, me.pos.y - this.world.physics.floorAt(me.pos.x, me.pos.z, me.pos.y));
+        hud.prompt(me.falling.chute ? 'Parachute open' : `${Math.round(h)} m`, undefined);
+      } else if (me.applying > this.clock) hud.prompt('Putting on a vest…', 1 - (me.applying - this.clock) / VEST_TIME);
+      else if (this.brPrompt) hud.prompt(`${keyName(settings.binds.interact)} · ${this.brPrompt.text}`, undefined);
+      else {
+        const fk = !this.driving && me.alive && !this.drone ? this.forkliftNear() : null;
+        if (fk) hud.prompt(`${keyName(settings.binds.interact)} to drive the ${fk.kind === 'golfcart' ? 'golf cart' : 'forklift'}`, undefined);
+        else hud.prompt(null);
+      }
+      const pt = document.getElementById('prompt-text');
+      pt.style.color = this.brPrompt && !me.aboard && !me.falling && me.applying <= this.clock ? this.brPrompt.color : '';
+    } else if (me.interacting && b) {
       const planting = b.pl === this.myId;
       const prog = planting ? b.pt : b.df === this.myId ? b.dt : 0;
       hud.prompt(planting ? 'Planting the bomb…' : 'Defusing…', prog || 0);
@@ -2590,6 +3185,7 @@ export class Game {
       this.fx.update(dt, this.world.physics, this.camera, NADE_FUSE);
       this.updateKnives(dt);
       this.updateDevices(dt);
+      this.updateRoyale(dt);
       this.updateLaser();
       if (this.range) this.range.update(dt);
       const me = this.me;
@@ -2599,7 +3195,7 @@ export class Game {
           this.indoorT = 0.25;
           this.indoor = this.world.physics.covered(this.camera.position);
         }
-        this.vm.visible = !this.drone && !this.driving;
+        this.vm.visible = !this.drone && !this.driving && !me.aboard && !me.falling;
         this.vm.update(dt, {
           ads: me.adsK, speed: Math.hypot(me.vel.x, me.vel.z), grounded: me.grounded, sprint: me.sprinting,
           crouch: me.crouch, look: this.lookDelta || [0, 0], landed: me.landed, indoor: this.indoor,

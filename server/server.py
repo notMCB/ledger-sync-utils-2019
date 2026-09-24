@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.12.0'
+VERSION = '3.0.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -57,9 +57,11 @@ MODES = {
     'knives':    {'name': 'Knife Fight',        'time': 600, 'limit': 25, 'respawn': 3.0},
     'firefight': {'name': 'Firefight',          'time': 600, 'limit': 25, 'respawn': 3.0},
     'oitc':      {'name': 'One in the Chamber', 'time': 300, 'limit': 0,  'respawn': 3.0},
+    # the battle royale: up to 64, one life, the last one standing wins
+    'royale':    {'name': 'Souk Royale',        'time': 900, 'limit': 0,  'respawn': 0.0, 'max': 64, 'countdown': 20.0},
 }
 NICHE_MODES = ('snipers', 'knives', 'firefight', 'oitc')
-FFA_MODES = ('ffa',) + NICHE_MODES
+FFA_MODES = ('ffa',) + NICHE_MODES + ('royale',)
 # what a niche mode hands you: (primary, secondary, grenade kinds); None is nothing in that slot
 NICHE_ARMS = {
     'snipers':   ('heavy', None, ()),
@@ -69,6 +71,36 @@ NICHE_ARMS = {
 }
 OITC_LIVES = 3
 TEAM_MODES = ('tdm', 'koth', 'bomb')
+
+# -- the battle royale --------------------------------------------------------
+PLANE_ALT = 160.0          # how high the plane flies
+PLANE_SPEED = 24.0         # metres a second
+PLANE_MARGIN = 70.0        # it starts and ends this far outside the map
+# the gas: (radius it closes from, radius it closes to, seconds before it moves, seconds it takes, health a second outside it)
+GAS_STAGES = [(250.0, 120.0, 60.0, 45.0, 5), (120.0, 70.0, 35.0, 35.0, 5), (70.0, 40.0, 30.0, 30.0, 10),
+              (40.0, 20.0, 25.0, 25.0, 10), (20.0, 8.0, 20.0, 20.0, 10), (8.0, 0.0, 15.0, 30.0, 10)]
+# SOUK_GAS=0.1 makes the gas ten times quicker, for the tests
+_gas_scale = float(os.environ.get('SOUK_GAS') or 1.0)
+GAS_STAGES = [(a, b, w * _gas_scale, c * _gas_scale, d) for (a, b, w, c, d) in GAS_STAGES]
+AMMO_CAP = {'light': 250, 'medium': 200, 'shells': 50, 'heavy': 50, 'pistol': 50}
+AMMO_OF = {'smg': 'light', 'pdw': 'light', 'carbine': 'medium', 'lmg': 'medium', 'shotgun': 'shells', 'sniper': 'heavy', 'pistol': 'pistol', 'revolver': 'pistol'}
+AMMO_BOX = {'light': 60, 'medium': 60, 'shells': 12, 'heavy': 10, 'pistol': 24}
+BR_PRIMARIES = ('smg', 'pdw', 'carbine', 'lmg', 'shotgun', 'sniper', 'flamer')    # no .50 to start with
+BR_SECONDARIES = ('pistol', 'revolver')
+BR_RARITIES = ('default', 'common', 'uncommon', 'rare', 'epic', 'legendary')
+BR_RARITY_W = (30, 28, 20, 13, 7, 2)
+BR_PERKS = ('ammo', 'med', 'ladder', 'beacon', 'wall', 'drone', 'knives')
+BR_CHARGES = {'knives': 3}      # uses before a perk has to recharge; everything else is one
+PERK_CD = 30.0                  # seconds for a used perk to come back
+SHIELD_MAX = 200                # two vests' worth
+VEST_MAX = 2                    # spare vests carried
+VEST_TIME = 2.5                 # seconds to put one on
+MEDKIT_HEAL = 50
+MEDKIT_RATE = 10.0              # health a second, so five seconds for the lot
+NADE_CAP = 3
+PICK_REACH = 3.2
+CHEST_REACH = 2.8
+WIN_OUTFIT = 'royale1'          # the winner's skin, season one
 
 # damage model — keep in step with public/js/weapons.js
 WEAPONS = {
@@ -164,7 +196,7 @@ def clean_cos(c):
         out['o'] = c['o']
     g = c.get('g')
     if isinstance(g, dict):
-        for w in ('smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife'):
+        for w in catalog.GUNS:
             if ok(g.get(w)):
                 out['g'][w] = g[w]
     return out
@@ -268,6 +300,23 @@ class Player:
         self.last_chat = 0.0
         self.last_active = now()   # the last time they moved or did anything
         self.auth_times = []
+        # the battle royale: what you found, and how you did
+        self.inv = {'pw': None, 'sw': None}
+        self.ammo = {a: 0 for a in AMMO_CAP}
+        self.vests = 0
+        self.shield = 0
+        self.perk_ready = 0.0    # when a spent perk comes back
+        self.heal_left = 0.0     # a medkit still working
+        self.heal_acc = 0.0
+        self.gas_acc = 0.0
+        self.aboard = False      # still in the plane
+        self.place = 0           # where they finished, 1 = won
+        self.dmg = 0.0           # damage dealt this match
+        self.chests = 0
+        self.alive_since = 0.0
+        self.fuel = 100.0        # the flamethrower in hand, from the client
+        self.vest_at = 0.0
+        self.late = False        # joined a match already under way: watches until the next
 
     def send(self, obj):
         self.conn.send(obj)
@@ -294,6 +343,27 @@ class Player:
         self.kills = self.deaths = self.score = self.assists = 0
         self.lives = OITC_LIVES
         self.rounds = 1
+        self.place = 0
+        self.dmg = 0.0
+        self.chests = 0
+        self.late = False
+
+    def reset_kit(self):
+        """A battle royale life starts with nothing but the knife."""
+        self.inv = {'pw': None, 'sw': None}
+        self.ammo = {a: 0 for a in AMMO_CAP}
+        self.vests = 0
+        self.shield = 0
+        self.perk = None
+        self.perk_left = 0
+        self.perk_ready = 0.0
+        self.heal_left = 0.0
+        self.heal_acc = 0.0
+        self.gas_acc = 0.0
+        self.nades = 0
+        self.nade_kind = 'frag'
+        self.aboard = False
+        self.fuel = 100.0
 
     @property
     def locker(self):
@@ -337,11 +407,24 @@ class Room:
         self.drones = {}
         self.fires = {}
         self.fire_seq = 0
+        # the battle royale
+        self.plane = None
+        self.gas = None
+        self.items = {}
+        self.item_seq = 0
+        self.br_total = 0
+        self.br_alive = 0
+
+    @property
+    def max(self):
+        return self.cfg.get('max', MAX_PLAYERS)
 
     # -- map --
 
     def next_kind(self):
         """The map after the current one, round the rotation."""
+        if self.mode == 'royale':
+            return 'royale'
         if FORCE_MAP:
             return FORCE_MAP
         cur = getattr(self, 'map_kind', None)
@@ -366,7 +449,7 @@ class Room:
             self.seed, self.map_kind, town = ready
         else:
             self.seed = random.randrange(1, 2 ** 31)
-            self.map_kind = kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0])
+            self.map_kind = 'royale' if self.mode == 'royale' else (kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0]))
             town = mapgen.generate(self.seed, self.map_kind)
         self.map = town.to_json()
         self.solid = mapgen.Solid(self.map['boxes'])
@@ -383,6 +466,11 @@ class Room:
         self.walls = {}
         self.drones = {}
         self.fires = {}
+        # loot chests, closed, where the map put them
+        self.chests = {i + 1: {'p': [c[0], c[1], c[2]], 'open': False} for i, c in enumerate(self.map.get('chests', []))}
+        self.items = {}
+        self.plane = None
+        self.gas = None
 
     # -- membership --
 
@@ -424,10 +512,23 @@ class Room:
             p.send(self.fk_msg(fid))
         for fid, F in self.fires.items():
             p.send({'t': 'fire', 'id': fid, 'p': F['p'], 'life': round(F['until'] - now(), 1)})
+        if self.mode == 'royale':
+            p.reset_kit()
+            for cid, C in self.chests.items():
+                if C['open']:
+                    p.send({'t': 'chest', 'id': cid, 'open': 1})
+            if self.items:
+                p.send({'t': 'items', 'add': list(self.items.values())})
+            if self.plane:
+                p.send(self.plane_msg())
         self.roster_dirty = True
         self.event({'e': 'join', 'id': p.id, 'n': p.name})
         if self.phase in ('waiting', 'countdown'):
             self.spawn(p)
+        elif self.mode == 'royale':
+            # a match under way: watch it, and drop with everyone in the next one
+            p.late = True
+            p.send({'t': 'dead', 'by': 0, 'byn': '', 'w': '', 'rs': -1, 'lv': -1, 'late': 1})
         elif self.mode != 'bomb':
             p.respawn_at = now() + 1.0
         # bomb mode: joins as a spectator until the next round
@@ -454,10 +555,14 @@ class Room:
             self.empty_since = now()
 
     def arms(self, p):
-        """(primary, secondary) a player carries here: the niche modes override the locker."""
+        """(primary, secondary) a player carries here: the niche modes override the locker,
+        and in the battle royale you carry what you have found."""
         if self.mode in NICHE_ARMS:
             a = NICHE_ARMS[self.mode]
             return a[0], a[1]
+        if self.mode == 'royale':
+            pw, sw = p.inv['pw'], p.inv['sw']
+            return (pw['w'] if pw else None), (sw['w'] if sw else None)
         return p.primary, p.secondary
 
     def rebalance(self):
@@ -534,6 +639,8 @@ class Room:
             kinds = NICHE_ARMS[self.mode][2]
             p.nades = 2 if kinds else 0
             p.perk_left = 0
+        elif self.mode == 'royale':
+            p.reset_kit()
         else:
             p.nades = p.nades_for()
             p.perk_left = PERK_USES[p.perk]
@@ -543,12 +650,16 @@ class Room:
         p.last_active = now()      # a fresh life starts the idle clock again
         p.in_round = True
         p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team, 'lv': p.lives})
+        if self.mode == 'royale':
+            p.send(self.inv_msg(p))
         self.roster_dirty = True
 
     def random_spawn(self, p, others, warmup):
         """Anywhere in town, away from enemies and out of their sight where possible."""
         pts = list(self.map['ffaSpawns'])
         random.shuffle(pts)
+        if self.mode == 'royale':
+            return pts[0]        # the lobby at the crossroads: no hiding from anyone there
         enemies = [q for q in others if warmup or p.team < 0 or q.team != p.team]
         if not enemies:
             return pts[0]
@@ -583,6 +694,9 @@ class Room:
         self.event({'e': 'matchstart'})
         if self.mode == 'bomb':
             self.start_round()
+            return
+        if self.mode == 'royale':
+            self.start_royale()
             return
         self.set_phase('live')
         self.match_end = now() + self.cfg['time']
@@ -632,6 +746,8 @@ class Room:
         for p in self.players.values():
             won = (p.id == winner) if self.mode in FFA_MODES else (p.team == winner)
             self.earn(p, 'win' if won else 'match', EARN['match'] + (EARN['win'] if won else 0))
+        if self.mode == 'royale':
+            self.finish_royale(winner)
         self.winner = winner
         self.set_phase('ended', POSTMATCH)
         self.bomb = None
@@ -756,7 +872,7 @@ class Room:
         return True
 
     def handle_shot(self, p, m):
-        if not p.alive or self.phase in ('freeze', 'post', 'ended'):
+        if not p.alive or self.phase in ('freeze', 'post', 'ended') or p.aboard:
             return
         w = m.get('w')
         if w not in WEAPONS:
@@ -885,18 +1001,28 @@ class Room:
             print('room %s: dropped %s shot from %s (%s)' % (self.name, why, p.name, ', '.join('%s=%d' % kv for kv in sorted(p.rejects.items()))), flush=True)
 
     def damage(self, q, attacker, dmg, w, head):
-        if not q.alive or dmg <= 0:
+        if not q.alive or dmg <= 0 or q.aboard:
             return
         if w in ('flamer', 'molotov'):
             q.burn_until = now() + BURN_TIME
             q.burn_by = attacker
-        q.hp -= dmg
+        # a vest takes the hit before your health does; fire and gas get through it
+        absorbed = 0
+        if q.shield > 0 and w not in ('fire', 'gas'):
+            absorbed = min(q.shield, dmg)
+            q.shield -= absorbed
+        q.hp -= dmg - absorbed
         if attacker and attacker is not q:
             q.hurt_by[attacker.id] = q.hurt_by.get(attacker.id, 0) + dmg
+            attacker.dmg += dmg
         src = attacker.pos if attacker else None
-        q.send({'t': 'hurt', 'd': dmg, 'hp': max(0, q.hp), 'from': src, 'fire': 1 if w in ('flamer', 'molotov', 'fire') else 0})
+        hurt = {'t': 'hurt', 'd': dmg, 'hp': max(0, q.hp), 'from': src, 'fire': 1 if w in ('flamer', 'molotov', 'fire') else 0}
+        if self.mode == 'royale':
+            hurt['sh'] = q.shield
+        q.send(hurt)
         if attacker and attacker is not q:
-            attacker.send({'t': 'hitok', 'd': dmg, 'k': q.hp <= 0, 'hs': head})
+            # 'ar': the shot went into armour and no further
+            attacker.send({'t': 'hitok', 'd': dmg, 'k': q.hp <= 0, 'hs': head, 'ar': 1 if absorbed and absorbed >= dmg else 0})
         if q.hp <= 0:
             self.kill(q, attacker, w, head)
 
@@ -946,6 +1072,11 @@ class Room:
         if self.mode == 'oitc' and self.phase == 'live':
             q.lives -= 1
             out = q.lives <= 0
+        royale_live = self.mode == 'royale' and self.phase == 'live'
+        if royale_live:
+            out = True
+            q.place = 1 + sum(1 for x in self.players.values() if x.alive and not x.late)
+            self.drop_kit(q)
         if out:
             q.respawn_at = 0
         elif self.mode != 'bomb' or self.phase in ('waiting', 'countdown'):
@@ -957,14 +1088,20 @@ class Room:
         q.send({'t': 'dead', 'by': attacker.id if attacker else 0, 'byn': attacker.name if attacker else '',
                 'w': w, 'rs': max(0.0, q.respawn_at - now()) if q.respawn_at and (self.mode != 'bomb' or self.phase in ('waiting', 'countdown')) else -1,
                 'lv': q.lives if self.mode == 'oitc' else -1})
+        if royale_live:
+            q.send(self.stats_msg(q, False))
         self.roster_dirty = True
 
     def handle_nade(self, p, m):
         if not p.alive or p.nades <= 0 or self.phase in ('freeze', 'post', 'ended'):
             return
+        if p.aboard:
+            return
         p.nades -= 1
         nid = int(num(m.get('n')))
         kind = m.get('k') if m.get('k') in NADE_OPTIONS[p.loadout] else 'frag'
+        if self.mode == 'royale':
+            kind = p.nade_kind
         if self.mode in NICHE_ARMS:
             kinds = NICHE_ARMS[self.mode][2]
             if not kinds:
@@ -1057,9 +1194,19 @@ class Room:
 
     def handle_perk(self, p, m):
         k = m.get('k')
-        if not p.alive or k != p.perk or p.perk_left <= 0 or self.phase == 'ended' or self.mode in NICHE_ARMS:
+        if not p.alive or k != p.perk or p.perk_left <= 0 or self.phase == 'ended' or self.mode in NICHE_ARMS or p.aboard:
             return
         t = now()
+        if k == 'medkit':
+            # fifty health, ten a second, and you may walk away while it works
+            if p.heal_left > 0 or p.hp >= 100:
+                return
+            p.heal_left = float(MEDKIT_HEAL)
+            p.perk = None
+            p.perk_left = 0
+            p.send({'t': 'perkleft', 'k': None, 'n': 0, 'cd': 0})
+            p.send({'t': 'ev', 'e': 'healing'})
+            return
         if k == 'knives':
             # a knife leaves the hand: everyone sees it fly; the hit, if any, comes as a shot
             pos = vec3(m.get('p'))
@@ -1119,7 +1266,11 @@ class Room:
             self.drones[p.id] = D
             self.broadcast({'t': 'drone', 'id': p.id, 'p': D['p'], 'tm': p.team, 'life': round(life, 1), 'hp': DRONE_HP})
         p.perk_left -= 1
-        p.send({'t': 'perkleft', 'k': k, 'n': p.perk_left})
+        if self.mode == 'royale' and p.perk_left <= 0:
+            p.perk_ready = t + PERK_CD
+            p.send({'t': 'perkleft', 'k': k, 'n': 0, 'cd': PERK_CD})
+        else:
+            p.send({'t': 'perkleft', 'k': k, 'n': p.perk_left})
 
     def hurt_wall(self, wid, dmg):
         W = self.walls.get(wid)
@@ -1262,6 +1413,14 @@ class Room:
                     q.hp = 100
                     q.send({'t': 'heal', 'hp': 100, 'by': owner.name if owner is not q else ''})
                 else:
+                    if self.mode == 'royale':
+                        # the pools of the guns you hold, filled
+                        for slot in ('pw', 'sw'):
+                            it = q.inv[slot]
+                            a = AMMO_OF.get(it['w']) if it else None
+                            if a:
+                                q.ammo[a] = AMMO_CAP[a]
+                        q.send(self.inv_msg(q))
                     q.send({'t': 'perkok', 'k': 'ammo', 'by': owner.name if owner is not q else ''})
                 C['used'][q.id] = t
                 # the owner is paid once per teammate per crate, not every 15 seconds
@@ -1306,6 +1465,393 @@ class Room:
                 if q is owner or (team_mode and q.team == owner.team):
                     q.send(msg)
 
+    # -- the battle royale ----------------------------------------------------
+
+    def start_royale(self):
+        """Everyone into the plane: a fresh line across the map, the gas set, the loot closed."""
+        t = now()
+        self.set_phase('live')
+        self.match_end = t + self.cfg['time']
+        bx, bz = self.map['bounds']
+        # a straight line at any angle, passing somewhere near the middle
+        ang = random.uniform(0, math.tau)
+        cx, cz = random.uniform(-0.35, 0.35) * bx, random.uniform(-0.35, 0.35) * bz
+        dx, dz = math.cos(ang), math.sin(ang)
+        D = math.hypot(bx, bz) + PLANE_MARGIN
+        self.plane = {'a': [round(cx - dx * D, 2), round(cz - dz * D, 2)], 'b': [round(cx + dx * D, 2), round(cz + dz * D, 2)],
+                      't0': t, 'dir': (dx, dz), 'len': 2 * D, 'over': False}
+        self.gas = {'stage': 0, 'ph': 'wait', 'c': [0.0, 0.0], 'r': GAS_STAGES[0][0], 'fc': [0.0, 0.0], 'fr': GAS_STAGES[0][0],
+                    'nc': [0.0, 0.0], 'nr': GAS_STAGES[0][1], 't0': t, 'until': t + GAS_STAGES[0][2], 'dps': GAS_STAGES[0][4]}
+        self.next_circle()
+        self.items = {}
+        self.item_seq = 0
+        for C in self.chests.values():
+            C['open'] = False
+        players = [p for p in self.players.values()]
+        self.br_total = len(players)
+        for p in players:
+            p.reset_kit()
+            p.hp = 100
+            p.alive = True
+            p.aboard = True
+            p.late = False
+            p.hurt_by = {}
+            p.burn_until = 0.0
+            p.sc += 1
+            p.pos = [self.plane['a'][0], PLANE_ALT, self.plane['a'][1]]
+            p.protect_until = t + 1.0
+            p.alive_since = t
+            p.last_active = t
+            p.respawn_at = 0
+            p.send({'t': 'spawn', 'p': list(p.pos), 'y': math.atan2(-dx, -dz), 'sc': p.sc, 'ld': p.loadout, 'tm': p.team, 'lv': -1, 'aboard': 1})
+            p.send(self.inv_msg(p))
+        self.broadcast(self.plane_msg())
+        self.broadcast({'t': 'chest', 'reset': 1})
+        self.roster_dirty = True
+
+    def plane_msg(self):
+        P = self.plane
+        return {'t': 'plane', 'a': P['a'], 'b': P['b'], 'y': PLANE_ALT, 'v': PLANE_SPEED, 'el': round(now() - P['t0'], 2)}
+
+    def plane_pos(self, t):
+        P = self.plane
+        d = min(P['len'], (t - P['t0']) * PLANE_SPEED)
+        return [P['a'][0] + P['dir'][0] * d, PLANE_ALT, P['a'][1] + P['dir'][1] * d], d
+
+    def over_map(self, x, z):
+        bx, bz = self.map['bounds']
+        return abs(x) <= bx - 2 and abs(z) <= bz - 2
+
+    def handle_jump(self, p):
+        if not p.aboard or not p.alive or self.phase != 'live':
+            return
+        pos, d = self.plane_pos(now())
+        if not self.over_map(pos[0], pos[2]):
+            return
+        self.jump(p, pos)
+
+    def jump(self, p, pos):
+        p.aboard = False
+        p.pos = [pos[0], pos[1], pos[2]]
+        p.last_active = now()
+        p.send({'t': 'jumped', 'p': [round(v, 2) for v in p.pos]})
+
+    def next_circle(self):
+        """Where the gas closes to next: a smaller circle somewhere inside this one, on the map."""
+        g = self.gas
+        st = GAS_STAGES[g['stage']]
+        bx, bz = self.map['bounds']
+        r0, r1 = g['r'], st[1]
+        for _ in range(40):
+            a = random.uniform(0, math.tau)
+            d = random.uniform(0, max(0.0, r0 - r1) * 0.8)
+            x, z = g['c'][0] + math.cos(a) * d, g['c'][1] + math.sin(a) * d
+            if abs(x) < bx - 12 and abs(z) < bz - 12:
+                break
+        else:
+            x, z = max(-bx + 12, min(bx - 12, g['c'][0])), max(-bz + 12, min(bz - 12, g['c'][1]))
+        g['nc'] = [round(x, 1), round(z, 1)]
+        g['nr'] = r1
+
+    def update_gas(self, t):
+        g = self.gas
+        if not g:
+            return
+        st = GAS_STAGES[g['stage']]
+        if g['ph'] == 'wait' and t >= g['until']:
+            g['ph'] = 'close'
+            g['fc'], g['fr'] = list(g['c']), g['r']
+            g['t0'] = t
+            g['until'] = t + st[3]
+            self.event({'e': 'gas', 'ph': 'close', 's': g['stage'], 'in': st[3]})
+        elif g['ph'] == 'close':
+            k = min(1.0, (t - g['t0']) / max(0.1, st[3]))
+            g['c'] = [g['fc'][0] + (g['nc'][0] - g['fc'][0]) * k, g['fc'][1] + (g['nc'][1] - g['fc'][1]) * k]
+            g['r'] = g['fr'] + (g['nr'] - g['fr']) * k
+            if k >= 1.0:
+                if g['stage'] + 1 < len(GAS_STAGES):
+                    g['stage'] += 1
+                    nst = GAS_STAGES[g['stage']]
+                    g['ph'] = 'wait'
+                    g['until'] = t + nst[2]
+                    g['dps'] = nst[4]
+                    self.next_circle()
+                    self.event({'e': 'gas', 'ph': 'wait', 's': g['stage'], 'in': nst[2]})
+                else:
+                    g['ph'] = 'done'
+        # anyone outside the circle breathes it
+        for q in self.players.values():
+            if not q.alive or q.aboard:
+                q.gas_acc = 0.0
+                continue
+            if math.hypot(q.pos[0] - g['c'][0], q.pos[2] - g['c'][1]) <= g['r']:
+                q.gas_acc = 0.0
+                continue
+            q.gas_acc += g['dps'] * TICK
+            if q.gas_acc >= 1.0:
+                n = int(q.gas_acc)
+                q.gas_acc -= n
+                self.damage(q, None, n, 'gas', False)
+
+    def gas_state(self, t):
+        g = self.gas
+        if not g:
+            return None
+        out = {'c': [round(g['c'][0], 1), round(g['c'][1], 1)], 'r': round(g['r'], 1), 'nc': g['nc'], 'nr': g['nr'],
+               'ph': g['ph'], 's': g['stage'], 'tl': round(max(0.0, g['until'] - t), 1), 'dps': g['dps']}
+        return out
+
+    def update_royale(self, t):
+        # the plane: anyone still aboard rides along, and is put out at the far edge
+        P = self.plane
+        if P:
+            pos, d = self.plane_pos(t)
+            over = self.over_map(pos[0], pos[2])
+            if over:
+                P['over'] = True
+            for p in self.players.values():
+                if p.aboard and p.alive:
+                    p.pos = [pos[0], pos[1], pos[2]]
+                    if (P['over'] and not over) or d >= P['len']:
+                        self.jump(p, pos)
+            if d >= P['len'] and not any(p.aboard for p in self.players.values()):
+                self.plane = None
+        self.update_gas(t)
+        # medkits working, perks coming back
+        for p in self.players.values():
+            if not p.alive:
+                continue
+            if p.heal_left > 0 and p.hp < 100:
+                p.heal_acc += MEDKIT_RATE * TICK
+                if p.heal_acc >= 1.0:
+                    n = int(p.heal_acc)
+                    p.heal_acc -= n
+                    n = min(n, int(p.heal_left), 100 - p.hp)
+                    p.hp += n
+                    p.heal_left -= n
+                    if n:
+                        p.send({'t': 'heal', 'hp': p.hp, 'by': '', 'quiet': 1})
+            elif p.heal_left > 0:
+                p.heal_left = 0.0
+            if p.perk and p.perk_left <= 0 and p.perk_ready and t >= p.perk_ready:
+                p.perk_left = BR_CHARGES.get(p.perk, 1)
+                p.perk_ready = 0.0
+                p.send({'t': 'perkleft', 'k': p.perk, 'n': p.perk_left, 'cd': 0})
+        # the end: one left standing, or the clock
+        alive = [p for p in self.players.values() if p.alive and not p.late]
+        self.br_alive = len(alive)
+        if len(alive) <= 1 and self.br_total >= 2:
+            return self.end_match(alive[0].id if alive else -1)
+        if t >= self.match_end:
+            top = max(alive, key=lambda p: (p.kills, -p.deaths)) if alive else None
+            return self.end_match(top.id if top else -1)
+
+    def finish_royale(self, winner):
+        w = self.players.get(winner)
+        self.plane = None
+        for p in self.players.values():
+            if p is w:
+                p.place = 1
+                p.send(self.stats_msg(p, True))
+                # the prize: the season's skin, kept on the account
+                lk = p.locker
+                if lk is not None and WIN_OUTFIT not in lk['outfits']:
+                    lk['outfits'].append(WIN_OUTFIT)
+                    accounts.save_locker(p.account['id'], lk)
+                p.send({'t': 'brwin', 'outfit': WIN_OUTFIT, 'locker': lk})
+            elif p.alive and not p.late:
+                p.send(self.stats_msg(p, False))
+            p.alive = False
+            p.aboard = False
+
+    def stats_msg(self, p, won):
+        t = now()
+        return {'t': 'brstats', 'place': p.place or 1, 'of': max(self.br_total, 1), 'k': p.kills, 'dmg': int(p.dmg),
+                'sv': int(max(0.0, t - p.alive_since)), 'ch': p.chests, 'won': won}
+
+    # -- loot --
+
+    def inv_msg(self, p):
+        return {'t': 'inv', 'pw': self.item_pub(p.inv['pw']), 'sw': self.item_pub(p.inv['sw']), 'am': dict(p.ammo),
+                'v': p.vests, 'sh': p.shield, 'nk': p.nade_kind, 'n': p.nades, 'pk': p.perk, 'pl': p.perk_left,
+                'cd': round(max(0.0, p.perk_ready - now()), 1) if p.perk_ready else 0}
+
+    @staticmethod
+    def item_pub(it):
+        if not it:
+            return None
+        return {k: v for k, v in it.items() if k not in ('p', 'id')}
+
+    def gun_item(self, w, r):
+        f = catalog.finish_for(r)
+        it = {'k': 'gun', 'w': w, 'r': r}
+        if f:
+            it['f'] = f
+        if w == 'flamer':
+            it['fuel'] = 100
+        return it
+
+    def roll_chest(self):
+        """What a chest holds: nearly always a gun with ammo for it, and some of the rest."""
+        items = []
+        if random.random() < 0.92:
+            w = random.choice(BR_PRIMARIES) if random.random() < 0.6 else random.choice(BR_SECONDARIES)
+            r = random.choices(BR_RARITIES, BR_RARITY_W)[0]
+            items.append(self.gun_item(w, r))
+            a = AMMO_OF.get(w)
+            if a:
+                items.append({'k': 'ammo', 'a': a, 'n': AMMO_BOX[a]})
+        if random.random() < 0.6:
+            a = random.choice(list(AMMO_CAP))
+            items.append({'k': 'ammo', 'a': a, 'n': AMMO_BOX[a]})
+        if random.random() < 0.45:
+            items.append({'k': 'vest', 'n': 1})
+        if random.random() < 0.3:
+            items.append({'k': 'med'})
+        if random.random() < 0.35:
+            items.append({'k': 'nade', 'nk': random.choice(('frag', 'frag', 'smoke', 'flash', 'molotov')), 'n': 1})
+        if random.random() < 0.25:
+            items.append({'k': 'perk', 'pk': random.choice(BR_PERKS)})
+        return items
+
+    def add_item(self, it, pos, spread=1.2):
+        self.item_seq += 1
+        it = dict(it)
+        it['id'] = self.item_seq
+        a = random.uniform(0, math.tau)
+        d = random.uniform(0.4, spread)
+        it['p'] = [round(pos[0] + math.cos(a) * d, 2), round(pos[1], 2), round(pos[2] + math.sin(a) * d, 2)]
+        self.items[it['id']] = it
+        return it
+
+    def handle_open(self, p, m):
+        if self.mode != 'royale' or self.phase != 'live' or not p.alive or p.aboard:
+            return
+        cid = int(num(m.get('id')))
+        C = self.chests.get(cid)
+        if not C or C['open']:
+            return
+        if dist2(p.pos, C['p']) > CHEST_REACH or abs(p.pos[1] - C['p'][1]) > 2.2:
+            return
+        C['open'] = True
+        p.chests += 1
+        p.last_active = now()
+        added = [self.add_item(it, C['p']) for it in self.roll_chest()]
+        self.broadcast({'t': 'chest', 'id': cid, 'open': 1, 'by': p.id})
+        if added:
+            self.broadcast({'t': 'items', 'add': added})
+
+    def drop_item(self, it, pos, spread=1.4):
+        """Something leaving a player's hands lands on the ground beside them."""
+        it = dict(it)
+        it.pop('id', None)
+        it.pop('p', None)
+        added = self.add_item(it, pos, spread)
+        self.broadcast({'t': 'items', 'add': [added]})
+
+    def handle_pick(self, p, m):
+        if self.mode != 'royale' or self.phase != 'live' or not p.alive or p.aboard:
+            return
+        iid = int(num(m.get('id')))
+        it = self.items.get(iid)
+        if not it or dist3(p.pos, it['p']) > PICK_REACH:
+            return
+        k = it['k']
+        gun = False
+        if k == 'gun':
+            slot = 'pw' if it['w'] in BR_PRIMARIES else 'sw'
+            old = p.inv[slot]
+            if old:
+                if old['w'] == 'flamer':
+                    old['fuel'] = int(max(0, min(100, num(m.get('fuel'), 0, 100, p.fuel))))
+                self.drop_item(old, p.pos)
+            p.inv[slot] = self.item_pub(it)
+            gun = True
+        elif k == 'ammo':
+            a = it['a']
+            if a not in AMMO_CAP or p.ammo[a] >= AMMO_CAP[a]:
+                return
+            p.ammo[a] = min(AMMO_CAP[a], p.ammo[a] + int(it.get('n', 0)))
+        elif k == 'vest':
+            if p.vests >= VEST_MAX:
+                return
+            p.vests = min(VEST_MAX, p.vests + int(it.get('n', 1)))
+        elif k == 'med':
+            if p.perk == 'medkit':
+                return
+            if p.perk:
+                self.drop_item({'k': 'perk', 'pk': p.perk}, p.pos)
+            p.perk = 'medkit'
+            p.perk_left = 1
+            p.perk_ready = 0.0
+        elif k == 'nade':
+            nk = it.get('nk') if it.get('nk') in ('frag', 'smoke', 'flash', 'molotov') else 'frag'
+            if p.nades > 0 and p.nade_kind != nk:
+                self.drop_item({'k': 'nade', 'nk': p.nade_kind, 'n': p.nades}, p.pos)
+                p.nades = 0
+            if p.nades >= NADE_CAP:
+                return
+            p.nade_kind = nk
+            p.nades = min(NADE_CAP, p.nades + int(it.get('n', 1)))
+        elif k == 'perk':
+            pk = it.get('pk')
+            if pk not in BR_PERKS or p.perk == pk:
+                return
+            if p.perk == 'medkit':
+                self.drop_item({'k': 'med'}, p.pos)
+            elif p.perk:
+                self.drop_item({'k': 'perk', 'pk': p.perk}, p.pos)
+            p.perk = pk
+            p.perk_left = BR_CHARGES.get(pk, 1)
+            p.perk_ready = 0.0
+        else:
+            return
+        del self.items[iid]
+        p.last_active = now()
+        self.broadcast({'t': 'items', 'del': [iid]})
+        p.send(self.inv_msg(p))
+        if gun:
+            self.roster_dirty = True
+
+    def handle_vest(self, p):
+        if self.mode != 'royale' or not p.alive or p.aboard or p.vests <= 0 or p.shield >= SHIELD_MAX:
+            return
+        t = now()
+        if t - p.vest_at < VEST_TIME - 0.4:
+            return
+        p.vest_at = t
+        p.vests -= 1
+        p.shield = min(SHIELD_MAX, p.shield + 100)
+        p.send(self.inv_msg(p))
+
+    def handle_reload(self, p, m):
+        """A magazine filled from the pool of that ammo, so what you drop is what you had."""
+        w = m.get('w')
+        a = AMMO_OF.get(w)
+        if a:
+            p.ammo[a] = max(0, p.ammo[a] - int(num(m.get('n'), 0, 200)))
+
+    def drop_kit(self, q):
+        """A fallen player's things spill out where they lie."""
+        for slot in ('pw', 'sw'):
+            it = q.inv[slot]
+            if it:
+                if it['w'] == 'flamer':
+                    it['fuel'] = int(max(0, min(100, q.fuel)))
+                self.drop_item(it, q.pos)
+        for a, n in q.ammo.items():
+            if n > 0:
+                self.drop_item({'k': 'ammo', 'a': a, 'n': int(n)}, q.pos)
+        if q.vests > 0:
+            self.drop_item({'k': 'vest', 'n': q.vests}, q.pos)
+        if q.nades > 0:
+            self.drop_item({'k': 'nade', 'nk': q.nade_kind, 'n': q.nades}, q.pos)
+        if q.perk == 'medkit':
+            self.drop_item({'k': 'med'}, q.pos)
+        elif q.perk:
+            self.drop_item({'k': 'perk', 'pk': q.perk}, q.pos)
+        q.reset_kit()
+
     # -- chat --
 
     def handle_chat(self, p, m):
@@ -1330,6 +1876,8 @@ class Room:
         self.update_fires(t)
         # idlers go back to the menu so they don't hold a slot or a team place
         for p in list(self.players.values()):
+            if self.mode == 'royale' and (not p.alive or p.aboard):
+                continue      # the dead watch, the ones still aboard are carried
             if t - p.last_active > IDLE_KICK:
                 p.send({'t': 'kicked', 'why': 'idle'})
                 p.last_active = t
@@ -1351,8 +1899,9 @@ class Room:
         ph = self.phase
         if ph == 'waiting':
             if n >= 2:
-                self.set_phase('countdown', COUNTDOWN)
-                self.event({'e': 'countdown', 's': COUNTDOWN})
+                cd = self.cfg.get('countdown', COUNTDOWN)
+                self.set_phase('countdown', cd)
+                self.event({'e': 'countdown', 's': cd})
         elif ph == 'countdown':
             if n < 2:
                 self.to_waiting('Need at least 2 players')
@@ -1377,10 +1926,16 @@ class Room:
                 self.roster_dirty = True
         else:
             if n < 2:
+                if self.mode == 'royale':
+                    # everyone else has gone: whoever is left has won
+                    alive = [p for p in self.players.values() if p.alive and not p.late]
+                    return self.end_match(alive[0].id if alive else -1)
                 self.to_waiting('Not enough players — match paused')
                 return
             if self.mode == 'bomb':
                 self.update_bomb_mode(t)
+            elif self.mode == 'royale':
+                self.update_royale(t)
             else:
                 self.update_timed_mode(t)
 
@@ -1510,6 +2065,13 @@ class Room:
         if self.mode == 'koth' and self.phase == 'live':
             g['h'] = {'i': self.hill_i, 'o': self.hill_owner, 'c': self.hill_contested,
                       'nx': round(max(0.0, self.hill_next - t), 1)}
+        if self.mode == 'royale':
+            g['al'] = sum(1 for p in self.players.values() if p.alive and not p.late)
+            if self.phase == 'live' and self.plane:
+                g['pl'] = round(t - self.plane['t0'], 2)
+            gs = self.gas_state(t) if self.phase == 'live' else None
+            if gs:
+                g['gs'] = gs
         if self.winner is not None and self.phase == 'ended':
             g['w'] = self.winner
         return g
@@ -1526,8 +2088,10 @@ class Room:
                 f |= 2048   # flying a drone: the body stands still, head down over the controller
             if p.alive and t < p.burn_until:
                 f |= 32768  # on fire
+            if p.aboard:
+                f |= 262144  # in the plane: nothing to see
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
-                       round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp), round(p.byaw, 3)])
+                       round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp), round(p.byaw, 3), p.shield])
         snap = {'t': 'snap', 'g': self.game_state(t), 'p': pl}
         if self.drones:
             snap['dr'] = [[oid, round(D['p'][0], 2), round(D['p'][1], 2), round(D['p'][2], 2), round(D['y'], 3), int(D['hp'])]
@@ -1539,13 +2103,26 @@ class Room:
 
     def roster(self):
         return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths, 'a': p.assists,
-                                       's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': p.cos, 'pw': self.arms(p)[0] or '', 'sw': self.arms(p)[1] or '',
-                                       'lv': p.lives if self.mode == 'oitc' else -1}
+                                       's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': self.cos_of(p), 'pw': self.arms(p)[0] or '', 'sw': self.arms(p)[1] or '',
+                                       'lv': p.lives if self.mode == 'oitc' else -1, 'pl': p.place if self.mode == 'royale' else 0}
                                       for p in self.players.values()]}
+
+    def cos_of(self, p):
+        """What others see them wearing: in the royale the guns' finishes come with the guns."""
+        if self.mode != 'royale':
+            return p.cos
+        g = {}
+        for slot in ('pw', 'sw'):
+            it = p.inv[slot]
+            if it and it.get('f'):
+                g[it['w']] = it['f']
+        if p.cos['g'].get('knife'):
+            g['knife'] = p.cos['g']['knife']
+        return {'o': p.cos['o'], 'g': g}
 
     def summary(self):
         return {'id': self.id, 'mode': self.mode, 'name': self.name, 'n': self.count(),
-                'max': MAX_PLAYERS, 'ph': self.phase, 'map': self.map.get('name', '')}
+                'max': self.max, 'ph': self.phase, 'map': self.map.get('name', '')}
 
 
 def t_protected(q):
@@ -1572,7 +2149,7 @@ def ensure_rooms():
 def quick_room(mode):
     best = None
     for r in rooms.values():
-        if r.mode == mode and r.count() < MAX_PLAYERS:
+        if r.mode == mode and r.count() < r.max:
             if best is None or r.count() > best.count():
                 best = r
     if best is None:
@@ -1776,8 +2353,8 @@ class Conn:
                 r = rooms.get(int(num(m.get('room'))))
                 if not r:
                     return self.send({'t': 'err', 'm': 'That room has closed.'})
-                if r.count() >= MAX_PLAYERS:
-                    return self.send({'t': 'err', 'm': 'That room is full (8/8).'})
+                if r.count() >= r.max:
+                    return self.send({'t': 'err', 'm': 'That room is full (%d/%d).' % (r.count(), r.max)})
             else:
                 mode = m.get('mode')
                 if mode not in MODES:
@@ -1788,7 +2365,7 @@ class Conn:
             if 'cos' in m:
                 p.cos = owned_cos(p, clean_cos(m.get('cos')))
             # an empty room takes the map its first player asks for
-            if m.get('map') in MAP_KINDS and r.count() == 0 and r.map_kind != m['map']:
+            if m.get('map') in MAP_KINDS and r.count() == 0 and r.map_kind != m['map'] and r.mode != 'royale':
                 r.new_map(m['map'])
                 r.prepare_map()
             lobby.discard(self)
@@ -1861,15 +2438,19 @@ class Conn:
                     p.pos = pos
             else:
                 p.pos = vec3(m.get('p'))
+            if p.aboard:
+                return       # the plane says where you are
             bx, bz = r.map['bounds']
             p.pos[0] = max(-bx, min(bx, p.pos[0]))
             p.pos[2] = max(-bz, min(bz, p.pos[2]))
-            p.pos[1] = max(-8.0, min(30.0, p.pos[1]))   # the tunnels run below the town
+            p.pos[1] = max(-8.0, min(PLANE_ALT + 10 if r.mode == 'royale' else 30.0, p.pos[1]))   # the tunnels run below the town
+            if 'fu' in m:
+                p.fuel = num(m.get('fu'), 0, 100, p.fuel)
             if dist3(p.pos, old_pos) > 0.3 or abs(num(m.get('y')) - p.yaw) > 0.05:
                 p.last_active = now()
             p.yaw = num(m.get('y'))
             p.pitch = num(m.get('pi'), -1.6, 1.6)
-            p.flags = int(num(m.get('f'), 0, 65535))
+            p.flags = int(num(m.get('f'), 0, 1 << 20))
             p.slot = int(num(m.get('sl'), 0, 3))
             p.byaw = num(m.get('by'), default=p.yaw) if 'by' in m else p.yaw
         elif t == 'shot':
@@ -1881,6 +2462,8 @@ class Conn:
         elif t == 'boom':
             p.room.handle_boom(p, m)
         elif t == 'ld':
+            if p.room.mode == 'royale':
+                return
             p.pick(m)
             r = p.room
             p.room.roster_dirty = True
@@ -1893,7 +2476,8 @@ class Conn:
                 p.send({'t': 'perkleft', 'k': p.perk, 'n': p.perk_left})
         elif t == 'picks':
             # a perk or grenade chosen in the Locker mid-match: counts from the next spawn
-            p.pick({'pk': m.get('pk'), 'nk': m.get('nk'), 'pw': m.get('pw'), 'sw': m.get('sw')})
+            if p.room.mode != 'royale':
+                p.pick({'pk': m.get('pk'), 'nk': m.get('nk'), 'pw': m.get('pw'), 'sw': m.get('sw')})
         elif t == 'dr':
             p.room.handle_drone(p, m)
         elif t == 'drboom':
@@ -1918,8 +2502,18 @@ class Conn:
         elif t == 'plant':
             p.room.handle_plant(p, bool(m.get('on')))
         elif t == 'reload':
-            # decorative: let others hear it
+            # decorative: let others hear it (and in the royale it comes out of your ammo)
+            if p.room.mode == 'royale':
+                p.room.handle_reload(p, m)
             p.room.broadcast({'t': 'rl', 'id': p.id}, skip=p)
+        elif t == 'jump':
+            p.room.handle_jump(p)
+        elif t == 'open':
+            p.room.handle_open(p, m)
+        elif t == 'pick':
+            p.room.handle_pick(p, m)
+        elif t == 'vest':
+            p.room.handle_vest(p)
 
 
 # --------------------------------------------------------------------------
@@ -1948,11 +2542,23 @@ def load_file(path):
     return entry
 
 
-async def serve_http(method, target, headers, writer):
+async def serve_http(method, target, headers, writer, body=b''):
     path = urllib.parse.unquote(urllib.parse.urlsplit(target).path)
     if path == '/__log':
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(target).query).get('m', [''])[0]
         print('client error: %s' % q[:900], flush=True)
+        return respond(writer, 200, 'text/plain', b'ok', method)
+    if path == '/__shot' and method == 'POST' and body and headers.get('host', '').startswith('localhost'):
+        # a picture of the game from a test run on this machine, kept for a look
+        name = ''.join(ch for ch in urllib.parse.parse_qs(urllib.parse.urlsplit(target).query).get('n', ['shot'])[0] if ch.isalnum() or ch in '-_')[:40]
+        try:
+            raw = base64.b64decode(body.split(b',', 1)[1])
+            d = os.path.join(accounts.DATA_DIR, 'shots')
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, name + '.jpg'), 'wb') as f:
+                f.write(raw)
+        except Exception as e:
+            print('shot error: %r' % (e,), flush=True)
         return respond(writer, 200, 'text/plain', b'ok', method)
     if path in ('/healthz', '/health'):
         body = json.dumps({'ok': True, 'v': VERSION, 'rooms': len(rooms),
@@ -2003,9 +2609,13 @@ async def handle_client(reader, writer):
                 if ':' in ln:
                     k, v = ln.split(':', 1)
                     headers[k.strip().lower()] = v.strip()
+            body = b''
             if 'content-length' in headers:
                 try:
-                    await reader.readexactly(int(headers['content-length']))
+                    n = int(headers['content-length'])
+                    if n > 8 * 1024 * 1024:
+                        break
+                    body = await reader.readexactly(n)
                 except Exception:
                     break
             path = urllib.parse.urlsplit(target).path
@@ -2017,10 +2627,10 @@ async def handle_client(reader, writer):
                 conn = Conn(reader, writer)
                 await conn.run()
                 return
-            if method not in ('GET', 'HEAD'):
+            if method not in ('GET', 'HEAD') and not (method == 'POST' and path == '/__shot'):
                 respond(writer, 405, 'text/plain', b'Method not allowed', method)
             else:
-                await serve_http(method, target, headers, writer)
+                await serve_http(method, target, headers, writer, body)
             await writer.drain()
             if headers.get('connection', '').lower() == 'close':
                 break

@@ -2,9 +2,30 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.12.0';
+export const VERSION = '3.0.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.0.0',
+    date: '25 September 2026',
+    title: 'Souk Royale',
+    notes: [
+      'Souk Royale: a battle royale for up to 64 players. One life, the last one standing wins. Find it at the top of the modes.',
+      'The map is all four maps at once: Ridgeline in the north-west, Old Town in the north-east (the same souk every game), the Dockyard in the south-west and the Manor in the south-east, with wide, blended ground between them: the snow steps down to the flat, roads run on from one quarter to the next, and a crossroads in the middle. Roughly twice the size of the four put together.',
+      'The plane: everyone starts aboard a transport flying a straight line over the map, a different line every match. Press jump when you are over where you want to land and you are thrown out of the back. Steer with the move keys, look down to dive. Five metres from the ground your parachute opens on its own.',
+      'Chests: eskies with a blue glow, all over the map, in rooms on every floor and out by cover. Open one and what it holds spills out: a gun, ammo, a vest, a medkit, a grenade or a perk. Walk over ammo, vests, medkits, grenades and perks to take them; press the interact key for a gun, or to swap what you hold.',
+      'Guns come in six grades: standard, common, uncommon, rare, epic and legendary. Each grade up adds an attachment, so a legendary has one in every slot bar one, and each grade wears a skin of its own rarity. The gun’s name shows in its colour. No .50 in the royale for now.',
+      'Ammo: light rounds for the SMG and PDW (carry 250), medium for the carbine and LMG (200), shotgun shells (50), heavy rounds for the sniper (50) and pistol rounds for the pistol and revolver (50). Every gun of a type shares its pool. The flamethrower has the fuel it comes with, no more; pick up a fresh one.',
+      'Vests: each is 100 of shield over your health, and two can be worn for 300 in all. Carry two spare. Put one on with H, which takes a moment and can be done at any strength: a vest at 30 comes back to 100 and the rest goes into the second. Hits on a vest show a blue marker; hits on health show white. Fire and gas go straight through vests.',
+      'Medkits take the perk slot and heal 50, ten a second over five seconds; you can walk away while it works. One use.',
+      'Perks: any perk from any chest, whatever gun you carry. A used perk comes back after 30 seconds, except the medkit. Throwing knives come three at a time.',
+      'Grenades: any kind, up to three, but one kind at a time; swapping kinds drops the ones you had.',
+      'The gas: a tall green wall you can see from anywhere. It closes in six stages, each announced with a siren, and takes 5 health a second at first and 10 later. The next circle is marked on the ground and the map.',
+      'The alive count is always on screen. When you die your things fall where you were, and you see how you did: placement, kills, damage, time survived and chests opened. Then you can watch the rest.',
+      'The winner sees Souk Royale in gold with fireworks, and unlocks the Season 1 Champion outfit, which no crate holds.',
+      'Also: skins on the Barq PDW, Rimah Carbine, Kabir .50, Asad .44 and flamethrower now show to other players too.',
+    ],
+  },
   {
     version: '2.12.0',
     date: '25 September 2026',

@@ -130,6 +130,9 @@ export const NADE_INFO = {
 };
 // the secondaries every loadout may carry
 export const SECONDARIES = ['pistol', 'revolver'];
+// Souk Royale's ammo: which guns share a pool, and how much of each you can carry
+export const AMMO_OF = { smg: 'light', pdw: 'light', carbine: 'medium', lmg: 'medium', shotgun: 'shells', sniper: 'heavy', pistol: 'pistol', revolver: 'pistol' };
+export const AMMO_CAP = { light: 250, medium: 200, shells: 50, heavy: 50, pistol: 50 };
 
 // nothing is suppressed out of the box any more: fit a suppressor to a gun
 // in the Locker and it turns quiet, flashes less and keeps you off enemy minimaps

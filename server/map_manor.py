@@ -90,7 +90,7 @@ class Manor(Town):
         wz = HOUSE_Z + z if local else z
         self.box(x, y + plinth / 2, wz, 0.55, plinth / 2, 0.55, yaw, 'marble')
         self.box(x, y + plinth + 0.9, wz, 0.32, 0.9, 0.32, yaw, 'inv')
-        self.deco.append({'k': 'statue', 'x': round(x, 2), 'y': round(y + plinth, 2), 'z': round(wz, 2), 'yaw': round(yaw, 4), 'p': self.rng.randrange(4)})
+        self.deco.append({'k': 'statue', 'x': round(x, 2), 'y': round(self.base_y + y + plinth, 2), 'z': round(wz, 2), 'yaw': round(yaw, 4), 'p': self.rng.randrange(4)})
         if not local:
             self.props.append((x, wz, 1.0))
 
@@ -517,14 +517,15 @@ class Manor(Town):
 
         # the estate wall, brick, with piers at the gate at the foot of the drive
         wh = 3.2
-        self.box(0, wh / 2, -bz - 0.5, bx + 1, wh / 2, 0.5, 0, 'wall', 5)
-        self.box(0, wh / 2, bz + 0.5, bx + 1, wh / 2, 0.5, 0, 'wall', 5)
-        self.box(-bx - 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'wall', 5)
-        self.box(bx + 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'wall', 5)
+        if not self.open:
+            self.box(0, wh / 2, -bz - 0.5, bx + 1, wh / 2, 0.5, 0, 'wall', 5)
+            self.box(0, wh / 2, bz + 0.5, bx + 1, wh / 2, 0.5, 0, 'wall', 5)
+            self.box(-bx - 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'wall', 5)
+            self.box(bx + 0.5, wh / 2, 0, 0.5, wh / 2, bz, 0, 'wall', 5)
+            self.portal(0.0, bz - 0.02, math.pi, 9.0, 3.4)
         for x in (-5.5, 5.5):
             self.box(x, 2.2, bz - 0.4, 0.6, 2.2, 0.6, 0, 'stone')
             self.props.append((x, bz - 0.4, 1.0))
-        self.portal(0.0, bz - 0.02, math.pi, 9.0, 3.4)
         for x in (-bx + 20, -bx + 40, bx - 20, bx - 40):
             for z in (-bz + 1.2, bz - 1.2):
                 self.tree(x, z, 2.6)

@@ -1107,6 +1107,13 @@ export class ViewModel {
     this.ads = 0;
     this.visible = true;
     this.scoped = false;
+    this.vestT = 0;           // a vest going on: the gun goes down for the while
+    this.vestDur = 1;
+  }
+
+  applyVest(dur) {
+    this.vestT = dur;
+    this.vestDur = dur;
   }
 
   setTeamColor(hex) {
@@ -1242,7 +1249,12 @@ export class ViewModel {
     } else if (this.switchT < 1) {
       this.switchT = Math.min(1, this.switchT + dt / 0.3);
     }
-    const down = this.pending ? ease(this.lowering) : 1 - ease(this.switchT);
+    let down = this.pending ? ease(this.lowering) : 1 - ease(this.switchT);
+    if (this.vestT > 0) {
+      this.vestT -= dt;
+      const t = 1 - this.vestT / this.vestDur;
+      down = Math.max(down, seg(t, 0, 0.12) * (1 - seg(t, 0.85, 1)));
+    }
 
     this.ads = st.ads;
     this.sprint += ((st.sprint ? 1 : 0) - this.sprint) * Math.min(1, dt * 10);

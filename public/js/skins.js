@@ -107,6 +107,8 @@ export const OUTFITS = [
   { id: 'urbanops', name: 'Urban Ops', rarity: 'rare', crate: 'camo', pattern: 'digital', colors: ['#8a8f95', '#5a5f66', '#2f3338', '#b9bec4'], boots: '#1d1f22', wrap: '#5a5f66', head: 'helmet', camo: 'concrete' },
   { id: 'multiterrain', name: 'Multi-Terrain Ops', rarity: 'epic', crate: 'camo', pattern: 'camo', colors: ['#a08a62', '#6e6a4a', '#4d5a3c', '#3a3226', '#c9b48f'], boots: '#3a3226', wrap: '#6e6a4a', head: 'helmet', camo: 'all' },
   { id: 'ghillie', name: 'Ghillie', rarity: 'legendary', crate: 'camo', pattern: 'camo', colors: ['#5a6a3a', '#3e4a2c', '#8a7a4a', '#2a3020', '#a89a6a'], boots: '#2a3020', wrap: '#3e4a2c', head: 'hood', camo: 'all' },
+  // Souk Royale, season one: only a winner wears it
+  { id: 'royale1', name: 'Royale Champion · Season 1', rarity: 'legendary', crate: 'royale', shirt: '#c9412f', pants: '#1a1206', boots: '#d8ac3f', wrap: '#f0b43c', head: 'beret', shine: true, glow: '#ffd24a', anim: 'pulse' },
 ];
 // the camouflage outfits, by id
 export const CAMO_OUTFITS = new Set(OUTFITS.filter((o) => o.camo).map((o) => o.id));

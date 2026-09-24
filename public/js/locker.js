@@ -410,6 +410,18 @@ export const locker = {
     changed();
   },
 
+  // a skin won in a match: on the account when signed in, otherwise in this browser
+  grantOutfit(id, lk) {
+    if (!OUTFIT[id]) return;
+    if (account && lk) {
+      this.updateAccount(lk);
+      return;
+    }
+    const s = state();
+    if (!s.outfits.includes(id)) s.outfits.push(id);
+    changed();
+  },
+
   // the server's echo of an equip: only the latest one may replace what we have
   equipEcho(seq) {
     return seq === undefined || seq === null || seq === equipSeq;

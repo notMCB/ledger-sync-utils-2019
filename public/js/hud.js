@@ -17,6 +17,7 @@ export const MODE_INFO = {
   knives: { name: 'Knife Fight', short: 'Knives', desc: 'Knives only. A stab to the head or the back kills. First to 25.' },
   firefight: { name: 'Firefight', short: 'Fire', desc: 'Flamethrowers and molotovs only. First to 25.' },
   oitc: { name: 'One in the Chamber', short: 'OITC', desc: 'A pistol with one round, a knife, three lives. A hit kills and gives you another round; a miss leaves you the knife. Most kills wins.' },
+  royale: { name: 'Souk Royale', short: 'Royale', desc: 'Battle royale, up to 64. Jump from the plane over all four maps at once, loot the chests, stay out of the gas. Last one standing.' },
 };
 export const TEAM_MODES = ['tdm', 'koth', 'bomb'];
 export const NICHE_MODES = ['snipers', 'knives', 'firefight', 'oitc'];
@@ -62,14 +63,38 @@ export class Hud {
     bar.classList.toggle('low', hp <= 35);
   }
 
+  // Souk Royale: the vest's strength over the health, and spare vests
+  setShield(shield, vests, on) {
+    const k = `${shield}|${vests}|${on}`;
+    if (k === this.lastShield) return;
+    this.lastShield = k;
+    const el = $('shield');
+    el.hidden = !on;
+    if (!on) return;
+    $('sh-bar').style.width = Math.max(0, Math.min(100, shield / 2)) + '%';
+    $('sh-num').textContent = shield;
+    $('sh-vests').innerHTML = Array.from({ length: 2 }, (_, i) => `<i class="${i < vests ? '' : 'none'}"></i>`).join('') + `<span>${vests} spare</span>`;
+  }
+
+  // the alive count, the gas timer and the jump prompt, over the top bar
+  royaleBar(alive, gasText, hot) {
+    const k = `${alive}|${gasText}|${hot}`;
+    if (k === this.lastRoyale) return;
+    this.lastRoyale = k;
+    const el = $('royale-bar');
+    el.hidden = alive === null;
+    if (alive === null) return;
+    el.innerHTML = `<div class="rb-alive"><b>${alive}</b> alive</div><div class="rb-gas${hot ? ' hot' : ''}">${esc(gasText)}</div>`;
+  }
+
   setTeamLabel(text, color) {
     const el = $('team-label');
     el.textContent = text;
     el.style.color = color || '';
   }
 
-  setAmmo(ws, nades, maxNades, reloadKey) {
-    const key = `${ws.id}|${ws.mag}|${ws.reserve}|${nades}|${maxNades}|${ws.reloading}`;
+  setAmmo(ws, nades, maxNades, reloadKey, rarity = null, nadeName = '') {
+    const key = `${ws.id}|${ws.mag}|${ws.reserve}|${nades}|${maxNades}|${ws.reloading}|${rarity}|${nadeName}`;
     if (key === this.lastAmmo) return;
     this.lastAmmo = key;
     const m = $('ammo-mag');
@@ -78,17 +103,20 @@ export class Hud {
     document.querySelector('.ammo .sep').style.visibility = melee ? 'hidden' : '';
     m.classList.toggle('low', !melee && ws.mag <= Math.ceil(ws.def.mag * 0.25));
     $('ammo-res').textContent = melee ? '' : ws.reserve;
-    $('weapon-name').textContent = ws.reloading ? 'Reloading…' : ws.def.name;
+    const wn = $('weapon-name');
+    wn.textContent = ws.reloading ? 'Reloading…' : ws.def.name + (nadeName ? ` · ${nadeName}` : '');
+    wn.style.color = rarity || '';
     $('nades').innerHTML = Array.from({ length: maxNades }, (_, i) => `<i class="${i < nades ? '' : 'used'}"></i>`).join('');
     $('reload-hint').hidden = !(!ws.def.melee && ws.mag === 0 && !ws.reloading && ws.reserve > 0);
     $('reload-key').textContent = reloadKey;
   }
 
-  setPerk(name, left, key, nade) {
-    const k = `${name}|${left}|${key}|${nade}`;
+  setPerk(name, left, key, nade, cd = 0) {
+    const k = `${name}|${left}|${key}|${nade}|${cd}`;
     if (k === this.lastPerk) return;
     this.lastPerk = k;
-    $('perk').innerHTML = `<span class="pk-key">${esc(key)}</span> ${esc(name)} <b>×${left}</b><span class="pk-nade">${esc(nade)}</span>`;
+    const count = cd > 0 ? `<b>${Math.ceil(cd)}s</b>` : `<b>×${left}</b>`;
+    $('perk').innerHTML = `<span class="pk-key">${esc(key)}</span> ${esc(name)} ${count}<span class="pk-nade">${esc(nade)}</span>`;
     $('perk').classList.toggle('spent', left <= 0);
   }
 
@@ -162,14 +190,14 @@ export class Hud {
   feedKill(ev, myId) {
     const row = document.createElement('div');
     row.className = 'kf' + (ev.k === myId || ev.v === myId ? ' me' : '');
-    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife' };
+    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife', gas: 'gas' };
     const wname = names[ev.w] || (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {
       const helpers = ev.as && ev.as.length ? `<span class="as" style="color:${kc}">+ ${esc(ev.as.join(', '))}</span>` : '';
       row.innerHTML = `<span style="color:${kc}">${esc(ev.kn)}</span>${helpers}<span class="w">${esc(wname)}</span>${ev.hs ? '<span class="hs">HEAD</span>' : ''}<span style="color:${vc}">${esc(ev.vn)}</span>`;
     } else {
-      row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : 'self')}</span>`;
+      row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : ev.w === 'gas' ? 'the gas' : 'self')}</span>`;
     }
     this.feedAdd(row);
   }
@@ -247,7 +275,19 @@ export class Hud {
       hot = true;
     }
     const mid = `<div class="tb-mid"><div class="time${hot ? ' hot' : ''}">${timeText}</div><div class="sub">${sub}</div></div>`;
-    if (!isTeamMode(mode)) {
+    if (mode === 'royale') {
+      const me = roster.get(myId);
+      const alive = g.al !== undefined ? g.al : 0;
+      if (ph === 'live' && g.gs) {
+        const gs = g.gs;
+        timeText = fmtTime(gs.tl);
+        sub = gs.ph === 'close' ? 'Gas closing' : gs.ph === 'done' ? 'Gas closed' : 'Gas moves in';
+        hot = gs.ph === 'close';
+      }
+      const mid2 = `<div class="tb-mid"><div class="time${hot ? ' hot' : ''}">${timeText}</div><div class="sub">${sub}</div></div>`;
+      html = `<div class="tb-team" style="box-shadow:inset 0 -3px 0 #7fc47a"><div class="n">${alive}</div><div class="l">Alive</div></div>${mid2}` +
+        `<div class="tb-team" style="box-shadow:inset 0 -3px 0 ${playerColor(myId, -1)}"><div class="n">${me ? me.k : 0}</div><div class="l">Kills</div></div>`;
+    } else if (!isTeamMode(mode)) {
       const sorted = [...roster.values()].sort((a, b) => b.k - a.k);
       const me = roster.get(myId);
       const lead = sorted[0];
@@ -327,7 +367,10 @@ export class Hud {
     // rock terrain: the ridge and its terraces, or stepped ground shaded by height
     for (const f of world.terrain()) {
       const t = Math.max(0, Math.min(1, (f.h - 1) / 8));
-      g.fillStyle = theme === 'snow' ? `rgba(${Math.round(150 + 90 * t)}, ${Math.round(156 + 88 * t)}, ${Math.round(166 + 84 * t)}, 0.95)` : 'rgba(150, 148, 144, 0.9)';
+      const snowy = theme === 'snow' || f.tint === 1;
+      g.fillStyle = snowy ? `rgba(${Math.round(150 + 90 * t)}, ${Math.round(156 + 88 * t)}, ${Math.round(166 + 84 * t)}, 0.95)`
+        : f.tint === 2 ? 'rgba(111, 154, 60, 0.6)' : f.tint === 3 ? 'rgba(125, 126, 130, 0.6)'
+        : f.tint === 0 && theme === 'royale' ? `rgba(${Math.round(170 + 40 * t)}, ${Math.round(150 + 40 * t)}, ${Math.round(110 + 30 * t)}, 0.8)` : 'rgba(150, 148, 144, 0.9)';
       g.save();
       g.translate(S / 2 + f.x * scale, S / 2 + f.z * scale);
       g.rotate(-f.yaw);
@@ -356,6 +399,10 @@ export class Hud {
       g.stroke();
     }
     for (const d of map.deco) {
+      if (d.k === 'ground') {
+        g.fillStyle = d.c === 'concrete' ? 'rgba(125, 126, 130, 0.5)' : d.c === 'grass' ? 'rgba(111, 154, 60, 0.45)' : 'rgba(226, 232, 240, 0.55)';
+        g.fillRect(S / 2 + (d.x - d.w / 2) * scale, S / 2 + (d.z - d.d / 2) * scale, d.w * scale, d.d * scale);
+      }
       if (d.k === 'pond') {
         g.fillStyle = 'rgba(60, 140, 160, 0.9)';
         g.beginPath();
@@ -437,7 +484,38 @@ export class Hud {
       const c = Math.cos(me.yaw), s = Math.sin(me.yaw);
       return [W / 2 + dx * c - dz * s, W / 2 + dx * s + dz * c];
     };
+    // the gas: everything outside the safe circle goes green
     for (const o of objectives) {
+      if (!o.gas) continue;
+      const [x, y] = toMap(o.x, o.z);
+      g.save();
+      g.beginPath();
+      g.rect(0, 0, W, W);
+      g.arc(x, y, Math.max(1, o.r * sc), 0, Math.PI * 2, true);
+      g.fillStyle = 'rgba(60, 200, 70, 0.45)';
+      g.fill('evenodd');
+      g.restore();
+      g.beginPath();
+      g.arc(x, y, Math.max(1, o.r * sc), 0, Math.PI * 2);
+      g.strokeStyle = 'rgba(120, 255, 130, 0.9)';
+      g.lineWidth = 2;
+      g.stroke();
+    }
+    for (const o of objectives) {
+      if (o.gas) continue;
+      if (o.plane) {
+        const [ax, ay] = toMap(o.a[0], o.a[1]), [bx2, by2] = toMap(o.b[0], o.b[1]);
+        g.save();
+        g.setLineDash([6, 6]);
+        g.strokeStyle = 'rgba(255,255,255,0.7)';
+        g.lineWidth = 2;
+        g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx2, by2); g.stroke();
+        g.restore();
+        const [px, py] = toMap(o.px, o.pz);
+        g.fillStyle = '#fff';
+        g.beginPath(); g.arc(px, py, 5, 0, Math.PI * 2); g.fill();
+        continue;
+      }
       let [x, y] = toMap(o.x, o.z);
       const clampR = W / 2 - 10;
       const dx = x - W / 2, dy = y - W / 2;
@@ -510,6 +588,33 @@ export class Hud {
     g.drawImage(this.mmBase, 0, 0, S, S, 0, 0, W, W);
     const toMap = (x, z) => [W / 2 + x * this.mmScale * k, W / 2 + z * this.mmScale * k];
     for (const o of objectives) {
+      if (o.gas) {
+        const [x, y] = toMap(o.x, o.z);
+        const r = Math.max(1, o.r * this.mmScale * k);
+        g.save();
+        g.beginPath();
+        g.rect(0, 0, W, W);
+        g.arc(x, y, r, 0, Math.PI * 2, true);
+        g.fillStyle = 'rgba(60, 200, 70, 0.42)';
+        g.fill('evenodd');
+        g.restore();
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2);
+        g.strokeStyle = 'rgba(120, 255, 130, 0.95)'; g.lineWidth = 3; g.stroke();
+      } else if (o.plane) {
+        const [ax, ay] = toMap(o.a[0], o.a[1]), [bx2, by2] = toMap(o.b[0], o.b[1]);
+        g.save();
+        g.setLineDash([10, 8]);
+        g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 3;
+        g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx2, by2); g.stroke();
+        g.restore();
+        const [px, py] = toMap(o.px, o.pz);
+        g.fillStyle = '#fff';
+        g.beginPath(); g.arc(px, py, 8, 0, Math.PI * 2); g.fill();
+        g.font = '700 14px "Reem Kufi", sans-serif'; g.textAlign = 'center'; g.fillText('PLANE', px, py - 14);
+      }
+    }
+    for (const o of objectives) {
+      if (o.gas || o.plane) continue;
       const [x, y] = toMap(o.x, o.z);
       if (o.r) {
         g.beginPath();
@@ -588,7 +693,14 @@ export class Hud {
     const head = '<tr><th>Player</th><th>Kills</th><th>Assists</th><th>Deaths</th><th>Score</th><th>Ping</th></tr>';
     const all = [...roster.values()];
     let body = '';
-    if (!isTeamMode(mode)) {
+    if (mode === 'royale') {
+      // the living first by kills, then the fallen in the order they went
+      all.sort((a, b) => (a.pl || 999) - (b.pl || 999) || b.k - a.k);
+      const rr = (list) => list.map((p) => `<tr class="${p.id === myId ? 'me' : ''} ${alive(p.id) ? '' : 'dead'}">` +
+        `<td><span class="swatch" style="background:${playerColor(p.id, p.tm)}"></span>${esc(p.n)}</td>` +
+        `<td>${p.pl ? '#' + p.pl : alive(p.id) ? 'alive' : '—'}</td><td>${p.k}</td><td>${p.a || 0}</td><td>${p.s}</td><td>${p.ping}</td></tr>`).join('');
+      body = `<table class="sb-table"><tr><th>Player</th><th>Place</th><th>Kills</th><th>Assists</th><th>Score</th><th>Ping</th></tr>${rr(all)}</table>`;
+    } else if (!isTeamMode(mode)) {
       all.sort((a, b) => b.k - a.k || a.d - b.d);
       body = `<table class="sb-table">${head}${rows(all)}</table>`;
     } else {
@@ -605,7 +717,7 @@ export class Hud {
 
   // dinars earned, floating up by the ammo counter
   earn(n, why) {
-    const labels = { kill: 'Kill', assist: 'Kill assist', supply: 'Teammate used your crate', shotdown: 'Drone shot down', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
+    const labels = { kill: 'Kill', assist: 'Kill assist', win: 'Souk Royale won', supply: 'Teammate used your crate', shotdown: 'Drone shot down', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
     const el = document.createElement('div');
     el.className = 'earn-pop';
     el.innerHTML = `<b>+${n}</b> dinars <span>${esc(labels[why] || '')}</span>`;

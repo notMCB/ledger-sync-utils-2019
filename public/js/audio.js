@@ -379,6 +379,111 @@ export function flashRing(strength) {
 }
 
 // a steel target ringing when it's hit
+// a chest lid coming up, and something picked up off the ground
+export function chestOpen(pos) {
+  const c = ensure();
+  if (!c) return;
+  const sp = spatial(pos, 30);
+  if (!sp) return;
+  sp.output.connect(master);
+  const t = c.currentTime;
+  click(sp.input, t, 900, 0.5 * sp.gain, 0.03);
+  noiseBurst(sp.input, t + 0.03, 0.12, 1200, 400, 1.2, 0.18 * sp.gain, 'bandpass');
+  click(sp.input, t + 0.16, 500, 0.3 * sp.gain, 0.05);
+}
+
+export function pickup() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  click(master, t, 1400, 0.25, 0.04);
+  click(master, t + 0.06, 2000, 0.2, 0.05);
+}
+
+// a vest going on: straps pulled and velcro pressed
+export function vestOn() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  noiseBurst(master, t, 0.35, 2500, 900, 0.8, 0.25, 'bandpass');
+  noiseBurst(master, t + 0.5, 0.25, 1800, 600, 0.8, 0.2, 'bandpass');
+  click(master, t + 0.9, 300, 0.35, 0.05);
+}
+
+// the gas warning: a two-tone siren
+export function siren() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  for (let i = 0; i < 4; i++) {
+    const o = c.createOscillator();
+    o.type = 'square';
+    o.frequency.value = i % 2 ? 520 : 400;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t + i * 0.45);
+    g.gain.exponentialRampToValueAtTime(0.12, t + i * 0.45 + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.45 + 0.42);
+    o.connect(g);
+    g.connect(master);
+    o.start(t + i * 0.45);
+    o.stop(t + i * 0.45 + 0.45);
+  }
+}
+
+// the plane: a drone of engines that follows it about the sky; call every frame
+let plane = null;
+export function planeHum(on, pos) {
+  const c = ensure();
+  if (!c) return;
+  if (!on) {
+    if (plane) { plane.g.gain.setTargetAtTime(0.0001, c.currentTime, 0.3); setTimeout(() => { try { plane.o.stop(); plane.o2.stop(); } catch (e) { /* done */ } }, 800); plane = null; }
+    return;
+  }
+  if (!plane) {
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = 62;
+    const o2 = c.createOscillator();
+    o2.type = 'sawtooth';
+    o2.frequency.value = 93;
+    const f = c.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 260;
+    const g = c.createGain();
+    g.gain.value = 0.0001;
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(master);
+    o.start(); o2.start();
+    plane = { o, o2, g, f };
+  }
+  const dx = pos.x - listener.x, dy = pos.y - listener.y, dz = pos.z - listener.z;
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const vol = 0.22 / (1 + (d / 60) ** 1.4);
+  plane.g.gain.setTargetAtTime(Math.max(0.0001, vol), c.currentTime, 0.1);
+  plane.f.frequency.setTargetAtTime(160 + 400 / (1 + d / 40), c.currentTime, 0.1);
+}
+
+// a firework going up and bursting
+export function firework(pos) {
+  const c = ensure();
+  if (!c) return;
+  const sp = spatial(pos, 120);
+  if (!sp) return;
+  sp.output.connect(master);
+  const t = c.currentTime;
+  thump(sp.input, t, 160, 40, 0.4, 0.5 * sp.gain);
+  noiseBurst(sp.input, t, 0.5, 3000, 300, 0.6, 0.35 * sp.gain, 'bandpass');
+  for (let i = 0; i < 6; i++) click(sp.input, t + 0.1 + Math.random() * 0.5, 1200 + Math.random() * 2000, 0.12 * sp.gain, 0.03);
+}
+
+// the parachute snapping open
+export function chutePop() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  noiseBurst(master, t, 0.25, 1500, 300, 0.7, 0.5, 'bandpass');
+  thump(master, t, 120, 50, 0.2, 0.3);
+}
+
 export function ding(pos, head) {
   if (!ensure()) return;
   const sp = spatial(pos, 140);

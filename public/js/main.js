@@ -23,6 +23,7 @@ const params = new URLSearchParams(location.search);
 const LOCAL = location.hostname === 'localhost';
 const AUTOTEST = LOCAL ? params.get('autotest') : null;
 const MODE_ORDER = ['tdm', 'ffa', 'koth', 'bomb'];
+const ROYALE = 'royale';
 const PHASE_TEXT = { waiting: 'Waiting for players', countdown: 'Starting', live: 'In progress', freeze: 'In progress', post: 'In progress', ended: 'Between matches' };
 let rooms = [];
 let modeButtons = null;   // built once, see renderModes
@@ -43,15 +44,21 @@ const ui = {
   },
   onPhase() {},
   onRoster() {},
-  showDeath(byHtml, respawnAt) {
+  showDeath(byHtml, respawnAt, late = false) {
     $('death-by').innerHTML = byHtml;
-    renderLoadouts($('death-loadouts'), true);
-    $('death-hint').textContent = input.locked ? 'Press 1–4 to pick a loadout, or Esc to use the mouse' : 'Click a loadout';
+    const royale = !!game.br;
+    $('death').classList.toggle('royale', royale);
+    $('death').classList.remove('won');
+    $('death-loadouts').hidden = royale;
+    $('death-ld-title').hidden = royale;
+    $('death-stats').hidden = true;
+    if (!royale) renderLoadouts($('death-loadouts'), true);
+    $('death-hint').textContent = royale ? `${keyName(settings.binds.fire)} to watch the next player · Esc for the menu` : input.locked ? 'Press 1–4 to pick a loadout, or Esc to use the mouse' : 'Click a loadout';
     $('death').hidden = false;
     clearInterval(deathTimer);
     const tick = () => {
       if (respawnAt < 0) {
-        $('death-timer').textContent = 'You are out for the rest of this round';
+        $('death-timer').textContent = royale ? (late ? 'You drop with everyone when the next match starts' : 'You are out. Watch the rest of the drop') : 'You are out for the rest of this round';
         return;
       }
       const s = Math.max(0, respawnAt - performance.now() / 1000);
@@ -60,7 +67,32 @@ const ui = {
     tick();
     deathTimer = setInterval(tick, 100);
     // in bomb mode the dead watch teammates, so get out of the way after a moment
-    if (respawnAt < 0) setTimeout(() => { if (!game.me.alive) $('death').hidden = true; }, 4000);
+    if (respawnAt < 0 && !royale) setTimeout(() => { if (!game.me.alive) $('death').hidden = true; }, 4000);
+    if (respawnAt < 0 && royale) setTimeout(() => { if (!game.me.alive && $('death-stats').hidden) $('death').hidden = true; }, 6000);
+  },
+  // Souk Royale: how you did, on the death screen or the winner's card
+  showStats(m) {
+    const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    const el = $('death-stats');
+    el.hidden = false;
+    el.innerHTML = `<div class="bs-place">${m.won ? 'Winner' : '#' + m.place}<small>of ${m.of}</small></div>` +
+      `<div class="bs-grid"><div><b>${m.k}</b><span>kills</span></div><div><b>${m.dmg}</b><span>damage</span></div>` +
+      `<div><b>${fmt(m.sv)}</b><span>survived</span></div><div><b>${m.ch}</b><span>chests</span></div></div>` +
+      (m.won ? '<div class="bs-prize">Season 1 champion’s outfit unlocked · it is in your Locker</div>' : '');
+    if (m.won) {
+      $('death-by').innerHTML = '<span class="gold">Souk Royale</span>';
+      $('death-timer').textContent = 'Last one standing';
+      $('death-hint').textContent = 'Click to carry on';
+      $('death-loadouts').hidden = true;
+      $('death-ld-title').hidden = true;
+      $('death').classList.add('royale', 'won');
+      $('death').hidden = false;
+      clearInterval(deathTimer);
+      setTimeout(() => { $('death').hidden = true; }, 11000);
+    } else {
+      $('death').hidden = false;
+      setTimeout(() => { if (!game.me.alive) $('death').hidden = true; }, 9000);
+    }
   },
   openLoadout() {
     openLoadout();
@@ -161,6 +193,17 @@ function renderModes() {
   if (!modeButtons) {
     modeButtons = {};
     host.innerHTML = '';
+    // Souk Royale, across the top: one map, so straight in
+    {
+      const info = MODE_INFO[ROYALE];
+      const b = document.createElement('button');
+      b.className = 'mode royale';
+      b.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
+        `<span class="m-meta"><span><span class="m-count">0</span> playing · up to 64</span><span class="m-play">Drop in →</span></span>`;
+      b.addEventListener('click', () => join({ mode: ROYALE }));
+      host.appendChild(b);
+      modeButtons[ROYALE] = b;
+    }
     for (const id of MODE_ORDER) {
       const info = MODE_INFO[id];
       const b = document.createElement('button');
@@ -207,7 +250,7 @@ function renderModes() {
     });
     host.appendChild(r);
   }
-  for (const id of [...MODE_ORDER, ...NICHE_MODES, 'niche']) {
+  for (const id of [ROYALE, ...MODE_ORDER, ...NICHE_MODES, 'niche']) {
     const b = modeButtons[id];
     const n = rooms.filter((r) => (id === 'niche' ? NICHE_MODES.includes(r.mode) : r.mode === id)).reduce((a, r) => a + r.n, 0);
     const c = b.querySelector('.m-count');
@@ -391,7 +434,7 @@ $('death').addEventListener('click', (e) => {
 
 // number keys choose a loadout on the death screen
 input.onKeyCode = (e) => {
-  if (!$('death').hidden && !game.me.alive && /^Digit[1-4]$/.test(e.code)) {
+  if (!$('death').hidden && !game.me.alive && !game.br && /^Digit[1-4]$/.test(e.code)) {
     pickLoadout(Number(e.code.slice(5)) - 1);
     return true;
   }
@@ -855,12 +898,101 @@ if (AUTOTEST) {
   }, 4000);
   window.__souk = game;
   if (params.get('script') === 'v2') runV2();
+  if (params.get('script') === 'royale') runRoyale();
   if (params.get('script') === 'attach') runAttach();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
     const [w, f] = params.get('equip').split(':');
     locker.equipGun(w, f);
   }
+}
+
+// -- the royale run: the plane, the drop, a chest, what fell out, a vest ------------
+async function runRoyale() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[royale] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  while (!game.br || !game.map) await sleep(200);
+  log(`in: chests ${game.chestMeshes.size} boxes ${game.map.boxes.length} bounds ${game.map.bounds}`);
+  while (!me.aboard) await sleep(200);
+  log(`aboard: plane ${JSON.stringify(game.br.plane && game.br.plane.a)} -> ${JSON.stringify(game.br.plane && game.br.plane.b)} cam ${game.camera.position.toArray().map((v) => v.toFixed(1))}`);
+  await sleep(1500);
+  log('CAPTURE aboard');
+  const T = await import('three');
+  const pp = new T.Vector3();
+  while (me.aboard && !(game.planePos(pp) && game.overMap(pp.x, pp.z))) await sleep(100);
+  await sleep(2500);
+  log('CAPTURE aboard-over');
+  input.tap('Space');
+  await sleep(400);
+  log(`jumped: aboard ${me.aboard} falling ${!!me.falling} pos ${me.pos.toArray().map((v) => v.toFixed(1))}`);
+  me.pitch = -0.6;
+  input.hold('KeyW', true);
+  await sleep(1500);
+  log('CAPTURE falling');
+  input.hold('KeyW', false);
+  me.pitch = -1.2;
+  while (me.falling && !me.falling.chute) await sleep(100);
+  log(`chute at y ${me.pos.y.toFixed(1)}`);
+  me.pitch = 0;
+  await sleep(300);
+  log('CAPTURE chute');
+  while (me.falling) await sleep(100);
+  log(`landed at ${me.pos.toArray().map((v) => v.toFixed(1))} grounded ${me.grounded}`);
+  await sleep(500);
+  log('CAPTURE landed');
+  // the nearest chests in turn: stand by one, open it, take what is worth taking, until a gun is in hand
+  const chests = [...game.chestMeshes.entries()].map(([id, C]) => ({ id, C, d: Math.hypot(C.x - me.pos.x, C.z - me.pos.z) })).sort((a, b) => a.d - b.d);
+  let shot = false;
+  for (const best of chests.slice(0, 8)) {
+    if (best.C.open) continue;
+    me.pos.set(best.C.x + 1.2, best.C.y + 0.02, best.C.z);
+    me.vel.set(0, 0, 0);
+    me.yaw = Math.atan2(-(best.C.x - me.pos.x), -(best.C.z - me.pos.z));
+    me.pitch = -0.35;
+    await sleep(700);
+    log(`by chest ${best.id}: prompt ${game.brPrompt && game.brPrompt.text}`);
+    if (!shot) log('CAPTURE chest');
+    input.tap('KeyE');
+    await sleep(700);
+    log(`opened: items ${game.itemMeshes.size} prompt ${game.brPrompt && game.brPrompt.text} inv ${JSON.stringify(game.br.items)} ammo ${JSON.stringify(game.br.ammo)} vests ${game.br.vests} nades ${me.nades} ${me.nadeKind} perk ${game.br.perk}`);
+    if (!shot) log('CAPTURE opened');
+    shot = true;
+    for (let k = 0; k < 3 && game.brPrompt; k++) { input.tap('KeyE'); await sleep(500); }
+    if (game.br.items.primary || game.br.items.pistol) break;
+  }
+  log(`took: slot ${me.slot} weapons ${Object.keys(me.weapons).filter((k) => me.weapons[k]).map((k) => me.weapons[k].id + ' ' + me.weapons[k].mag + '/' + me.weapons[k].reserve)} vm ${game.vm.curId} items left ${game.itemMeshes.size} skins ${JSON.stringify(game.brSkins())}`);
+  me.pitch = 0;
+  await sleep(600);
+  log('CAPTURE gun');
+  while (game.vm.busySwitching) await sleep(100);
+  input.hold('Mouse0', true);
+  await sleep(350);
+  log('CAPTURE firing');
+  input.hold('Mouse0', false);
+  await sleep(300);
+  log(`fired: ${game.weapon() && game.weapon().id} mag ${game.weapon() && game.weapon().mag}`);
+  input.tap('KeyR');
+  await sleep(3000);
+  log(`reloaded: mag ${game.weapon() && game.weapon().mag} reserve ${game.weapon() && game.weapon().reserve} pool ${JSON.stringify(game.br.ammo)}`);
+  if (game.br.vests > 0) { input.tap('KeyH'); await sleep(1200); log('CAPTURE vest'); await sleep(1800); log(`vest: shield ${game.br.shield} spare ${game.br.vests}`); }
+  me.pitch = -0.3;
+  input.tap('KeyM');
+  await sleep(500);
+  log('CAPTURE map');
+  input.tap('KeyM');
+  // the gas wall: look away from the middle of the circle
+  const gs = game.br.gas;
+  if (gs) { const dx = me.pos.x - gs.c[0], dz = me.pos.z - gs.c[1]; me.yaw = Math.atan2(-dx, -dz); me.pitch = 0.1; }
+  await sleep(500);
+  log('CAPTURE gas');
+  log(`gas ${JSON.stringify(gs)} alive ${game.g && game.g.al} shield ${game.br.shield}`);
+  log('royale done');
 }
 
 // -- the 2.2 run: tunnels, the knife, the map and every gun's attachments -----------

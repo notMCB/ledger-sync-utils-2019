@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { nameTag, softDot } from './textures.js';
 import { outfitMaterials, gunMaterials, chromeMaterial } from './skins.js';
+import { makeChute } from './royale.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
 export const TEAM_NAMES = ['Sand', 'Sky'];
@@ -277,6 +278,7 @@ export class Avatar {
     this.shield.position.y = 0.95;
     this.shield.visible = false;
     g.add(this.shield);
+    this.chute = null;        // a parachute, made the first time they open one
     this.tag = new THREE.Sprite(this.tagMat);
     this.tag.scale.set(1.2, 0.3, 1);
     this.tag.position.y = 2.2;
@@ -454,8 +456,33 @@ export class Avatar {
     this.piloting = !!(this.flags & 2048);
     this.driving = !!(this.flags & 16384);
     this.burning = !!(this.flags & 32768);
-    g.visible = alive;
-    if (!alive) return;
+    this.aboard = !!(this.flags & 262144);
+    this.falling = !!(this.flags & 65536);
+    const chute = !!(this.flags & 131072);
+    g.visible = alive && !this.aboard;
+    if (!alive || this.aboard) { if (this.chute) this.chute.visible = false; return; }
+    if (this.falling) {
+      // in the air: arms and legs out, body flat, a chute overhead when it is open
+      g.rotation.set(0, this.yaw, 0);
+      if (!chute) g.rotateX(-Math.PI / 2 * 0.8);
+      g.position.set(this.pos.x, this.pos.y + (chute ? 0 : 0.6), this.pos.z);
+      this.legs[0].rotation.set(0, 0, 0.45);
+      this.legs[1].rotation.set(0, 0, -0.45);
+      this.legs[0].userData.shin.rotation.x = this.legs[1].userData.shin.rotation.x = 0;
+      this.legs[0].position.y = this.legs[1].position.y = 0.95;
+      this.upper.position.y = 0.97;
+      this.upper.rotation.x = 0;
+      this.arms.rotation.x = chute ? -2.6 : -1.4;
+      this.head.rotation.set(chute ? 0 : -0.6, 0, 0);
+      if (chute && !this.chute) { this.chute = makeChute(); g.add(this.chute); }
+      if (this.chute) this.chute.visible = chute;
+      this.tag.position.set(0, chute ? 2.2 : 1.2, 0);
+      this.showName = Math.max(0, this.showName - dt);
+      this.revealT = Math.max(0, this.revealT - dt);
+      return;
+    }
+    if (this.chute && this.chute.visible) this.chute.visible = false;
+    this.legs[0].rotation.z = this.legs[1].rotation.z = 0;
     const pk = this.proneK, bk = this.backK;
     if (pk > 0.01) {
       // lay the body down along its own direction, head where the player is,

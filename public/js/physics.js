@@ -150,7 +150,7 @@ export class Physics {
   }
 
   // walks the grid along the ray; returns {t, point, normal, box} or null
-  raycast(o, d, maxT = 400, res = null) {
+  raycast(o, d, maxT = 400, res = null, skipInv = false) {
     const n = new THREE.Vector3();
     // the street level is solid both ways: from above, and from underneath too,
     // so nothing fired from the tunnels' ceiling gap passes up through it
@@ -175,6 +175,7 @@ export class Physics {
         for (const b of arr) {
           if (b.mark === st) continue;
           b.mark = st;
+          if (skipInv && b.mat === 'inv') continue;
           const t = this.rayBox(b, o.x, o.y, o.z, d.x, d.y, d.z, best, n);
           if (t >= 0 && t < best) {
             best = t;
