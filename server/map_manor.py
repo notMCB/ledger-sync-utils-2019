@@ -276,10 +276,12 @@ class Manor(Town):
             lb(-WELL_X - 0.12, WELL_X + 0.12, y, y + 1.0, AT_Z1, AT_Z1 + 0.12, 'wood')
             lb(-WELL_X - 0.12, -WELL_X, y, y + 1.0, AT_Z0, AT_Z1, 'wood')
             lb(WELL_X, WELL_X + 0.12, y, y + 1.0, AT_Z0, AT_Z1, 'wood')
-        # rails beside the grand stair's well on the first floor
+        # rails round the grand stair's well on the first floor: both sides and
+        # across the foot end, where the gallery floor meets the drop
         y = FLOOR
         lb(-1.72, -1.6, y, y + 0.95, -RUN, 0.0, 'wood')
         lb(1.6, 1.72, y, y + 0.95, -RUN, 0.0, 'wood')
+        lb(-1.72, 1.72, y, y + 0.95, 0.0, 0.12, 'wood')
 
         # the portico: six columns under a roof at the front door, a balcony above
         for x in (-6.0, -3.6, -1.2, 1.2, 3.6, 6.0):
@@ -476,8 +478,6 @@ class Manor(Town):
         for x in (-4.5, 4.5):
             painting(x, Z1 - 0.16, math.pi, y + 2.0, 1.6, 1.2)
             self.statue(x * 1.3, -7.5, 0.0, 0.8, y, local=True)
-        sofa(-6.0, 6.5, math.pi / 2, y)
-        sofa(6.0, 6.5, -math.pi / 2, y)
         bed(-16.0, 8.0, y)
         bed(-11.0, -6.0, y)
         bed(16.0, 8.0, y)

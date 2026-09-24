@@ -1300,19 +1300,19 @@ export class ViewModel {
       nh.rotation.set(-0.2 + wind * 0.9 - fling * 1.6, 0, 0);
       if (t >= 1) { this.nadeAnim = -1; nh.visible = false; }
     }
-    // knife stab: draw the arm back and up, then drive the blade straight
-    // forward and slightly down, hold a moment, and pull back to the guard
+    // knife jab: a short cock of the wrist, then the blade snaps straight
+    // out and straight back, all along the line of sight, over a third of a second
     if (this.swingAnim >= 0) {
-      this.swingAnim += dt / 0.4;
+      this.swingAnim += dt / 0.32;
       const t = this.swingAnim;
-      const draw = seg(t, 0, 0.22), thrust = seg(t, 0.22, 0.42), pull = seg(t, 0.55, 1);
-      const out = thrust - pull;             // 1 while the blade is fully forward
-      pos.x += draw * 0.05 - out * 0.03;
-      pos.y += draw * 0.05 - out * 0.06;
-      pos.z += draw * 0.12 - out * 0.34;
-      rx += draw * 0.3 - out * 0.45;
-      ry += draw * 0.25 - out * 0.35;
-      rz += draw * 0.35 - out * 0.15;
+      const cock = seg(t, 0, 0.12), snap = seg(t, 0.12, 0.28), back = seg(t, 0.28, 0.6);
+      const out = snap - back;               // 1 at full extension
+      pos.x += cock * 0.02 - out * 0.01;
+      pos.y += cock * 0.02 - out * 0.02;
+      pos.z += cock * 0.06 - out * 0.32;
+      rx -= out * 0.15;
+      ry += cock * 0.1 - out * 0.12;
+      rz += cock * 0.12;
       if (t >= 1) this.swingAnim = -1;
     }
     g.group.position.copy(pos);

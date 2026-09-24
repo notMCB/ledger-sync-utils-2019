@@ -2,9 +2,18 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.11.0';
+export const VERSION = '2.11.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.11.1',
+    date: '25 September 2026',
+    title: 'Small fixes',
+    notes: [
+      'The knife is a jab: a short cock of the wrist and the blade snaps straight out and back.',
+      'The Manor: the rail round the top of the grand stair is closed across the foot end, and the two red sofas that stood in front of the top-floor doors are gone.',
+    ],
+  },
   {
     version: '2.11.0',
     date: '25 September 2026',
