@@ -534,7 +534,8 @@ class Town:
         self.areas.append({'n': 'East End', 'x': self.spawn_e[0], 'z': round(self.spawn_e[1], 1), 'r': 12})
 
         self.place_props()
-        self.dig_tunnels()
+        # the tunnels are closed for now (their exploits are being worked on): no hatches, no network
+        # self.dig_tunnels()
         self.pick_spawns()
 
     # -- tunnels ---------------------------------------------------------------

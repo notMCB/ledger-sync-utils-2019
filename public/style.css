@@ -348,6 +348,8 @@ button { cursor: pointer; }
   background: repeating-linear-gradient(90deg, #7a5530 0 10px, #6a4828 10px 20px); box-shadow: inset 0 0 0 3px #3e2a15; }
 .crate-art::after { content: ''; position: absolute; left: 50%; top: 50%; width: 18px; height: 14px; margin: -7px 0 0 -9px; border-radius: 3px; background: #c9a13b; }
 .wardrobe .crate-art { background: repeating-linear-gradient(90deg, #2f6f73 0 10px, #275f63 10px 20px); box-shadow: inset 0 0 0 3px #173a3d; }
+.camo .crate-art { background: radial-gradient(circle at 30% 40%, #6b5a3a 0 22%, transparent 23%), radial-gradient(circle at 70% 65%, #2e3a24 0 26%, transparent 27%), radial-gradient(circle at 60% 20%, #a08a62 0 18%, transparent 19%), #4a5a36; box-shadow: inset 0 0 0 3px #1c2216; }
+.party .crate-art { background: repeating-linear-gradient(90deg, #ff3b4a 0 8px, #ff8f1f 8px 16px, #ffe94a 16px 24px, #3fe05c 24px 32px, #3fa0ff 32px 40px, #8f4fff 40px 48px); box-shadow: inset 0 0 0 3px #12081f, 0 0 14px rgba(255, 79, 216, 0.5); }
 .crate-name { font-family: var(--display); font-size: 20px; font-weight: 700; }
 .crate-desc { font-size: 14px; color: var(--plaster-dim); }
 .crate-open:disabled { opacity: 0.45; cursor: default; }

@@ -39,7 +39,7 @@ for label, js, py in (('finishes', items('FINISHES', 'armory'), {f[0]: (f[1], f[
     else:
         print('ok  %d %s match' % (len(js), label))
 # every crate must be able to give something of every rarity it can roll
-for kind in ('gun', 'outfit', 'bazaar'):
+for kind in ('gun', 'outfit', 'bazaar', 'blade', 'camo', 'party'):
     for _ in range(3000):
         catalog.roll(kind)
 print('ok  crates roll without errors')

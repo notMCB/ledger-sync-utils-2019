@@ -19,7 +19,12 @@ CRATES = {
     'outfit': {'name': 'Wardrobe Crate', 'price': 100},
     'bazaar': {'name': 'Bazaar Case', 'price': 500},
     'blade': {'name': 'Blade Crate', 'price': 150},
+    'camo': {'name': 'Tactical Camouflage Case', 'price': 1000},
+    'party': {'name': 'Carnival Case', 'price': 2000},
 }
+# the two new cases have no commons either
+CAMO_WEIGHTS = {'uncommon': 45, 'rare': 32, 'epic': 16, 'legendary': 7}
+PARTY_WEIGHTS = {'uncommon': 42, 'rare': 33, 'epic': 18, 'legendary': 7}
 
 # (id, rarity, crate)
 FINISHES = [
@@ -39,6 +44,15 @@ FINISHES = [
     ('camelbone', 'uncommon', 'blade'), ('turquoise', 'uncommon', 'blade'),
     ('gildedhilt', 'rare', 'blade'), ('obsidian', 'rare', 'blade'),
     ('bloodsteel', 'epic', 'blade'), ('mirageblade', 'legendary', 'blade'),
+    # Tactical Camouflage Case
+    ('desertdpm', 'uncommon', 'camo'), ('woodlandgun', 'uncommon', 'camo'),
+    ('arcticgun', 'rare', 'camo'), ('urbandigital', 'rare', 'camo'),
+    ('multicamgun', 'epic', 'camo'), ('nightcamo', 'legendary', 'camo'),
+    # Carnival Case
+    ('candycane', 'uncommon', 'party'), ('polkapunch', 'uncommon', 'party'), ('sherbet', 'uncommon', 'party'),
+    ('bubblecamo', 'rare', 'party'), ('zebrapop', 'rare', 'party'), ('rainbowroad', 'rare', 'party'),
+    ('ultraviolet', 'epic', 'party'), ('electricstripe', 'epic', 'party'), ('discoball', 'epic', 'party'),
+    ('plasma', 'legendary', 'party'), ('marquee', 'legendary', 'party'),
 ]
 
 OUTFITS = [
@@ -53,7 +67,13 @@ OUTFITS = [
     ('surfer', 'rare', 'bazaar'), ('popart', 'rare', 'bazaar'),
     ('festival', 'epic', 'bazaar'),
     ('stargazer', 'legendary', 'bazaar'),
+    # Tactical Camouflage Case
+    ('desertops', 'uncommon', 'camo'), ('woodlandops', 'uncommon', 'camo'),
+    ('arcticops', 'rare', 'camo'), ('urbanops', 'rare', 'camo'),
+    ('multiterrain', 'epic', 'camo'), ('ghillie', 'legendary', 'camo'),
 ]
+# the outfits that hide you: recon beacons miss them, aim help ignores them
+CAMO_OUTFITS = {o[0] for o in OUTFITS if o[2] == 'camo'}
 
 SHOOTERS = [g for g in GUNS if g != 'knife']
 FINISH_IDS = {f[0] for f in FINISHES}
@@ -89,6 +109,18 @@ def roll(kind, rng=random):
         pool = [o for o in OUTFITS if o[1] == r and o[2] == 'wardrobe']
         o = rng.choice(pool)
         return {'kind': 'outfit', 'outfit': o[0], 'rarity': r}
+    if kind == 'camo':
+        # half outfits, half finishes for any gun or the knife
+        r = _pick_rarity(CAMO_WEIGHTS, rng)
+        if rng.random() < 0.5:
+            o = rng.choice([o for o in OUTFITS if o[1] == r and o[2] == 'camo'])
+            return {'kind': 'outfit', 'outfit': o[0], 'rarity': r}
+        f = rng.choice([f for f in FINISHES if f[1] == r and f[2] == 'camo'])
+        return {'kind': 'gun', 'weapon': rng.choice(GUNS), 'finish': f[0], 'rarity': r}
+    if kind == 'party':
+        r = _pick_rarity(PARTY_WEIGHTS, rng)
+        f = rng.choice([f for f in FINISHES if f[1] == r and f[2] == 'party'])
+        return {'kind': 'gun', 'weapon': rng.choice(GUNS), 'finish': f[0], 'rarity': r}
     # bazaar: mostly gun finishes, sometimes an outfit
     r = _pick_rarity(BAZAAR_WEIGHTS, rng)
     guns = [f for f in FINISHES if f[1] == r and f[2] == 'bazaar']

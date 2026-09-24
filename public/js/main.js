@@ -612,7 +612,7 @@ if (location.hostname === 'localhost' && params.get('demo') === 'stability') {
 }
 // the owner's own locker, set up from a private link
 if (params.get('unlock') === 'mcb-souk-7k2p9') {
-  locker.grant(100, 10000);
+  locker.grant(150, 500000, true);
   history.replaceState(null, '', location.pathname);
 }
 // testing on this Mac only: ?dinars=500 tops up the locker

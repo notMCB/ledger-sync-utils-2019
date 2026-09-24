@@ -373,7 +373,7 @@ export class Avatar {
     const s = GUN_SIZES[w] || GUN_SIZES.smg;
     this.gunMesh.scale.set(s[0] / 0.06, s[1] / 0.1, s[2] / 0.6);
     this.gunMesh.position.z = -s[2] / 2 + 0.1;
-    const skin = this.gunSkins[w] && gunMaterials(this.gunSkins[w]);
+    const skin = this.gunSkins[w] && gunMaterials(this.gunSkins[w], true);
     this.gunMesh.material = skin ? skin.body : w === 'sniper' || w === 'lmg' ? SHARED.gunTan : SHARED.gun;
     this.muzzleLocal.set(0, 0.02, -s[2] + 0.1);
     const quiet = w === 'sniper' || (w === 'pistol' && (this.loadout === 2 || this.loadout === 3));

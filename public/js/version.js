@@ -2,9 +2,19 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '2.7.1';
+export const VERSION = '2.8.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '2.8.0',
+    date: '24 September 2026',
+    title: 'Two new cases; tunnels closed for now',
+    notes: [
+      'Tactical Camouflage Case, 1000 dinars: real camouflage. Six outfits (desert, woodland, arctic, urban, multi-terrain and a ghillie) and six matching finishes for any gun or the knife. The outfits work: recon beacons do not pick you up, aim help does not catch on you, and your name shows for less time when you are seen or hit. Wear the one that matches the map. No commons.',
+      'Carnival Case, 2000 dinars: eleven loud finishes for any gun or the knife. Rainbows, candy canes, polka dots, bubblegum camo, zebra pop, and stripes that run from the stock to the muzzle. Four of them are lit up, and only you see the light: other players get the same skin with the lights off, so it never gives you away.',
+      'The tunnels under Old Town are closed for now while their exploits are worked on. No hatches, no network. They will be back.',
+    ],
+  },
   {
     version: '2.7.1',
     date: '24 September 2026',

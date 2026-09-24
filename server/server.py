@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '2.7.1'
+VERSION = '2.8.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -1125,6 +1125,8 @@ class Room:
             B['next'] = t + BEACON_EVERY
             pts = []
             for q in self.players.values():
+                if q.cos.get('o') in catalog.CAMO_OUTFITS:
+                    continue      # camouflage: the beacon doesn't pick them up
                 if q.alive and self.enemies(owner, q) and dist3(q.pos, B['p']) < BEACON_RANGE:
                     pts.append([q.id, round(q.pos[0], 2), round(q.pos[1], 2), round(q.pos[2], 2)])
             msg = {'t': 'ping', 'id': oid, 'p': B['p'], 'pts': pts}
@@ -1538,7 +1540,15 @@ class Conn:
             # the owner's account: every gun fully unlocked and a full purse
             for w in catalog.SHOOTERS:
                 lk['kills'][w] = max(lk['kills'].get(w, 0), 150)
-            lk['dinars'] = max(lk.get('dinars', 0), 10000)
+            lk['dinars'] = max(lk.get('dinars', 0), 500000)
+            for w in catalog.GUNS:
+                for f in catalog.FINISHES:
+                    key = '%s:%s' % (w, f[0])
+                    if key not in lk['guns']:
+                        lk['guns'].append(key)
+            for o in catalog.OUTFITS:
+                if o[0] not in lk['outfits']:
+                    lk['outfits'].append(o[0])
             accounts.save_locker(user['id'], lk)
         p.account = {'id': user['id'], 'username': user['username']}
         p.name = user['username']

@@ -54,6 +54,25 @@ export const FINISHES = [
   { id: 'obsidian', name: 'Obsidian Edge', rarity: 'rare', crate: 'blade', body: '#2a2630', dark: '#0d0b10', furn: '#4a4356', rough: 0.2, metal: 0.6, glow: '#7a5cff' },
   { id: 'bloodsteel', name: 'Blood Steel', rarity: 'epic', crate: 'blade', pattern: 'damascus', colors: ['#9b2b28', '#3a1b1b'], dark: '#1b0f10', metal: 0.85, rough: 0.28, furn: '#2b1a16', glow: '#d0302a' },
   { id: 'mirageblade', name: 'Mirage Steel', rarity: 'legendary', crate: 'blade', pattern: 'mirage', colors: ['#ff7a3c', '#ffd24a', '#3fd0c9', '#7a5cff'], dark: '#1b1d24', anim: 'hue', metal: 0.8 },
+  // Tactical Camouflage Case — real camouflage, for every gun and the knife
+  { id: 'desertdpm', name: 'Desert DPM', rarity: 'uncommon', crate: 'camo', pattern: 'camo', colors: ['#c9b48f', '#a88a5c', '#7a6a4a', '#e0d3b4'], dark: '#3a3226' },
+  { id: 'woodlandgun', name: 'Woodland', rarity: 'uncommon', crate: 'camo', pattern: 'camo', colors: ['#4a5a36', '#2e3a24', '#6b5a3a', '#1c2216'], dark: '#1c2216' },
+  { id: 'arcticgun', name: 'Arctic White', rarity: 'rare', crate: 'camo', pattern: 'camo', colors: ['#e9edf1', '#c6ccd3', '#9aa3ad', '#f7f9fb'], dark: '#7a838c' },
+  { id: 'urbandigital', name: 'Urban Digital', rarity: 'rare', crate: 'camo', pattern: 'digital', colors: ['#8a8f95', '#5a5f66', '#2f3338', '#b9bec4'], dark: '#2f3338' },
+  { id: 'multicamgun', name: 'Multi-Terrain', rarity: 'epic', crate: 'camo', pattern: 'camo', colors: ['#a08a62', '#6e6a4a', '#4d5a3c', '#3a3226', '#c9b48f'], dark: '#3a3226' },
+  { id: 'nightcamo', name: 'Night Ops', rarity: 'legendary', crate: 'camo', pattern: 'camo', colors: ['#1c1f26', '#2c313b', '#3a4150', '#12141a'], dark: '#0d0e12', metal: 0.4, rough: 0.5 },
+  // Carnival Case — bright, striped, spotted, and some of it lit
+  { id: 'candycane', name: 'Candy Cane', rarity: 'uncommon', crate: 'party', pattern: 'vstripes', colors: ['#ff3b4a', '#ffffff'], dark: '#7a1a22', anim: 'scroll' },
+  { id: 'polkapunch', name: 'Polka Punch', rarity: 'uncommon', crate: 'party', pattern: 'dots', colors: ['#ff4fd8', '#ffe94a', '#3fd0ff'], dark: '#7a1f66' },
+  { id: 'sherbet', name: 'Sherbet Fade', rarity: 'uncommon', crate: 'party', pattern: 'gradient', colors: ['#ffb3c6', '#ffe08a', '#b8f2c2', '#a8d8ff', '#ffb3c6'], dark: '#7a5a8a' },
+  { id: 'bubblecamo', name: 'Bubblegum Camo', rarity: 'rare', crate: 'party', pattern: 'camo', colors: ['#ff8fc8', '#ffe94a', '#6bff5c', '#3fd0ff'], dark: '#7a1f66' },
+  { id: 'zebrapop', name: 'Zebra Pop', rarity: 'rare', crate: 'party', pattern: 'tiger', colors: ['#f4f4f0', '#111114'], dark: '#ff3cac', glow: '#ff3cac' },
+  { id: 'rainbowroad', name: 'Rainbow Road', rarity: 'rare', crate: 'party', pattern: 'vstripes', colors: ['#ff3b4a', '#ff8f1f', '#ffe94a', '#3fe05c', '#3fa0ff', '#8f4fff'], dark: '#2a1f3a', anim: 'scroll' },
+  { id: 'ultraviolet', name: 'Ultraviolet', rarity: 'epic', crate: 'party', pattern: 'splat', colors: ['#14101f', '#7a3cff', '#c34fff', '#3fd0ff'], dark: '#0d0a14', glow: '#8f4fff' },
+  { id: 'electricstripe', name: 'Electric Stripe', rarity: 'epic', crate: 'party', pattern: 'vstripes', colors: ['#0f1218', '#27e6ff', '#0f1218', '#ff3cac'], dark: '#0a0c10', glow: '#27e6ff', anim: 'scroll' },
+  { id: 'discoball', name: 'Disco Ball', rarity: 'epic', crate: 'party', pattern: 'dots', colors: ['#1a1a2e', '#ffffff', '#ffe94a', '#3fd0ff'], dark: '#0f0f1a', glow: '#ffffff', anim: 'pulse', metal: 0.8, rough: 0.2 },
+  { id: 'plasma', name: 'Plasma', rarity: 'legendary', crate: 'party', pattern: 'gradient', colors: ['#ff2d55', '#ff8f1f', '#ffe94a', '#3fe05c', '#3fa0ff', '#8f4fff', '#ff2d55'], dark: '#12081f', glow: '#ff4fd8', anim: 'hue', metal: 0.6, rough: 0.25 },
+  { id: 'marquee', name: 'Marquee', rarity: 'legendary', crate: 'party', pattern: 'vstripes', colors: ['#ffe94a', '#1a1a2e', '#ff3b4a', '#1a1a2e', '#3fd0ff', '#1a1a2e'], dark: '#0f0f1a', glow: '#ffe94a', anim: 'scroll' },
 ];
 for (const f of FINISHES) f.crate = f.crate || 'armory';
 export const FINISH = Object.fromEntries(FINISHES.map((f) => [f.id, f]));
@@ -81,7 +100,16 @@ export const OUTFITS = [
   { id: 'popart', name: 'Pop Art', rarity: 'rare', crate: 'bazaar', pattern: 'dots', colors: ['#ffd23f', '#e63946', '#1d1d1d'], pants: '#1d7cf2', boots: '#1d1d1d', wrap: '#e63946', head: 'helmet' },
   { id: 'festival', name: 'Festival Neon', rarity: 'epic', crate: 'bazaar', shirt: '#1a1a2e', pants: '#16213e', boots: '#0f0f1a', wrap: '#ff3cac', head: 'hood', glow: '#6bff5c', anim: 'pulse' },
   { id: 'stargazer', name: 'Stargazer', rarity: 'legendary', crate: 'bazaar', pattern: 'galaxy', colors: ['#0b0620', '#5b2a9e', '#ff4fd8', '#3fd0ff'], boots: '#07041a', wrap: '#5b2a9e', head: 'helmet', glow: '#3fd0ff', anim: 'hue' },
+  // Tactical Camouflage Case — camouflage that works: beacons miss you, aim help ignores you, names show less
+  { id: 'desertops', name: 'Desert Ops', rarity: 'uncommon', crate: 'camo', pattern: 'camo', colors: ['#c9b48f', '#a88a5c', '#7a6a4a', '#e0d3b4'], boots: '#5a4632', wrap: '#a88a5c', head: 'helmet', camo: 'sand' },
+  { id: 'woodlandops', name: 'Woodland Ops', rarity: 'uncommon', crate: 'camo', pattern: 'camo', colors: ['#4a5a36', '#2e3a24', '#6b5a3a', '#1c2216'], boots: '#1c2216', wrap: '#2e3a24', head: 'helmet', camo: 'green' },
+  { id: 'arcticops', name: 'Arctic Ops', rarity: 'rare', crate: 'camo', pattern: 'camo', colors: ['#e9edf1', '#c6ccd3', '#9aa3ad', '#f7f9fb'], boots: '#7a838c', wrap: '#c6ccd3', head: 'hood', camo: 'snow' },
+  { id: 'urbanops', name: 'Urban Ops', rarity: 'rare', crate: 'camo', pattern: 'digital', colors: ['#8a8f95', '#5a5f66', '#2f3338', '#b9bec4'], boots: '#1d1f22', wrap: '#5a5f66', head: 'helmet', camo: 'concrete' },
+  { id: 'multiterrain', name: 'Multi-Terrain Ops', rarity: 'epic', crate: 'camo', pattern: 'camo', colors: ['#a08a62', '#6e6a4a', '#4d5a3c', '#3a3226', '#c9b48f'], boots: '#3a3226', wrap: '#6e6a4a', head: 'helmet', camo: 'all' },
+  { id: 'ghillie', name: 'Ghillie', rarity: 'legendary', crate: 'camo', pattern: 'camo', colors: ['#5a6a3a', '#3e4a2c', '#8a7a4a', '#2a3020', '#a89a6a'], boots: '#2a3020', wrap: '#3e4a2c', head: 'hood', camo: 'all' },
 ];
+// the camouflage outfits, by id
+export const CAMO_OUTFITS = new Set(OUTFITS.filter((o) => o.camo).map((o) => o.id));
 for (const o of OUTFITS) o.crate = o.crate || (o.starter ? 'starter' : 'wardrobe');
 export const OUTFIT = Object.fromEntries(OUTFITS.map((o) => [o.id, o]));
 
@@ -285,6 +313,13 @@ export function patternCanvas(kind, colors, seedKey = kind) {
       g.fillStyle = colors[i % colors.length];
       g.fillRect(0, i * h, S, h);
     }
+  } else if (kind === 'vstripes') {
+    // bands across the texture's width: on a gun they run around it and can be scrolled along it
+    const n = colors.length * 2, w = S / n;
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = colors[i % colors.length];
+      g.fillRect(i * w, 0, w + 1, S);
+    }
   } else if (kind === 'floral') {
     for (let i = 0; i < 16; i++) {
       const x = r() * S, y = r() * S, rad = 10 + r() * 12;
@@ -327,10 +362,13 @@ const animated = [];
 
 // the three materials for a finish, shared by every gun that wears it
 const gunMatCache = new Map();
-export function gunMaterials(finishId) {
+// plain = true gives the same finish with its lights switched off: what other
+// players see, so a lit-up skin never gives its owner away in the dark
+export function gunMaterials(finishId, plain = false) {
   const f = FINISH[finishId];
   if (!f) return null;
-  if (gunMatCache.has(finishId)) return gunMatCache.get(finishId);
+  const key = finishId + (plain ? '|plain' : '');
+  if (gunMatCache.has(key)) return gunMatCache.get(key);
   const rough = f.rough !== undefined ? f.rough : 0.6;
   const metal = f.metal !== undefined ? f.metal : 0.2;
   const mk = (color, withPattern) => {
@@ -340,7 +378,7 @@ export function gunMaterials(finishId) {
       if (f.pattern === 'rust') m.color.set(f.body);
       else m.color.set('#ffffff');
     }
-    if (f.glow) {
+    if (f.glow && !plain) {
       m.emissive = new THREE.Color(f.glow);
       m.emissiveIntensity = f.pattern ? 0.35 : 0.0;
     }
@@ -349,14 +387,14 @@ export function gunMaterials(finishId) {
   const body = mk(f.body, true);
   const furn = f.furn ? mk(f.furn, false) : mk(f.body, true);
   const dark = new THREE.MeshStandardMaterial({ color: f.dark || '#333', roughness: rough, metalness: metal });
-  if (f.glow && !f.pattern) {
+  if (f.glow && !f.pattern && !plain) {
     // neon: dark parts carry the glowing edge
     dark.emissive = new THREE.Color(f.glow);
     dark.emissiveIntensity = 0.9;
   }
   const set = { body, dark, furn };
   if (f.anim) animated.push({ kind: f.anim, mats: [body, dark, furn], base: f });
-  gunMatCache.set(finishId, set);
+  gunMatCache.set(key, set);
   return set;
 }
 
@@ -397,6 +435,12 @@ export function tickSkins(t) {
       for (const m of a.mats) {
         if (!m.map) continue;
         m.map.offset.set((t * 0.05) % 1, (t * 0.03) % 1);
+      }
+    } else if (a.kind === 'scroll') {
+      // stripes run from the stock to the muzzle
+      for (const m of a.mats) {
+        if (!m.map) continue;
+        m.map.offset.set((-t * 0.35) % 1, 0);
       }
     }
   }

@@ -12,7 +12,7 @@ import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, NADES_PER_LIFE, NADE_FUSE, FLASH_R
 import { serverFlags } from './attachments.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
-import { tickSkins, OUTFIT } from './skins.js';
+import { tickSkins, OUTFIT, CAMO_OUTFITS } from './skins.js';
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
 
@@ -1982,7 +1982,7 @@ export class Game {
         // a freshly spawned player is shielded for a moment: sparks, not blood
         if (ph.avatar.flags & 128) this.fx.impact(end, dir.clone().negate(), 'car');
         else this.fx.blood(end, dir);
-        ph.avatar.showName = 1.5;
+        ph.avatar.showName = CAMO_OUTFITS.has(ph.avatar.outfit) ? 0.5 : 1.5;
       } else if (wh) {
         end = wh.point.clone();
         this.fx.impact(wh.point, wh.normal, wh.box && wh.box.mat);
@@ -2310,8 +2310,10 @@ export class Game {
     const ph = this.avatars.raycast(cam.position, dir, wh ? wh.t : 150, null);
     let enemy = false;
     if (ph) {
-      ph.avatar.showName = 0.6;
-      enemy = this.isEnemy(ph.avatar.team);
+      const camo = CAMO_OUTFITS.has(ph.avatar.outfit);
+      ph.avatar.showName = camo ? 0.2 : 0.6;
+      // camouflage: the aim help doesn't catch on them
+      enemy = this.isEnemy(ph.avatar.team) && !camo;
     }
     this.aimCached = enemy;
     return enemy;

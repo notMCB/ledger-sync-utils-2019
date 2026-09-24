@@ -14,7 +14,10 @@ export const CRATES = {
   outfit: { id: 'outfit', name: 'Wardrobe Crate', price: 100, blurb: 'One random outfit for your soldier.' },
   bazaar: { id: 'bazaar', name: 'Bazaar Case', price: 500, blurb: 'Bright, loud, not remotely military. Better odds, no commons — gun finishes and outfits.' },
   blade: { id: 'blade', name: 'Blade Crate', price: 150, blurb: 'Finishes for your knife, and nothing else.' },
+  camo: { id: 'camo', name: 'Tactical Camouflage Case', price: 1000, blurb: 'Real camouflage: outfits that beacons miss and aim help ignores, and matching finishes for any gun or the knife. No commons.' },
+  party: { id: 'party', name: 'Carnival Case', price: 2000, blurb: 'Rainbows, stripes that move, polka dots and lit-up finishes for any gun or the knife. Only you see the lights. No commons.' },
 };
+const CAMO_WEIGHTS = { uncommon: 45, rare: 32, epic: 16, legendary: 7 };
 export const CRATE_COST = CRATES.gun.price;
 export const STARTING_DINARS = 300;
 const REFUND = { common: 20, uncommon: 30, rare: 50, epic: 80, legendary: 150 };
@@ -110,6 +113,15 @@ export function roll(kind) {
     const rarity = pickRarity();
     const f = pick(FINISHES.filter((x) => x.rarity === rarity && x.crate === 'blade'));
     return { kind: 'gun', weapon: 'knife', finish: f.id, rarity };
+  }
+  if (kind === 'camo') {
+    const rarity = pickRarity(CAMO_WEIGHTS);
+    if (Math.random() < 0.5) return { kind: 'outfit', outfit: pick(OUTFITS.filter((x) => x.rarity === rarity && x.crate === 'camo')).id, rarity };
+    return { kind: 'gun', weapon: pick(GUN_IDS), finish: pick(FINISHES.filter((x) => x.rarity === rarity && x.crate === 'camo')).id, rarity };
+  }
+  if (kind === 'party') {
+    const rarity = pickRarity(BAZAAR_WEIGHTS);
+    return { kind: 'gun', weapon: pick(GUN_IDS), finish: pick(FINISHES.filter((x) => x.rarity === rarity && x.crate === 'party')).id, rarity };
   }
   const rarity = pickRarity(BAZAAR_WEIGHTS);
   const guns = FINISHES.filter((x) => x.rarity === rarity && x.crate === 'bazaar');
@@ -273,10 +285,14 @@ export const locker = {
 
   // only used by the localhost test links
   // the owner's own account: every gun at least this many kills, at least this many dinars
-  grant(kills, dinars) {
+  grant(kills, dinars, everything = false) {
     const s = state();
     for (const w of HAS_ATTACHMENTS) s.kills[w] = Math.max(this.killsWith(w), kills);
     s.dinars = Math.max(s.dinars, dinars);
+    if (everything) {
+      for (const w of GUN_IDS) for (const f of FINISHES) if (!s.guns.includes(`${w}:${f.id}`)) s.guns.push(`${w}:${f.id}`);
+      for (const o of OUTFITS) if (!s.outfits.includes(o.id)) s.outfits.push(o.id);
+    }
     this.saved();
   },
 

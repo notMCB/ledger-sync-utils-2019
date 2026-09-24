@@ -16,6 +16,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'server'))
 from test_server import P, wait  # noqa: E402
 
 
@@ -72,11 +73,15 @@ async def main():
         c.ws.send({'t': 'login', 'id': 'MCB', 'password': 'ownerpass1'})
         await wait(lambda: last(c, 'auth') and last(c, 'auth').get('user'), 5, 'the owner signing in')
     lk3 = last(c, 'auth')['locker']
-    assert lk3['dinars'] >= 10000, lk3['dinars']
+    assert lk3['dinars'] >= 500000, lk3['dinars']
     for w in ('smg', 'lmg', 'shotgun', 'sniper', 'pistol'):
         assert lk3['kills'].get(w, 0) >= 150, (w, lk3['kills'])
+    import catalog
+    want = {'%s:%s' % (w, f[0]) for w in catalog.GUNS for f in catalog.FINISHES}
+    assert want <= set(lk3['guns']), 'every finish on every gun: missing %d' % len(want - set(lk3['guns']))
+    assert {o[0] for o in catalog.OUTFITS} <= set(lk3['outfits']), 'every outfit'
     c.ws.w.close()
-    print('owner ok: MCB has 10000 dinars and 150 kills on every gun')
+    print('owner ok: MCB has 500000 dinars, 150 kills on every gun, every finish and every outfit')
     print('all passed')
 
 
