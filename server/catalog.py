@@ -73,6 +73,8 @@ OUTFITS = [
     ('multiterrain', 'epic', 'camo'), ('ghillie', 'legendary', 'camo'),
     # Souk Royale: only a winner gets this one; no crate holds it
     ('royale1', 'legendary', 'royale'),
+    # the log with a face: granted, never rolled
+    ('sahur', 'legendary', 'owner'),
 ]
 # the outfits that hide you: recon beacons miss them, aim help ignores them
 CAMO_OUTFITS = {o[0] for o in OUTFITS if o[2] == 'camo'}

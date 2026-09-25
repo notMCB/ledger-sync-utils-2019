@@ -2,8 +2,8 @@
 // hit volumes for our own shots.
 
 import * as THREE from 'three';
-import { nameTag, softDot } from './textures.js';
-import { outfitMaterials, gunMaterials, chromeMaterial } from './skins.js';
+import { nameTag, softDot, wood } from './textures.js';
+import { outfitMaterials, gunMaterials, chromeMaterial, OUTFIT } from './skins.js';
 import { makeChute } from './royale.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
@@ -239,6 +239,26 @@ export class Avatar {
     part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, -0.16, -0.04, -0.22));
     bx(arms, 0.1, 0.1, 0.1, SHARED.boots, 0.14, -0.04, -0.34);
     bx(arms, 0.1, 0.1, 0.1, SHARED.boots, -0.04, -0.03, -0.5);
+    // the log body: a tall square trunk with a face on the front, over the
+    // usual torso and head, for the outfit shaped that way
+    const logG = new THREE.Group();
+    const woodM = new THREE.MeshLambertMaterial({ map: wood(), color: '#8a5a36' });
+    const grain = lam('#c9a06a');
+    const white = lam('#f4f1e6'), black = lam('#141210');
+    bx(logG, 0.52, 1.36, 0.46, woodM, 0, 0.6, 0);
+    bx(logG, 0.54, 0.05, 0.48, grain, 0, 1.3, 0);                      // the sawn top, pale end grain
+    bx(logG, 0.54, 0.05, 0.48, grain, 0, -0.1, 0);
+    for (const sx of [-0.12, 0.12]) {
+      bx(logG, 0.15, 0.17, 0.02, white, sx, 0.98, -0.235);              // the eyes, wide
+      bx(logG, 0.07, 0.09, 0.02, black, sx + 0.015, 0.965, -0.245);
+      bx(logG, 0.16, 0.035, 0.02, black, sx, 1.1, -0.24).rotation.z = sx < 0 ? 0.25 : -0.25;   // the brows, down in the middle
+    }
+    bx(logG, 0.36, 0.05, 0.02, black, 0, 0.72, -0.235);                // the mouth, a thin grim line
+    bx(logG, 0.3, 0.02, 0.02, white, 0, 0.735, -0.245);               // teeth
+    bx(logG, 0.56, 0.08, 0.5, this.body, 0, 0.3, 0);                   // a band in the team colour, so sides still read
+    logG.visible = false;
+    upper.add(logG);
+    this.log = logG;
     this.gunSkins = {};
     this.outfit = 'standard';
     this.gun = new THREE.Group();
@@ -345,6 +365,10 @@ export class Avatar {
     for (const k in this.heads) this.heads[k].visible = k === (m.head || 'wrap') && this.gearLd !== 3;
     this.visor.visible = !!m.glow;
     if (m.glow) this.visor.material = m.glow;
+    const o = OUTFIT[this.outfit];
+    this.logOn = !!(o && o.shape === 'log');
+    this.log.visible = this.logOn;
+    this.head.visible = !this.logOn;
   }
 
   setCosmetics(cs) {
@@ -573,7 +597,7 @@ export class Avatar {
     const s = (0.2 + this.glintK * 0.25) * (1 + Math.min(1, dist / 80));
     this.glint.scale.set(s, s, 1);
     const pk = this.proneK;
-    this.glint.position.set(0, (1.62 - this.crouchK * 0.44) * (1 - pk) + 1.5 * pk, 0.5 * pk * (1 - 2 * this.backK));
+    this.glint.position.set(0, (1.62 - this.crouchK * 0.44) * (1 - pk) + 1.5 * pk, 0.5 * pk * (1 - 2 * this.backK) - (this.logOn ? 0.26 : 0));
   }
 
   headCenter(out) {

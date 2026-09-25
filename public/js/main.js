@@ -10,7 +10,7 @@ import { MODE_INFO, NICHE_MODES, esc } from './hud.js';
 import { unlockAudio, uiBlip } from './audio.js';
 import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
-import { openLocker, lockerOpen } from './lockerui.js';
+import { openLocker, lockerOpen, previewOutfit, previewShot } from './lockerui.js';
 import { Chat } from './chat.js';
 import { auth } from './auth.js';
 
@@ -758,6 +758,17 @@ if (LOCAL && params.has('attachui')) {
     if (locked) { locked.click(); await sleep(150); log(`locked tile click changed nothing: ${JSON.stringify(locker.attachFor('smg'))}`); }
     log('done');
   }, 700);
+}
+// ?peek=<outfit> shows an outfit in the locker's preview and posts pictures of it to the server
+if (LOCAL && params.get('peek')) {
+  const id = params.get('peek');
+  locker.grantOutfit(id);
+  $('notes').hidden = true;
+  showLocker();
+  setTimeout(() => {
+    previewOutfit(id, Math.PI);
+    setTimeout(() => { previewShot(id + '-front'); previewOutfit(id, Math.PI * 0.6); setTimeout(() => { previewShot(id + '-side'); fetch('/__log?m=' + encodeURIComponent('[peek] done')); }, 400); }, 1500);
+  }, 900);
 }
 // ?locker opens the locker straight away (for checking a build); ?crate=gun|outfit also spins one
 if (LOCAL && (params.has('locker') || params.has('crate'))) {

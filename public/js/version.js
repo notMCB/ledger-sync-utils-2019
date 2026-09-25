@@ -2,9 +2,17 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.0.0';
+export const VERSION = '3.0.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.0.1',
+    date: '25 September 2026',
+    title: 'Tung Tung Tung Sahur',
+    notes: [
+      'A new outfit: Tung Tung Tung Sahur. A tall square log for a body, sawn flat top and bottom, with the wide eyes, the brows and the grim little mouth on the front. Your arms and the gun come out of the log, and a band in your side’s colour runs round it. No crate holds it.',
+    ],
+  },
   {
     version: '3.0.0',
     date: '25 September 2026',

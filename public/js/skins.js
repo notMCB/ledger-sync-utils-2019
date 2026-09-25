@@ -109,6 +109,8 @@ export const OUTFITS = [
   { id: 'ghillie', name: 'Ghillie', rarity: 'legendary', crate: 'camo', pattern: 'camo', colors: ['#5a6a3a', '#3e4a2c', '#8a7a4a', '#2a3020', '#a89a6a'], boots: '#2a3020', wrap: '#3e4a2c', head: 'hood', camo: 'all' },
   // Souk Royale, season one: only a winner wears it
   { id: 'royale1', name: 'Royale Champion · Season 1', rarity: 'legendary', crate: 'royale', shirt: '#c9412f', pants: '#1a1206', boots: '#d8ac3f', wrap: '#f0b43c', head: 'beret', shine: true, glow: '#ffd24a', anim: 'pulse' },
+  // a tall square log with a face: the body itself changes shape (see avatars.js). No crate holds it.
+  { id: 'sahur', name: 'Tung Tung Tung Sahur', rarity: 'legendary', crate: 'owner', shirt: '#8a5a36', pants: '#6b4326', boots: '#3a2416', wrap: '#8a5a36', head: 'wrap', shape: 'log' },
 ];
 // the camouflage outfits, by id
 export const CAMO_OUTFITS = new Set(OUTFITS.filter((o) => o.camo).map((o) => o.id));

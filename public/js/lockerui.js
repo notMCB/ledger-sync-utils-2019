@@ -84,6 +84,21 @@ function showModel(sel) {
   p.holder.add(p.model);
 }
 
+// for checking a build on this machine: show an outfit in the preview, turned to
+// face the camera, and post the picture to the local server
+export function previewOutfit(id, turn = Math.PI) {
+  showModel({ kind: 'outfit', outfit: id });
+  const p = preview;
+  p.t = turn / 0.6;
+}
+export function previewShot(name) {
+  const p = preview;
+  if (!p) return;
+  p.holder.rotation.y = p.t * 0.6;
+  p.renderer.render(p.scene, p.camera);
+  fetch('/__shot?n=' + encodeURIComponent(name), { method: 'POST', body: p.renderer.domElement.toDataURL('image/jpeg', 0.8) });
+}
+
 function previewLoop() {
   const p = preview;
   if (!p || !p.running) return;
