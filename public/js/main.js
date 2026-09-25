@@ -10,10 +10,12 @@ import { MODE_INFO, NICHE_MODES, esc } from './hud.js';
 import { unlockAudio, uiBlip } from './audio.js';
 import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
-import { openLocker, lockerOpen, previewOutfit, previewShot } from './lockerui.js';
+import { openLocker, lockerOpen, previewOutfit, previewGun, previewShot } from './lockerui.js';
 import { Chat } from './chat.js';
 import { auth } from './auth.js';
 import { touch, touchWanted } from './touch.js';
+import { PASS_TIERS, PASS_NAME, KILLS_PER_TIER } from './pass.js';
+import { FINISH, OUTFIT, swatch } from './skins.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -390,8 +392,56 @@ function showMenu() {
 }
 
 function hideAll() {
-  for (const id of ['pause', 'settings', 'loadout', 'notes']) $(id).hidden = true;
+  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass']) $(id).hidden = true;
 }
+
+// -- the battle pass ---------------------------------------------------------------
+
+const KIND_NAMES = { finish: 'Gun skin', melee: 'Melee', muzzle: 'Suppressor', outfit: 'Outfit' };
+
+function renderPass() {
+  const kills = locker.passKills();
+  const tier = locker.passTier();
+  $('pass-season').textContent = PASS_NAME;
+  $('pass-bar').style.width = `${Math.min(100, (kills / (KILLS_PER_TIER * PASS_TIERS.length)) * 100)}%`;
+  $('pass-count').textContent = tier >= PASS_TIERS.length ? `${kills} kills · complete` : `${kills} kills · ${KILLS_PER_TIER * (tier + 1) - kills} to tier ${tier + 1}`;
+  const host = $('pass-tiers');
+  host.innerHTML = '';
+  for (const t of PASS_TIERS) {
+    const got = tier >= t.n;
+    const d = document.createElement('div');
+    d.className = 'pt ' + (got ? 'got' : 'locked');
+    let art = 'linear-gradient(135deg,#5a5f66,#3c3f44)';
+    if (t.kind === 'finish' || t.kind === 'melee') art = swatch(FINISH[t.id]);
+    else if (t.kind === 'outfit') art = swatch(OUTFIT[t.id]);
+    else if (t.kind === 'muzzle') art = 'linear-gradient(90deg,#8a5a36 0 70%,#c9a06a 70% 78%,#3a2416 78%)';
+    d.innerHTML = `<div class="pt-n">Tier ${t.n} · ${t.n * KILLS_PER_TIER} kills</div><div class="pt-art" style="background:${art}"></div>` +
+      `<div class="pt-name">${esc(t.name)}</div><div class="pt-kind">${KIND_NAMES[t.kind]}</div><div class="pt-blurb">${esc(t.blurb)}</div>` +
+      `<div class="pt-state">${got ? 'Unlocked' : `${Math.max(0, t.n * KILLS_PER_TIER - kills)} kills to go`}</div>`;
+    if (got && t.kind === 'muzzle') {
+      const on = locker.muzzleStyle() === t.id;
+      const b = document.createElement('button');
+      b.className = 'btn small' + (on ? '' : ' ghost');
+      b.textContent = on ? 'On your suppressors' : 'Use it';
+      b.addEventListener('click', () => { locker.setMuzzleStyle(on ? '' : t.id); uiBlip(); renderPass(); game.refreshCosmetics(); });
+      d.appendChild(b);
+    }
+    host.appendChild(d);
+  }
+}
+
+function openPass() {
+  renderPass();
+  $('pause').hidden = true;
+  $('pass').hidden = false;
+  input.unlock();
+}
+$('btn-pass').addEventListener('click', () => { uiBlip(); openPass(); });
+$('pass-close').addEventListener('click', () => {
+  $('pass').hidden = true;
+  if (game.inRoom) resume();
+});
+locker.onChange(() => { if (!$('pass').hidden) renderPass(); });
 
 // -- loadouts ---------------------------------------------------------------
 
@@ -436,7 +486,7 @@ $('loadout-close').addEventListener('click', () => {
 input.onUnlock = () => {
   chat.close();
   if (!game.inRoom) return;
-  if (!$('loadout').hidden || !$('settings').hidden || !$('notes').hidden || !$('locker').hidden || !$('auth').hidden) return;
+  if (!$('loadout').hidden || !$('settings').hidden || !$('notes').hidden || !$('locker').hidden || !$('auth').hidden || !$('pass').hidden) return;
   if (!$('death').hidden) return; // the death screen stays usable with the mouse
   $('pause').hidden = false;
   $('pause-title').textContent = game.room ? game.room.name : 'Paused';
@@ -819,15 +869,25 @@ if (LOCAL && params.has('attachui')) {
 // ?touchmode=on|off|auto sets the on-screen controls for this visit (for checking a build)
 if (LOCAL && params.get('touchmode')) { settings.touchMode = params.get('touchmode'); input.setTouch(touchWanted()); }
 // ?peek=<outfit> shows an outfit in the locker's preview and posts pictures of it to the server
+// ?peek=gun:<weapon>:<finish>[:sahur] shows a gun the same way, with the Sahur suppressor if asked
 if (LOCAL && params.get('peek')) {
   const id = params.get('peek');
-  locker.grantOutfit(id);
   $('notes').hidden = true;
   showLocker();
-  setTimeout(() => {
-    previewOutfit(id, Math.PI);
-    setTimeout(() => { previewShot(id + '-front'); previewOutfit(id, Math.PI * 0.6); setTimeout(() => { previewShot(id + '-side'); fetch('/__log?m=' + encodeURIComponent('[peek] done')); }, 400); }, 1500);
-  }, 900);
+  if (id.startsWith('gun:')) {
+    const [, w, f, ms] = id.split(':');
+    const fitted = { ...locker.attachFor(w), muzzle: ms ? 'suppressor' : undefined, muzzleStyle: ms || '' };
+    setTimeout(() => {
+      previewGun(w, f || null, fitted, Math.PI * 0.5);
+      setTimeout(() => { previewShot(`${w}-${f || 'plain'}${ms ? '-' + ms : ''}-a`); previewGun(w, f || null, fitted, Math.PI * 1.15); setTimeout(() => { previewShot(`${w}-${f || 'plain'}${ms ? '-' + ms : ''}-b`); fetch('/__log?m=' + encodeURIComponent('[peek] done')); }, 400); }, 1500);
+    }, 900);
+  } else {
+    locker.grantOutfit(id);
+    setTimeout(() => {
+      previewOutfit(id, Math.PI);
+      setTimeout(() => { previewShot(id + '-front'); previewOutfit(id, Math.PI * 0.6); setTimeout(() => { previewShot(id + '-side'); fetch('/__log?m=' + encodeURIComponent('[peek] done')); }, 400); }, 1500);
+    }, 900);
+  }
 }
 // ?locker opens the locker straight away (for checking a build); ?crate=gun|outfit also spins one
 if (LOCAL && (params.has('locker') || params.has('crate'))) {

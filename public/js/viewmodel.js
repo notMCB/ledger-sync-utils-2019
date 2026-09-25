@@ -5,7 +5,8 @@
 
 import * as THREE from 'three';
 import { flashTex } from './textures.js';
-import { gunMaterials, chromeMaterial } from './skins.js';
+import { gunMaterials, chromeMaterial, FINISH } from './skins.js';
+import { wood as woodTex } from './textures.js';
 
 const std = (color, rough = 0.6, metal = 0.3) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 const MAT = {
@@ -32,6 +33,14 @@ const MAT = {
   nade: std('#4a5236', 0.7, 0.2),
   bottle: new THREE.MeshStandardMaterial({ color: '#8fb08a', roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.75 }),
   rag: std('#d8cfb0', 0.9, 0),
+  // Tung Tung Tung Sahur's wood, and the cup's porcelain and gold
+  logwood: new THREE.MeshStandardMaterial({ map: woodTex(), color: '#8a5a36', roughness: 0.85, metalness: 0 }),
+  grain: std('#c9a06a', 0.8, 0),
+  white: std('#f4f1e6', 0.6, 0),
+  black: std('#141210', 0.7, 0),
+  porcelain: std('#f7f3ee', 0.15, 0.3),
+  gold: std('#d8ac3f', 0.3, 0.85),
+  pink: std('#f4a7c0', 0.5, 0.1),
 };
 
 // which parts of a gun a finish recolours
@@ -263,7 +272,8 @@ function attachable(gun, sets, defaults) {
       const set = sets[kind];
       const ids = Object.keys(set);
       if (!ids.length) return null;
-      const want = (fitted && fitted[kind]) || defaults[kind] || ids[0];
+      let want = (fitted && fitted[kind]) || defaults[kind] || ids[0];
+      if (kind === 'muzzle' && want === 'suppressor' && fitted && fitted.muzzleStyle === 'sahur' && set.sahursupp) want = 'sahursupp';
       const chosen = set[want] || set[defaults[kind]] || set[ids[0]];
       for (const k of ids) set[k].visible = set[k] === chosen;
       return chosen;
@@ -363,6 +373,7 @@ function buildSMG(sleeve) {
     cyl(m, 0.025, 0.21, MAT.dark, 0, 0.012, -0.47, 16);
     cyl(m, 0.027, 0.02, MAT.steel, 0, 0.012, -0.372, 16);
   });
+  dev('sahursupp', -0.58, (m) => sahurSuppressor(m, 0.027, 0.012, -0.365, 0.215));
   dev('longbrake', -0.51, (m) => {
     cyl(m, 0.021, 0.145, MAT.dark, 0, 0.012, -0.43, 12);
     for (const z of [-0.375, -0.405, -0.435, -0.465]) {
@@ -414,7 +425,9 @@ function buildSMG(sleeve) {
   // fit a set of attachments: show those parts, and move the sight line and muzzle to match
   gun.setAttach = (fitted) => {
     const o = optics[(fitted && fitted.optic) || 'irons'] || optics.irons;
-    const m = muzzles[(fitted && fitted.muzzle) || 'none'] || muzzles.none;
+    let mid = (fitted && fitted.muzzle) || 'none';
+    if (mid === 'suppressor' && fitted && fitted.muzzleStyle === 'sahur') mid = 'sahursupp';
+    const m = muzzles[mid] || muzzles.none;
     const k = mags[(fitted && fitted.mag) || 'normal'] || mags.normal;
     const l = lasers[(fitted && fitted.laser) || 'none'] || lasers.none;
     const gr = gripsS[(fitted && fitted.grip) || 'none'] || gripsS.none;
@@ -459,6 +472,7 @@ function muzzleDevices(add, y, z, r, which = ['none', 'hider', 'brake', 'suppres
       cyl(m, r * 2, 0.21, MAT.dark, 0, y, z - 0.105, 16);
       cyl(m, r * 2.1, 0.02, MAT.steel, 0, y, z - 0.008, 16);
     }],
+    sahursupp: [0.21, (m) => sahurSuppressor(m, r * 2.1, y, z, 0.21)],
     longbrake: [0.145, (m) => {
       cyl(m, r * 1.65, 0.145, MAT.dark, 0, y, z - 0.072, 12);
       for (const dz of [-0.022, -0.052, -0.082, -0.112]) {
@@ -471,7 +485,27 @@ function muzzleDevices(add, y, z, r, which = ['none', 'hider', 'brake', 'suppres
   for (const id of which) {
     const [len, build] = kinds[id];
     add('muzzle', id, { tip: z - len, my: y }, build);
+    if (id === 'suppressor') add('muzzle', 'sahursupp', { tip: z - len, my: y }, kinds.sahursupp[1]);
   }
+}
+
+// a suppressor that is Tung Tung Tung Sahur: a log with the sawn ends, the eyes,
+// the brows and the grim mouth on top, facing the shooter's eye
+function sahurSuppressor(m, r, y, z, len) {
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 14), MAT.logwood);
+  body.rotation.x = Math.PI / 2;
+  body.position.set(0, y, z - len / 2);
+  m.add(body);
+  for (const dz of [-0.006, -len + 0.006]) cyl(m, r * 1.04, 0.012, MAT.grain, 0, y, z + dz, 14);
+  const top = y + r * 0.98;
+  const face = z - len * 0.55;
+  for (const sx of [-1, 1]) {
+    box(m, r * 0.5, 0.004, r * 0.6, MAT.white, sx * r * 0.36, top, face - r * 0.1);            // the eyes
+    box(m, r * 0.24, 0.004, r * 0.3, MAT.black, sx * r * 0.4, top + 0.002, face - r * 0.08);
+    box(m, r * 0.55, 0.004, r * 0.12, MAT.black, sx * r * 0.36, top + 0.001, face - r * 0.55, 0, sx * 0.3, 0);   // the brows, down in the middle
+  }
+  box(m, r * 1.2, 0.004, r * 0.16, MAT.black, 0, top, face + r * 0.55);                        // the mouth
+  box(m, r * 1.0, 0.005, r * 0.06, MAT.white, 0, top + 0.001, face + r * 0.55);                // the teeth
 }
 
 function buildLMG(sleeve) {
@@ -967,6 +1001,43 @@ function buildKnife(sleeve) {
   g.rotation.set(1.25, 0, 0.3);
   g.position.set(0.0, -0.02, 0.0);
   root.add(g);
+  // the Battle Pass shapes: a wooden baseball bat, and a slender gold cane, held the same way
+  const bat = new THREE.Group();
+  bat.rotation.set(1.05, 0, 0.35);
+  bat.position.set(0.02, -0.03, 0.02);
+  root.add(bat);
+  {
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.016, 0.34, 12), MAT.logwood);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.01, -0.2);
+    bat.add(barrel);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), MAT.logwood);
+    cap.position.set(0, 0.01, -0.37);
+    bat.add(cap);
+    cyl(bat, 0.016, 0.16, MAT.logwood, 0, 0.01, 0.05, 10, 0.014);     // the handle
+    cyl(bat, 0.022, 0.014, MAT.grain, 0, 0.01, 0.135, 10);            // the knob
+    for (let i = 0; i < 3; i++) box(bat, 0.036, 0.004, 0.012, MAT.black, 0, 0.01, 0.0 + i * 0.03);   // grip tape
+  }
+  bat.visible = false;
+  const cane = new THREE.Group();
+  cane.rotation.set(1.1, 0, 0.3);
+  cane.position.set(0.02, -0.02, 0.02);
+  root.add(cane);
+  {
+    cyl(cane, 0.008, 0.42, MAT.porcelain, 0, 0.01, -0.12, 10);         // the shaft
+    for (const dz of [-0.3, -0.02]) cyl(cane, 0.0095, 0.02, MAT.gold, 0, 0.01, dz, 10);   // gold bands
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.009, 0.03, 10), MAT.gold);
+    tip.rotation.x = -Math.PI / 2;
+    tip.position.set(0, 0.01, -0.345);
+    cane.add(tip);
+    const crook = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.008, 8, 16, Math.PI), MAT.gold);   // the curved handle
+    crook.rotation.y = Math.PI / 2;
+    crook.position.set(0, 0.04, 0.09);
+    cane.add(crook);
+    box(cane, 0.012, 0.012, 0.012, MAT.pink, 0, 0.07, 0.06);           // a pink stone on top
+  }
+  cane.visible = false;
+  root.userData.shapes = { knife: g, bat, cane };
   const edge = MAT.steel;
   // blade: a flat bar with a bevelled spine, tapering to a clipped point
   box(g, 0.026, 0.008, 0.2, edge, 0, 0.012, -0.135);
@@ -1038,6 +1109,10 @@ export function buildPreviewGun(id, finishId, fitted) {
   g.hands.right.visible = false;
   g.hands.left.visible = false;
   skinGun(g.group, finishId);
+  if (g.group.userData.shapes) {
+    const shape = (FINISH[finishId] && FINISH[finishId].shape) || 'knife';
+    for (const k in g.group.userData.shapes) g.group.userData.shapes[k].visible = k === shape;
+  }
   return g;
 }
 
@@ -1129,6 +1204,11 @@ export class ViewModel {
   // finishes per weapon: { smg: 'zellige', ... }
   setSkins(map) {
     for (const k in this.guns) skinGun(this.guns[k].group, (map && map[k]) || null);
+    // the knife's finish may be a whole other thing to hold
+    const shapes = this.guns.knife.group.userData.shapes;
+    const f = map && map.knife && FINISH[map.knife];
+    const shape = (f && f.shape) || 'knife';
+    for (const k in shapes) shapes[k].visible = k === shape;
   }
 
   setWeapon(id) {

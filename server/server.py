@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.1.0'
+VERSION = '3.2.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -254,11 +254,13 @@ def clean_name(n):
 def clean_cos(c):
     """Cosmetics a client says it is wearing: an outfit id and a finish per weapon."""
     ok = lambda v: isinstance(v, str) and 0 < len(v) <= 24 and v.replace('_', '').isalnum()
-    out = {'o': 'standard', 'g': {}}
+    out = {'o': 'standard', 'g': {}, 'ms': ''}
     if not isinstance(c, dict):
         return out
     if ok(c.get('o')):
         out['o'] = c['o']
+    if c.get('ms') in catalog.MUZZLE_STYLES:
+        out['ms'] = c['ms']
     g = c.get('g')
     if isinstance(g, dict):
         for w in catalog.GUNS:
@@ -276,7 +278,7 @@ def owned_cos(p, cos):
     lk = p.locker
     if lk is None:
         return cos
-    out = {'o': cos['o'] if cos['o'] in lk['outfits'] else 'standard', 'g': {}}
+    out = {'o': cos['o'] if cos['o'] in lk['outfits'] else 'standard', 'g': {}, 'ms': cos.get('ms', '') if cos.get('ms', '') in lk.get('muzzles', []) else ''}
     for w, f in cos['g'].items():
         if '%s:%s' % (w, f) in lk['guns']:
             out['g'][w] = f
@@ -1126,6 +1128,7 @@ class Room:
             attacker.score += 100
             if counting:
                 self.earn(attacker, 'kill', EARN['kill'] + (EARN['headshot'] if head else 0))
+                self.pass_kill(attacker, w)
             if counting and self.mode == 'tdm':
                 self.scores[attacker.team] += 1
             if self.mode == 'oitc' and attacker.rounds < 1:
@@ -1156,6 +1159,18 @@ class Room:
         if royale_live:
             q.send(self.stats_msg(q, False))
         self.roster_dirty = True
+
+    def pass_kill(self, p, w):
+        """A kill on a signed-in player's account: the gun's count and the Battle Pass."""
+        lk = p.locker
+        if lk is None:
+            return
+        if w in catalog.GUNS:
+            lk['kills'][w] = lk['kills'].get(w, 0) + 1
+        lk['pass'] = lk.get('pass', 0) + 1
+        new = catalog.grant_pass(lk, catalog.tier_of(lk['pass']))
+        accounts.save_locker(p.account['id'], lk)
+        p.send({'t': 'pass', 'k': lk['pass'], 'new': new, 'locker': lk})
 
     def handle_nade(self, p, m):
         if not p.alive or p.nades <= 0 or self.phase in ('freeze', 'post', 'ended'):
@@ -2431,6 +2446,9 @@ class Conn:
             for o in catalog.OUTFITS:
                 if o[0] not in lk['outfits']:
                     lk['outfits'].append(o[0])
+            # and the whole Battle Pass
+            lk['pass'] = max(lk.get('pass', 0), catalog.KILLS_PER_TIER * len(catalog.PASS_TIERS))
+            catalog.grant_pass(lk, len(catalog.PASS_TIERS))
             accounts.save_locker(user['id'], lk)
         p.account = {'id': user['id'], 'username': user['username']}
         p.name = user['username']

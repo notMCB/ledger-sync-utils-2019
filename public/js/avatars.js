@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { nameTag, softDot, wood } from './textures.js';
-import { outfitMaterials, gunMaterials, chromeMaterial, OUTFIT } from './skins.js';
+import { outfitMaterials, gunMaterials, chromeMaterial, OUTFIT, FINISH } from './skins.js';
 import { makeChute } from './royale.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
@@ -235,30 +235,101 @@ export class Avatar {
     arms.position.set(0, 0.52, 0);
     upper.add(arms);
     this.arms = arms;
-    part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, 0.2, -0.02, -0.14));
-    part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, -0.16, -0.04, -0.22));
+    this.armMeshes = [
+      part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, 0.2, -0.02, -0.14)),
+      part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, -0.16, -0.04, -0.22)),
+    ];
     bx(arms, 0.1, 0.1, 0.1, SHARED.boots, 0.14, -0.04, -0.34);
     bx(arms, 0.1, 0.1, 0.1, SHARED.boots, -0.04, -0.03, -0.5);
     // the log body: a tall square trunk with a face on the front, over the
     // usual torso and head, for the outfit shaped that way
-    const logG = new THREE.Group();
     const woodM = new THREE.MeshLambertMaterial({ map: wood(), color: '#8a5a36' });
     const grain = lam('#c9a06a');
     const white = lam('#f4f1e6'), black = lam('#141210');
-    bx(logG, 0.52, 1.36, 0.46, woodM, 0, 0.6, 0);
-    bx(logG, 0.54, 0.05, 0.48, grain, 0, 1.3, 0);                      // the sawn top, pale end grain
-    bx(logG, 0.54, 0.05, 0.48, grain, 0, -0.1, 0);
+    const gold = lam('#d8ac3f'), porcelain = lam('#f7f3ee'), pearl = new THREE.MeshLambertMaterial({ color: '#f4f1ea', emissive: '#3a3628' });
+    const cylm = (parent, r0, r1, h, mat, x, y, z, seg = 18) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, h, seg), mat);
+      m.position.set(x, y, z);
+      parent.add(m);
+      return m;
+    };
+    // Tung Tung Tung Sahur: a rounded log, sawn top and bottom, the face on the front
+    const logG = new THREE.Group();
+    cylm(logG, 0.29, 0.29, 1.4, woodM, 0, 0.6, 0);
+    cylm(logG, 0.3, 0.3, 0.05, grain, 0, 1.3, 0);
+    cylm(logG, 0.3, 0.3, 0.05, grain, 0, -0.1, 0);
     for (const sx of [-0.12, 0.12]) {
-      bx(logG, 0.15, 0.17, 0.02, white, sx, 0.98, -0.235);              // the eyes, wide
-      bx(logG, 0.07, 0.09, 0.02, black, sx + 0.015, 0.965, -0.245);
-      bx(logG, 0.16, 0.035, 0.02, black, sx, 1.1, -0.24).rotation.z = sx < 0 ? 0.25 : -0.25;   // the brows, down in the middle
+      bx(logG, 0.15, 0.17, 0.02, white, sx, 0.98, -0.27);               // the eyes, wide
+      bx(logG, 0.07, 0.09, 0.02, black, sx + 0.015, 0.965, -0.28);
+      bx(logG, 0.16, 0.035, 0.02, black, sx, 1.1, -0.275).rotation.z = sx < 0 ? 0.25 : -0.25;   // the brows, down in the middle
     }
-    bx(logG, 0.36, 0.05, 0.02, black, 0, 0.72, -0.235);                // the mouth, a thin grim line
-    bx(logG, 0.3, 0.02, 0.02, white, 0, 0.735, -0.245);               // teeth
-    bx(logG, 0.56, 0.08, 0.5, this.body, 0, 0.3, 0);                   // a band in the team colour, so sides still read
+    bx(logG, 0.36, 0.05, 0.02, black, 0, 0.72, -0.27);                 // the mouth, a thin grim line
+    bx(logG, 0.3, 0.02, 0.02, white, 0, 0.735, -0.28);                // teeth
+    cylm(logG, 0.31, 0.31, 0.08, this.body, 0, 0.3, 0);                // a band in the team colour, so sides still read
     logG.visible = false;
     upper.add(logG);
     this.log = logG;
+    // Ballerina Cappuccina: the teacup head with its coffee and latte art, the bodice, the tutu
+    const cupG = new THREE.Group();
+    cylm(cupG, 0.34, 0.26, 0.46, porcelain, 0, 1.02, 0, 22);           // the cup, wide at the top
+    cylm(cupG, 0.31, 0.31, 0.03, lam('#c98a4a'), 0, 1.24, 0, 22);      // the coffee
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), lam('#f1e0c0'));
+    leaf.scale.set(0.9, 0.12, 1.6);
+    leaf.position.set(0, 1.26, 0);
+    cupG.add(leaf);
+    for (const dz of [-0.14, 0.14]) { const l2 = leaf.clone(); l2.scale.set(0.5, 0.1, 0.7); l2.position.set(0, 1.26, dz); l2.rotation.y = dz < 0 ? 0.5 : -0.5; cupG.add(l2); }
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.03, 8, 16, Math.PI), porcelain);
+    handle.position.set(0.36, 1.02, 0);
+    handle.rotation.z = -Math.PI / 2;
+    cupG.add(handle);
+    for (const sx of [-0.11, 0.11]) {
+      bx(cupG, 0.17, 0.2, 0.02, white, sx, 1.02, -0.31);                // big eyes
+      bx(cupG, 0.1, 0.12, 0.02, lam('#5a8aa8'), sx, 1.01, -0.32);       // grey-blue irises
+      bx(cupG, 0.05, 0.06, 0.02, black, sx, 1.0, -0.33);
+      bx(cupG, 0.19, 0.03, 0.02, black, sx, 1.135, -0.32);              // lashes
+    }
+    bx(cupG, 0.12, 0.04, 0.02, lam('#c9412f'), 0, 0.86, -0.31);         // red lips
+    bx(cupG, 0.5, 0.4, 0.3, gold, 0, 0.42, 0);                           // the gold bodice, over the vest
+    cylm(cupG, 0.62, 0.66, 0.05, gold, 0, 0.13, 0, 24);                  // the tutu
+    cylm(cupG, 0.72, 0.6, 0.04, lam('#e6b84a'), 0, 0.09, 0, 24);
+    cylm(cupG, 0.28, 0.28, 0.06, this.body, 0, 0.19, 0);                 // the waistband in the team colour
+    cupG.visible = false;
+    upper.add(cupG);
+    this.cup = cupG;
+    // Tung Tung Tung God: a tall pearl-white capsule, the calm face, a halo and golden wings
+    const godG = new THREE.Group();
+    const cap = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.5, 6, 18), pearl);
+    cap.position.set(0, 0.75, 0);
+    godG.add(cap);
+    for (const sx of [-0.12, 0.12]) {
+      bx(godG, 0.13, 0.15, 0.02, white, sx, 1.2, -0.295);               // eyes
+      bx(godG, 0.08, 0.1, 0.02, lam('#3f8fd0'), sx, 1.19, -0.305);      // blue
+      bx(godG, 0.035, 0.05, 0.02, black, sx, 1.18, -0.315);
+      bx(godG, 0.15, 0.025, 0.02, lam('#8a8070'), sx, 1.32, -0.3);      // gentle brows
+    }
+    const smile = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.014, 6, 14, Math.PI), black);
+    smile.position.set(0, 0.98, -0.3);
+    smile.rotation.z = Math.PI;
+    godG.add(smile);
+    bx(godG, 0.04, 0.08, 0.02, lam('#e8e2d6'), 0, 1.06, -0.31);          // the nose
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.025, 8, 24), gold);
+    halo.position.set(0, 1.85, 0);
+    halo.rotation.x = Math.PI / 2;
+    godG.add(halo);
+    for (const sx of [-1, 1]) {
+      const wing = new THREE.Group();
+      bx(wing, 0.9, 0.55, 0.04, lam('#f1e6c2'), sx * 0.5, 0.05, 0);
+      bx(wing, 0.7, 0.3, 0.04, gold, sx * 0.62, -0.22, 0.005);
+      bx(wing, 0.45, 0.2, 0.04, lam('#f1e6c2'), sx * 0.85, -0.4, 0.01);
+      wing.position.set(sx * 0.2, 1.0, 0.24);
+      wing.rotation.y = sx * 0.55;
+      wing.rotation.z = sx * 0.25;
+      godG.add(wing);
+    }
+    cylm(godG, 0.32, 0.32, 0.08, this.body, 0, 0.3, 0);                  // the team band
+    godG.visible = false;
+    upper.add(godG);
+    this.god = godG;
     this.gunSkins = {};
     this.outfit = 'standard';
     this.gun = new THREE.Group();
@@ -366,15 +437,23 @@ export class Avatar {
     this.visor.visible = !!m.glow;
     if (m.glow) this.visor.material = m.glow;
     const o = OUTFIT[this.outfit];
-    this.logOn = !!(o && o.shape === 'log');
-    this.log.visible = this.logOn;
-    this.head.visible = !this.logOn;
+    const shape = (o && o.shape) || '';
+    this.logOn = !!shape;              // any of the shaped bodies: the head is inside it
+    this.log.visible = shape === 'log';
+    this.cup.visible = shape === 'cup';
+    this.god.visible = shape === 'god';
+    this.head.visible = !shape;
+    // the brainrot bodies have thin arms and legs
+    const thin = shape ? 0.6 : 1;
+    for (const leg of this.legs) leg.scale.set(thin, 1, thin);
+    for (const a of this.armMeshes) a.scale.set(thin, thin, 1);
   }
 
   setCosmetics(cs) {
     if (!cs) return;
     if (cs.o !== this.outfit) this.setOutfit(cs.o);
     this.gunSkins = cs.g || {};
+    this.muzzleStyle = cs.ms || '';
     const w = this.gunId;
     this.gunId = null;
     if (w) this.setGun(w);
@@ -398,7 +477,10 @@ export class Avatar {
   setGun(w) {
     if (this.gunId === w) return;
     this.gunId = w;
-    const s = GUN_SIZES[w] || GUN_SIZES.smg;
+    // a knife finish with a shape is a bat or a cane: longer, and its own material
+    const kf = w === 'knife' && this.gunSkins.knife && FINISH[this.gunSkins.knife];
+    const shape = kf && kf.shape;
+    const s = shape === 'bat' ? [0.06, 0.06, 0.8] : shape === 'cane' ? [0.03, 0.03, 0.85] : GUN_SIZES[w] || GUN_SIZES.smg;
     this.gunMesh.scale.set(s[0] / 0.06, s[1] / 0.1, s[2] / 0.6);
     this.gunMesh.position.z = -s[2] / 2 + 0.1;
     const skin = this.gunSkins[w] && gunMaterials(this.gunSkins[w], true);
@@ -406,6 +488,7 @@ export class Avatar {
     this.muzzleLocal.set(0, 0.02, -s[2] + 0.1);
     const quiet = w === 'sniper' || (w === 'pistol' && (this.loadout === 2 || this.loadout === 3));
     this.can.visible = quiet;
+    this.can.material = this.muzzleStyle === 'sahur' ? (SHARED.logcan || (SHARED.logcan = new THREE.MeshLambertMaterial({ map: wood(), color: '#8a5a36' }))) : SHARED.gun;
     if (quiet) {
       this.can.position.set(0, 0, -s[2] + 0.02);
       this.muzzleLocal.z -= 0.22;

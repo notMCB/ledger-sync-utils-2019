@@ -8,6 +8,7 @@
 import { RARITIES, FINISHES, OUTFITS, GUN_IDS, FINISH, OUTFIT } from './skins.js';
 import { clean as cleanAttach, HAS_ATTACHMENTS } from './attachments.js';
 import { LOADOUTS, PERKS, SECONDARIES } from './weapons.js';
+import { PASS_TIERS, tierOf, grantPass } from './pass.js';
 
 export const CRATES = {
   gun: { id: 'gun', name: 'Armory Crate', price: 100, blurb: 'One random gun finish for one of your five guns.' },
@@ -29,8 +30,8 @@ const SHOOTERS = GUN_IDS.filter((g) => g !== 'knife');
 const KEY = 'souk-siege-locker-v1';
 
 function blank() {
-  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], kills: {},
-    equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {}, perk: {} }, opened: 0 };
+  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], kills: {}, pass: 0, muzzles: [],
+    equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {}, perk: {}, muzzle: '' }, opened: 0 };
 }
 
 function normalise(s) {
@@ -48,6 +49,10 @@ function normalise(s) {
   s.equip.primary = s.equip.primary || {};
   s.equip.secondary = s.equip.secondary || {};
   s.kills = s.kills && typeof s.kills === 'object' ? s.kills : {};
+  s.pass = Math.max(0, Math.floor(Number(s.pass) || 0));
+  s.muzzles = Array.isArray(s.muzzles) ? s.muzzles : [];
+  s.equip.muzzle = s.equip.muzzle || '';
+  grantPass(s, tierOf(s.pass), GUN_IDS);
   // older guest lockers kept one pistol finish for every loadout
   if (s.equip.guns.pistol) {
     for (const ld of ['0', '1', '2', '3']) if (!s.equip.pistol[ld]) s.equip.pistol[ld] = s.equip.guns.pistol;
@@ -202,8 +207,43 @@ export const locker = {
 
   totalGunSkins() {
     // knife finishes only go on the knife, and gun finishes never do
-    const blades = FINISHES.filter((f) => f.crate === 'blade').length;
+    const blades = FINISHES.filter((f) => f.crate === 'blade' || f.shape).length;
     return (FINISHES.length - blades) * (GUN_IDS.length - 1) + blades;
+  },
+
+  // -- the Battle Pass --
+
+  passKills() {
+    return state().pass || 0;
+  },
+
+  passTier() {
+    return tierOf(this.passKills());
+  },
+
+  // a kill for a guest: the pass counts it here; an account's is counted on the server
+  passKill() {
+    if (account) return [];
+    const s = state();
+    s.pass = (s.pass || 0) + 1;
+    const got = grantPass(s, tierOf(s.pass), GUN_IDS);
+    changed();
+    return got;
+  },
+
+  ownsMuzzle(id) {
+    return (state().muzzles || []).includes(id);
+  },
+
+  muzzleStyle() {
+    const m = state().equip.muzzle;
+    return m && this.ownsMuzzle(m) ? m : '';
+  },
+
+  setMuzzleStyle(id) {
+    if (id && !this.ownsMuzzle(id)) return;
+    state().equip.muzzle = id || '';
+    this.saved();
   },
 
   // -- crates --
@@ -280,6 +320,7 @@ export const locker = {
   },
 
   addKill(weapon) {
+    if (account) return;        // the server counts an account's kills
     if (!HAS_ATTACHMENTS.includes(weapon)) return;
     const s = state();
     s.kills[weapon] = this.killsWith(weapon) + 1;
@@ -442,6 +483,6 @@ export const locker = {
     }
     const k = this.equippedGun('knife');
     if (k) g.knife = k;
-    return { o: this.equippedOutfit(), g };
+    return { o: this.equippedOutfit(), g, ms: this.muzzleStyle() };
   },
 };

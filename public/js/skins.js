@@ -73,6 +73,14 @@ export const FINISHES = [
   { id: 'discoball', name: 'Disco Ball', rarity: 'epic', crate: 'party', pattern: 'dots', colors: ['#1a1a2e', '#ffffff', '#ffe94a', '#3fd0ff'], dark: '#0f0f1a', glow: '#ffffff', anim: 'pulse', metal: 0.8, rough: 0.2 },
   { id: 'plasma', name: 'Plasma', rarity: 'legendary', crate: 'party', pattern: 'gradient', colors: ['#ff2d55', '#ff8f1f', '#ffe94a', '#3fe05c', '#3fa0ff', '#8f4fff', '#ff2d55'], dark: '#12081f', glow: '#ff4fd8', anim: 'hue', metal: 0.6, rough: 0.25 },
   { id: 'marquee', name: 'Marquee', rarity: 'legendary', crate: 'party', pattern: 'vstripes', colors: ['#ffe94a', '#1a1a2e', '#ff3b4a', '#1a1a2e', '#3fd0ff', '#1a1a2e'], dark: '#0f0f1a', glow: '#ffe94a', anim: 'scroll' },
+  // The Battle Pass, season one: Italian brainrot. Never in a crate.
+  { id: 'sahurdots', name: 'Tung Tung Tung Dots', rarity: 'rare', crate: 'pass', pattern: 'sahurdots', colors: ['#f1e9d8', '#8a5a36', '#3a2416'], dark: '#3a2416', furn: '#6b4326' },
+  { id: 'ballerinadots', name: 'Cappuccina Dots', rarity: 'rare', crate: 'pass', pattern: 'cupdots', colors: ['#fbe9ee', '#f7f3ee', '#c98a4a', '#d8ac3f'], dark: '#7a5a3a', furn: '#d8ac3f' },
+  // the two melee rewards are knife finishes that change its shape (see viewmodel.js)
+  { id: 'bat', name: 'Sahur’s Bat', rarity: 'epic', crate: 'pass', shape: 'bat', body: '#8a5a36', dark: '#5a3a24', furn: '#3a2416', rough: 0.8, metal: 0 },
+  { id: 'cane', name: 'Cappuccina’s Cane', rarity: 'epic', crate: 'pass', shape: 'cane', body: '#f4efe6', dark: '#c9a13b', furn: '#d8ac3f', rough: 0.25, metal: 0.7 },
+  { id: 'sahurwood', name: 'Tung Tung Tung Wood', rarity: 'epic', crate: 'pass', pattern: 'sahurwood', colors: ['#a86f44', '#4a2e1a', '#f4f1e6', '#c48a58'], dark: '#4a2e1a', furn: '#7d4f2c', rough: 0.85, metal: 0 },
+  { id: 'porcelain', name: 'Cappuccina Porcelain', rarity: 'legendary', crate: 'pass', pattern: 'porcelain', colors: ['#f7f3ee', '#d8ac3f', '#f4a7c0', '#c98a4a'], dark: '#c9a13b', furn: '#f4a7c0', rough: 0.18, metal: 0.45 },
 ];
 for (const f of FINISHES) f.crate = f.crate || 'armory';
 export const FINISH = Object.fromEntries(FINISHES.map((f) => [f.id, f]));
@@ -109,8 +117,10 @@ export const OUTFITS = [
   { id: 'ghillie', name: 'Ghillie', rarity: 'legendary', crate: 'camo', pattern: 'camo', colors: ['#5a6a3a', '#3e4a2c', '#8a7a4a', '#2a3020', '#a89a6a'], boots: '#2a3020', wrap: '#3e4a2c', head: 'hood', camo: 'all' },
   // Souk Royale, season one: only a winner wears it
   { id: 'royale1', name: 'Royale Champion · Season 1', rarity: 'legendary', crate: 'royale', shirt: '#c9412f', pants: '#1a1206', boots: '#d8ac3f', wrap: '#f0b43c', head: 'beret', shine: true, glow: '#ffd24a', anim: 'pulse' },
-  // a tall square log with a face: the body itself changes shape (see avatars.js). No crate holds it.
-  { id: 'sahur', name: 'Tung Tung Tung Sahur', rarity: 'legendary', crate: 'owner', shirt: '#8a5a36', pants: '#6b4326', boots: '#3a2416', wrap: '#8a5a36', head: 'wrap', shape: 'log' },
+  // the Battle Pass outfits: these change the body's shape (see avatars.js). No crate holds them.
+  { id: 'sahur', name: 'Tung Tung Tung Sahur', rarity: 'legendary', crate: 'pass', shirt: '#8a5a36', pants: '#6b4326', boots: '#3a2416', wrap: '#8a5a36', head: 'wrap', shape: 'log' },
+  { id: 'ballerina', name: 'Ballerina Cappuccina', rarity: 'legendary', crate: 'pass', shirt: '#d8ac3f', pants: '#f1d9c0', boots: '#d8ac3f', wrap: '#c9a13b', head: 'wrap', shape: 'cup' },
+  { id: 'tunggod', name: 'Tung Tung Tung God', rarity: 'legendary', crate: 'pass', shirt: '#f4f1ea', pants: '#f4f1ea', boots: '#f4f1ea', wrap: '#f4f1ea', head: 'wrap', shape: 'god', shine: true },
 ];
 // the camouflage outfits, by id
 export const CAMO_OUTFITS = new Set(OUTFITS.filter((o) => o.camo).map((o) => o.id));
@@ -339,6 +349,77 @@ export function patternCanvas(kind, colors, seedKey = kind) {
       g.arc(x, y, rad * 0.25, 0, Math.PI * 2);
       g.fill();
     }
+  } else if (kind === 'sahurdots' || kind === 'cupdots') {
+    // polka dots, each one a small character: a log with a face, or a teacup ballerina
+    const step = 64;
+    for (let y = 0; y < S; y += step) {
+      for (let x = 0; x < S; x += step) {
+        const cx = x + step / 2 + ((y / step) % 2 ? step / 2 : 0), cy = y + step / 2;
+        if (kind === 'sahurdots') {
+          g.fillStyle = colors[1];
+          g.fillRect(cx - 9, cy - 16, 18, 32);
+          g.fillStyle = colors[2];
+          g.fillRect(cx - 9, cy - 16, 18, 2); g.fillRect(cx - 9, cy + 14, 18, 2);
+          g.fillStyle = '#fff'; g.fillRect(cx - 7, cy - 10, 5, 6); g.fillRect(cx + 2, cy - 10, 5, 6);
+          g.fillStyle = colors[2]; g.fillRect(cx - 5, cy - 8, 2, 3); g.fillRect(cx + 4, cy - 8, 2, 3); g.fillRect(cx - 6, cy + 2, 12, 2);
+          g.fillStyle = colors[2]; g.fillRect(cx - 11, cy + 18, 3, 8); g.fillRect(cx + 8, cy + 18, 3, 8);        // little legs
+        } else {
+          g.fillStyle = colors[3];                                                          // the tutu
+          g.beginPath(); g.ellipse(cx, cy + 6, 16, 6, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = colors[1]; g.fillRect(cx - 4, cy - 4, 8, 10);                     // the body
+          g.fillStyle = colors[1];                                                          // the cup
+          g.beginPath(); g.ellipse(cx, cy - 13, 11, 9, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = colors[2]; g.beginPath(); g.ellipse(cx, cy - 17, 9, 3, 0, 0, Math.PI * 2); g.fill();   // the coffee
+          g.strokeStyle = colors[1]; g.lineWidth = 2; g.beginPath(); g.arc(cx + 12, cy - 13, 4, -1.2, 1.2); g.stroke();   // the handle
+          g.fillStyle = '#2a3a4a'; g.fillRect(cx - 5, cy - 12, 3, 3); g.fillRect(cx + 2, cy - 12, 3, 3);       // the eyes
+          g.fillStyle = '#c9412f'; g.fillRect(cx - 1, cy - 7, 3, 1.5);
+          g.fillStyle = colors[3]; g.fillRect(cx - 3, cy + 10, 2, 8); g.fillRect(cx + 1, cy + 10, 2, 8);         // legs
+        }
+      }
+    }
+  } else if (kind === 'sahurwood') {
+    // wood grain the length of the gun, with the face on one side
+    for (let i = 0; i < 40; i++) {
+      g.strokeStyle = i % 3 ? (colors[3] || colors[0]) : colors[1];
+      g.globalAlpha = 0.3 + r() * 0.3;
+      g.lineWidth = 1 + r() * 3;
+      g.beginPath();
+      const y0 = (i / 40) * S;
+      for (let x = 0; x <= S; x += 8) g.lineTo(x, y0 + Math.sin(x * 0.03 + i) * 4 + Math.sin(x * 0.011 + i * 2) * 6);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    // the eyes and the grim mouth, once, big
+    g.fillStyle = colors[2];
+    g.fillRect(56, 88, 44, 52); g.fillRect(156, 88, 44, 52);
+    g.fillStyle = colors[1];
+    g.fillRect(72, 100, 20, 30); g.fillRect(172, 100, 20, 30);
+    g.fillRect(48, 70, 60, 8); g.fillRect(148, 70, 60, 8);        // brows
+    g.fillRect(70, 170, 116, 12);                                   // the mouth
+    g.fillStyle = colors[2]; g.fillRect(76, 172, 104, 4);           // teeth
+  } else if (kind === 'porcelain') {
+    // glazed white with gold vines and pink blossoms
+    for (let i = 0; i < 9; i++) {
+      g.strokeStyle = colors[1];
+      g.lineWidth = 2.5;
+      g.beginPath();
+      let x = r() * S, y = r() * S;
+      g.moveTo(x, y);
+      for (let k = 0; k < 6; k++) { x += (r() - 0.5) * 60; y += (r() - 0.5) * 60; g.quadraticCurveTo(x + (r() - 0.5) * 30, y + (r() - 0.5) * 30, x, y); }
+      g.stroke();
+    }
+    for (let i = 0; i < 26; i++) {
+      const x = r() * S, y = r() * S, rad = 5 + r() * 7;
+      g.fillStyle = colors[2];
+      for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; g.beginPath(); g.ellipse(x + Math.cos(a) * rad * 0.7, y + Math.sin(a) * rad * 0.7, rad * 0.55, rad * 0.35, a, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = colors[1];
+      g.beginPath(); g.arc(x, y, rad * 0.25, 0, Math.PI * 2); g.fill();
+    }
+    for (let i = 0; i < 12; i++) {
+      g.fillStyle = colors[3]; g.globalAlpha = 0.25;
+      g.beginPath(); g.arc(r() * S, r() * S, 2 + r() * 3, 0, Math.PI * 2); g.fill();
+    }
+    g.globalAlpha = 1;
   } else if (kind === 'rust') {
     for (let i = 0; i < 70; i++) {
       const x = r() * S, y = r() * S, rad = 6 + r() * 26;

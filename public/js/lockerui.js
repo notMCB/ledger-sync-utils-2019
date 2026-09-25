@@ -91,6 +91,23 @@ export function previewOutfit(id, turn = Math.PI) {
   const p = preview;
   p.t = turn / 0.6;
 }
+export function previewGun(weapon, finish, fitted, turn = Math.PI / 2) {
+  const p = setupPreview();
+  p.key = '';
+  if (p.model) { p.holder.remove(p.model); p.model = null; }
+  const g = buildPreviewGun(weapon, finish, fitted);
+  const box = new THREE.Box3().setFromObject(g.group);
+  g.group.position.sub(box.getCenter(new THREE.Vector3()));
+  const wrap = new THREE.Group();
+  wrap.add(g.group);
+  wrap.scale.setScalar(1.6 / box.getSize(new THREE.Vector3()).length());
+  wrap.rotation.set(0.15, Math.PI / 2, 0);
+  p.model = wrap;
+  p.holder.add(p.model);
+  p.camera.position.set(0, 0.25, 3.2);
+  p.camera.lookAt(0, 0, 0);
+  p.t = turn / 0.6;
+}
 export function previewShot(name) {
   const p = preview;
   if (!p) return;

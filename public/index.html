@@ -131,6 +131,7 @@
     </div>
     <div class="menu-foot">
       <button class="btn" id="btn-locker">Locker <span class="dinar-pill"><i class="dinar"></i><span id="menu-dinars">0</span></span></button>
+      <button class="btn ghost" id="btn-pass">Battle Pass</button>
       <button class="btn ghost" id="btn-loadout">Loadout</button>
       <button class="btn ghost" id="btn-settings">Settings</button>
       <button class="btn ghost" id="btn-notes">Patch notes</button>
@@ -340,6 +341,19 @@
       </div>
     </form>
     <p class="auth-note">Your account keeps your dinars, skins and loadouts, on any computer.</p>
+  </div>
+</div>
+
+<!-- ============ battle pass ============ -->
+<div id="pass" class="overlay dim" hidden>
+  <div class="panel pass-panel">
+    <div class="panel-head">
+      <div><h2>Battle Pass</h2><div class="lk-account" id="pass-season"></div></div>
+      <button class="btn ghost" id="pass-close">Done</button>
+    </div>
+    <div class="pass-progress"><div class="pass-track"><i id="pass-bar"></i></div><div class="pass-count" id="pass-count"></div></div>
+    <p class="panel-sub">Ten tiers, 35 kills each, in any mode. Every reward is yours the moment you reach its tier, in the Locker and ready to wear.</p>
+    <div class="pass-tiers" id="pass-tiers"></div>
   </div>
 </div>
 

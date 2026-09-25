@@ -53,6 +53,9 @@ FINISHES = [
     ('bubblecamo', 'rare', 'party'), ('zebrapop', 'rare', 'party'), ('rainbowroad', 'rare', 'party'),
     ('ultraviolet', 'epic', 'party'), ('electricstripe', 'epic', 'party'), ('discoball', 'epic', 'party'),
     ('plasma', 'legendary', 'party'), ('marquee', 'legendary', 'party'),
+    # the Battle Pass, season one: never in a crate; 'bat' and 'cane' are knife shapes
+    ('sahurdots', 'rare', 'pass'), ('ballerinadots', 'rare', 'pass'), ('bat', 'epic', 'pass'), ('cane', 'epic', 'pass'),
+    ('sahurwood', 'epic', 'pass'), ('porcelain', 'legendary', 'pass'),
 ]
 
 OUTFITS = [
@@ -73,9 +76,55 @@ OUTFITS = [
     ('multiterrain', 'epic', 'camo'), ('ghillie', 'legendary', 'camo'),
     # Souk Royale: only a winner gets this one; no crate holds it
     ('royale1', 'legendary', 'royale'),
-    # the log with a face: granted, never rolled
-    ('sahur', 'legendary', 'owner'),
+    # the Battle Pass outfits: granted by tier, never rolled
+    ('sahur', 'legendary', 'pass'), ('ballerina', 'legendary', 'pass'), ('tunggod', 'legendary', 'pass'),
 ]
+
+# -- the Battle Pass: ten tiers of 35 kills; keep in step with public/js/pass.js --
+KILLS_PER_TIER = 35
+PASS_TIERS = [
+    (1, 'finish', 'sahurdots'), (2, 'finish', 'ballerinadots'), (3, 'melee', 'bat'), (4, 'muzzle', 'sahur'), (5, 'outfit', 'sahur'),
+    (6, 'melee', 'cane'), (7, 'finish', 'sahurwood'), (8, 'outfit', 'ballerina'), (9, 'finish', 'porcelain'), (10, 'outfit', 'tunggod'),
+]
+MUZZLE_STYLES = ('sahur',)
+
+
+def tier_of(kills):
+    return min(len(PASS_TIERS), max(0, int(kills)) // KILLS_PER_TIER)
+
+
+def grant_pass(lk, tier):
+    """Put every reward up to `tier` into a locker. Returns the tiers that were new."""
+    got = []
+    lk.setdefault('muzzles', [])
+    for (n, kind, rid) in PASS_TIERS:
+        if n > tier:
+            break
+        fresh = False
+        if kind == 'finish':
+            for w in GUNS:
+                if w == 'knife':
+                    continue
+                key = '%s:%s' % (w, rid)
+                if key not in lk['guns']:
+                    lk['guns'].append(key)
+                    fresh = True
+        elif kind == 'melee':
+            key = 'knife:%s' % rid
+            if key not in lk['guns']:
+                lk['guns'].append(key)
+                fresh = True
+        elif kind == 'muzzle':
+            if rid not in lk['muzzles']:
+                lk['muzzles'].append(rid)
+                fresh = True
+        elif kind == 'outfit':
+            if rid not in lk['outfits']:
+                lk['outfits'].append(rid)
+                fresh = True
+        if fresh:
+            got.append(n)
+    return got
 # the outfits that hide you: recon beacons miss them, aim help ignores them
 CAMO_OUTFITS = {o[0] for o in OUTFITS if o[2] == 'camo'}
 
@@ -155,8 +204,8 @@ PRIMARY_CHOICES = {'0': ('smg', 'pdw', 'carbine'), '1': ('lmg', 'carbine'), '2':
 
 
 def new_locker():
-    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {},
-            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}}, 'opened': 0}
+    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {}, 'pass': 0, 'muzzles': [],
+            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}, 'muzzle': ''}, 'opened': 0}
 
 
 def clean_locker(d, dinar_cap=None):
@@ -189,6 +238,13 @@ def clean_locker(d, dinar_cap=None):
                     out['kills'][wpn] = max(0, min(10 ** 7, int(n)))
                 except (TypeError, ValueError):
                     pass
+    try:
+        out['pass'] = max(0, min(10 ** 7, int(d.get('pass', 0))))
+    except (TypeError, ValueError):
+        out['pass'] = 0
+    muz = d.get('muzzles') if isinstance(d.get('muzzles'), list) else []
+    out['muzzles'] = [m for m in MUZZLE_STYLES if m in muz]
+    grant_pass(out, tier_of(out['pass']))
     out['equip'] = clean_equip(d.get('equip'), out)
     try:
         out['opened'] = max(0, int(d.get('opened', 0)))
@@ -199,11 +255,13 @@ def clean_locker(d, dinar_cap=None):
 
 def clean_equip(e, locker):
     """Equipped items, dropping anything the locker doesn't own."""
-    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}}
+    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}, 'muzzle': ''}
     if not isinstance(e, dict):
         return res
     if e.get('outfit') in locker['outfits']:
         res['outfit'] = e['outfit']
+    if e.get('muzzle') in locker.get('muzzles', []):
+        res['muzzle'] = e['muzzle']
     g = e.get('guns') if isinstance(e.get('guns'), dict) else {}
     for w in GUNS:                       # every gun, so a new gun's skin is never thrown away
         f = g.get(w)

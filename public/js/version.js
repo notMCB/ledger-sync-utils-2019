@@ -2,9 +2,24 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.1.0';
+export const VERSION = '3.2.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.2.0',
+    date: '26 September 2026',
+    title: 'The Battle Pass: Italian Brainrot',
+    notes: [
+      'A Battle Pass, free for everyone: ten tiers, 35 kills each, in any mode. Every reward is yours the moment you reach its tier. Open it from the menu.',
+      'Tier 1, Tung Tung Tung Dots: a gun skin of little Tung Tung Tung Sahurs, like polka dots. Tier 2, Cappuccina Dots: tiny Ballerina Cappuccinas the same way.',
+      'Tier 3, Sahur’s Bat: his wooden baseball bat in place of your knife. Tier 6, Cappuccina’s Cane: a slender gold-and-porcelain cane. Both swing exactly like the knife.',
+      'Tier 4, the Sahur Suppressor: your suppressor becomes Tung Tung Tung Sahur, wood, eyes and mouth, on any gun that takes one. Same stats.',
+      'Tier 5, Tung Tung Tung Sahur: the outfit is now rounded like the real thing, with thin arms and legs. Tier 8, Ballerina Cappuccina: the teacup head with its latte art and big eyes, the gold bodice and tutu, thin legs on pointe. Tier 10, Tung Tung Tung God: pearl white, tall and rounded, the calm smile, a halo and golden wings.',
+      'Tier 7, Tung Tung Tung Wood: the whole gun in wood with his face on the side. Tier 9, Cappuccina Porcelain: glossy porcelain with gold vines and pink blossoms.',
+      'Outfits that change your shape keep the usual hitboxes: nothing is easier or harder to hit.',
+      'Kills on a signed-in account now count on the server, so attachment progress no longer slips.',
+    ],
+  },
   {
     version: '3.1.0',
     date: '25 September 2026',

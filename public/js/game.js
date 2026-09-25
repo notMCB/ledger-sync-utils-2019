@@ -10,6 +10,7 @@ import { input } from './input.js';
 import { settings, keyName } from './settings.js';
 import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor, AMMO_OF, AMMO_CAP } from './weapons.js';
 import { serverFlags, royaleFit } from './attachments.js';
+import { PASS_TIERS } from './pass.js';
 import { makePlane, makeChute, makeChest, openChest, makeItem, labelItem, makeGas, updateGas, fireworks, itemName, itemColor, rarityColor, RARITY_NAMES, AMMO_NAMES } from './royale.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
@@ -280,6 +281,13 @@ export class Game {
       case 'brstats': return this.onStats(m);
       case 'brwin':
         locker.grantOutfit(m.outfit, m.locker);
+        return;
+      case 'pass':
+        if (m.locker) locker.updateAccount(m.locker);
+        for (const n of m.new || []) {
+          const t = PASS_TIERS.find((x) => x.n === n);
+          if (t) this.hud.center(`Battle Pass tier ${n}`, `${t.name} unlocked`, 'gold', 4, 3);
+        }
         return;
       case 'oitc': {
         const pw = this.me.weapons && this.me.weapons.pistol;
@@ -647,14 +655,14 @@ export class Game {
     me.nades = Math.min(me.nades, nadesFor(ld, me.nadeKind));
     let primary = locker.primaryFor(ld);
     let secondary = locker.secondaryFor(ld);
-    let fitted = locker.attachFor(primary);
-    let pistolFit = locker.attachFor(secondary);
+    let fitted = { ...locker.attachFor(primary), muzzleStyle: locker.muzzleStyle() };
+    let pistolFit = { ...locker.attachFor(secondary), muzzleStyle: locker.muzzleStyle() };
     const rules = this.modeRules();
     if (rules) {
       primary = rules.primary;
       secondary = rules.pistol;
-      fitted = rules.attach && primary ? locker.attachFor(primary) : null;
-      pistolFit = rules.attach && secondary ? locker.attachFor(secondary) : null;
+      fitted = rules.attach && primary ? { ...locker.attachFor(primary), muzzleStyle: locker.muzzleStyle() } : null;
+      pistolFit = rules.attach && secondary ? { ...locker.attachFor(secondary), muzzleStyle: locker.muzzleStyle() } : null;
       me.nadeKind = rules.nadeKind || me.nadeKind;
       me.nades = rules.nades;
       me.perkLeft = 0;
@@ -820,6 +828,9 @@ export class Game {
     switch (m.e) {
       case 'kill': {
         if (m.k === this.myId && m.v !== this.myId && WEAPONS[m.w]) locker.addKill(m.w);
+        if (m.k === this.myId && m.v !== this.myId) {
+          for (const t of locker.passKill()) this.hud.center(`Battle Pass tier ${t.n}`, `${t.name} unlocked`, 'gold', 4, 3);
+        }
         m.kc = this.colorOf(m.k);
         m.vc = this.colorOf(m.v);
         this.hud.feedKill(m, this.myId);
@@ -2035,6 +2046,7 @@ export class Game {
         continue;
       }
       const fitted = royaleFit(it.w, it.r || 'default');
+      if (fitted) fitted.muzzleStyle = locker.muzzleStyle();
       const ws = makeWeaponState(it.w, fitted);
       if (it.w === 'flamer') { ws.mag = it.fuel !== undefined ? it.fuel : 100; ws.reserve = 0; }
       me.weapons[slot] = ws;
