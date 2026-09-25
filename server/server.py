@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.0.1'
+VERSION = '3.0.2'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -170,6 +170,71 @@ POSTMATCH = 12.0
 PROTECT = 1.5
 # players who neither move nor act for this long are taken out of their match
 IDLE_KICK = float(os.environ.get('SOUK_IDLE') or 300.0)
+
+# -- bans -----------------------------------------------------------------
+# A ban is a record: the name it was made under, and everything learnt about
+# whoever used it since: account ids, network addresses and the id the game
+# keeps in their browser. Any of those matching keeps them out, whatever name
+# they turn up with next. The file lives on the data disk; SOUK_BANS seeds names.
+BAN_FILE = os.path.join(accounts.DATA_DIR, 'bans.json')
+bans = []
+
+
+def load_bans():
+    global bans
+    try:
+        with open(BAN_FILE) as f:
+            bans = [b for b in json.load(f) if isinstance(b, dict) and b.get('name')]
+    except (OSError, ValueError):
+        bans = []
+    for n in (os.environ.get('SOUK_BANS') or '').split(','):
+        n = n.strip().lower()
+        if n and not any(b['name'] == n for b in bans):
+            bans.append({'name': n, 'accounts': [], 'ips': [], 'devs': [], 'when': time.strftime('%Y-%m-%d %H:%M:%S')})
+    save_bans()
+
+
+def save_bans():
+    try:
+        os.makedirs(accounts.DATA_DIR, exist_ok=True)
+        with open(BAN_FILE, 'w') as f:
+            json.dump(bans, f)
+    except OSError as e:
+        print('ban file error: %r' % (e,), flush=True)
+
+
+def ban_match(name, account_id, ip, dev):
+    n = (name or '').strip().lower()
+    for b in bans:
+        if n and b['name'] == n:
+            return b
+        if account_id and account_id in b['accounts']:
+            return b
+        if ip and ip in b['ips']:
+            return b
+        if dev and dev in b['devs']:
+            return b
+    return None
+
+
+def public_ip(ip):
+    """An address worth banning: not this machine's own, not a private network's."""
+    if not ip or ip.startswith(('127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.', '172.2', '172.30.', '172.31.', 'fd', 'fe80', '::1')):
+        return None
+    return ip
+
+
+def ban_learn(b, account_id, ip, dev):
+    """Everything a banned player connects with joins their record."""
+    changed = False
+    ip = public_ip(ip)
+    for key, v in (('accounts', account_id), ('ips', ip), ('devs', dev)):
+        if v and v not in b[key]:
+            b[key].append(v)
+            changed = True
+    if changed:
+        save_bans()
+
 
 rooms = {}
 lobby = set()
@@ -1862,6 +1927,8 @@ class Room:
         if not text:
             return
         p.last_chat = t
+        if text.startswith('/'):
+            return admin_command(p, text)
         team_only = bool(m.get('team')) and self.mode in TEAM_MODES and p.team in (0, 1)
         msg = {'t': 'chat', 'id': p.id, 'n': p.name, 'tm': p.team, 'm': text, 'team': team_only}
         for q in self.players.values():
@@ -2129,6 +2196,49 @@ def t_protected(q):
     return now() < q.protect_until
 
 
+def is_owner(p):
+    return bool(p.account) and str(p.account.get('username', '')).lower() == 'mcb'
+
+
+def admin_command(p, text):
+    """Chat commands for the owner: /ban name, /unban name, /bans."""
+    say = lambda s: p.send({'t': 'chat', 'sys': 1, 'm': s})
+    if not is_owner(p):
+        return say('Commands are for the owner.')
+    parts = text.split(None, 1)
+    cmd = parts[0].lower()
+    arg = parts[1].strip() if len(parts) > 1 else ''
+    if cmd == '/ban' and arg:
+        n = arg.lower()
+        b = next((x for x in bans if x['name'] == n), None)
+        if not b:
+            b = {'name': n, 'accounts': [], 'ips': [], 'devs': [], 'when': time.strftime('%Y-%m-%d %H:%M:%S')}
+            bans.append(b)
+            save_bans()
+        kicked = 0
+        for r in list(rooms.values()):
+            for q in list(r.players.values()):
+                if q.name.lower() == n and q is not p:
+                    q.conn.banned(q.name)
+                    kicked += 1
+        for c in list(lobby):
+            if c.player and c.player.name.lower() == n and c.player is not p:
+                c.banned(c.player.name)
+                kicked += 1
+        return say('%s is banned%s. Their device and address are banned the moment they connect.' % (arg, ' and kicked' if kicked else ''))
+    if cmd == '/unban' and arg:
+        n = arg.lower()
+        before = len(bans)
+        bans[:] = [x for x in bans if x['name'] != n]
+        save_bans()
+        return say('%s unbanned.' % arg if len(bans) < before else 'No ban under that name.')
+    if cmd == '/bans':
+        if not bans:
+            return say('Nobody is banned.')
+        return say('Banned: ' + ', '.join('%s (%d devices, %d addresses)' % (x['name'], len(x['devs']), len(x['ips'])) for x in bans))
+    return say('Commands: /ban name, /unban name, /bans')
+
+
 def room_list():
     return {'t': 'rooms', 'v': VERSION, 'list': [r.summary() for r in sorted(rooms.values(), key=lambda r: r.id)]}
 
@@ -2163,12 +2273,27 @@ def quick_room(mode):
 # --------------------------------------------------------------------------
 
 class Conn:
-    def __init__(self, reader, writer):
+    def __init__(self, reader, writer, ip=''):
         self.reader = reader
         self.writer = writer
         self.closed = False
         self.player = None
         self.last_rooms = 0.0
+        self.ip = ip
+        self.dev = ''
+
+    def banned(self, name=None, account_id=None):
+        """Shut the door on a banned player, remembering how they came in."""
+        p = self.player
+        b = ban_match(name if name is not None else (p.name if p else ''), account_id or (p.account['id'] if p and p.account else None), self.ip, self.dev)
+        if not b:
+            return False
+        ban_learn(b, account_id or (p.account['id'] if p and p.account else None), self.ip, self.dev)
+        print('banned player turned away: %s as %r from %s' % (b['name'], name or (p.name if p else ''), self.ip), flush=True)
+        self.leave()
+        self.send({'t': 'banned'})
+        self.close()
+        return True
 
     def send(self, obj):
         self.send_raw(json.dumps(obj, separators=(',', ':')))
@@ -2289,6 +2414,8 @@ class Conn:
             return self.send({'t': 'autherr', 'm': 'Something went wrong on the server. Try again.'})
         if self.closed:
             return
+        if self.banned(user['username'], user['id']):
+            return
         # one live locker per account, shared by all of that player's tabs
         lk = LIVE_LOCKERS.setdefault(user['id'], user['locker'])
         if str(user.get('username', '')).lower() == 'mcb':
@@ -2322,10 +2449,15 @@ class Conn:
         p = self.player
         if t == 'hello':
             name = clean_name(m.get('name'))
+            dev = str(m.get('dev') or '')
+            if 0 < len(dev) <= 40 and dev.isalnum():
+                self.dev = dev
             if p is None:
                 self.player = Player(self, name)
             else:
                 p.name = name
+            if self.banned(name):
+                return
             if 'cos' in m:
                 self.player.cos = owned_cos(self.player, clean_cos(m.get('cos')))
             self.send({'t': 'welcome', 'id': self.player.id, 'v': VERSION, 'acc': ACCOUNTS})
@@ -2348,6 +2480,8 @@ class Conn:
         elif t == 'rooms':
             self.send(room_list())
         elif t == 'join':
+            if self.banned():
+                return
             self.leave()
             if m.get('room'):
                 r = rooms.get(int(num(m.get('room'))))
@@ -2624,7 +2758,11 @@ async def handle_client(reader, writer):
                 accept = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
                 writer.write(('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n'
                               'Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n' % accept).encode())
-                conn = Conn(reader, writer)
+                ip = (headers.get('fly-client-ip') or headers.get('x-forwarded-for', '').split(',')[0]).strip()
+                if not ip:
+                    peer = writer.get_extra_info('peername')
+                    ip = peer[0] if peer else ''
+                conn = Conn(reader, writer, ip)
                 await conn.run()
                 return
             if method not in ('GET', 'HEAD') and not (method == 'POST' and path == '/__shot'):
@@ -2676,6 +2814,9 @@ async def ticker():
 
 async def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get('PORT', '8080'))
+    load_bans()
+    if bans:
+        print('bans: %s' % ', '.join(b['name'] for b in bans), flush=True)
     ensure_rooms()
     server = await asyncio.start_server(handle_client, '0.0.0.0', port, limit=64 * 1024)
     print('Souk Siege %s — http://localhost:%d' % (VERSION, port), flush=True)

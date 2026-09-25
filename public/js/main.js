@@ -147,6 +147,15 @@ function onMessage(m) {
     onBugOk(m);
     return;
   }
+  if (m.t === 'banned') {
+    net.stop();
+    if (game.inRoom) game.leave();
+    hideAll();
+    $('menu').hidden = true;
+    $('hud').hidden = true;
+    $('banned').hidden = false;
+    return;
+  }
   if (m.t === 'kicked') {
     if (game.inRoom) {
       game.leave();
@@ -176,8 +185,22 @@ function onStatus(s) {
   renderModes();
 }
 
+// an id this browser keeps, so a ban follows the device and not just the name
+function deviceId() {
+  try {
+    let id = localStorage.getItem('souk-device');
+    if (!id || !/^[a-z0-9]{24}$/.test(id)) {
+      id = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');
+      localStorage.setItem('souk-device', id);
+    }
+    return id;
+  } catch (e) {
+    return '';
+  }
+}
+
 function sayHello() {
-  net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics(settings.lastLoadout || 0) });
+  net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics(settings.lastLoadout || 0), dev: deviceId() });
 }
 
 function currentName() {

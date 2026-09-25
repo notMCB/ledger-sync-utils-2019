@@ -69,6 +69,7 @@ export class Chat {
   }
 
   add(m, myId) {
+    if (m.sys) return this.system(m.m);
     const line = document.createElement('div');
     line.className = 'chat-line' + (m.id === myId ? ' me' : '');
     const col = playerColor(m.id, m.tm);

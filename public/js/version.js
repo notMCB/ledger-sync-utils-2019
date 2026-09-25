@@ -2,9 +2,17 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.0.1';
+export const VERSION = '3.0.2';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.0.2',
+    date: '25 September 2026',
+    title: 'Bans',
+    notes: [
+      'Cheaters are now banned for good: the ban follows the device and the address as well as the name and the account, so a new name does not help. Anyone banned sees a notice and cannot connect.',
+    ],
+  },
   {
     version: '3.0.1',
     date: '25 September 2026',

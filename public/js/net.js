@@ -50,13 +50,21 @@ export class Net {
     ws.onclose = () => {
       const was = this.open;
       this.open = false;
+      if (this.stopped) return;
       this.onStatus(was ? 'lost' : 'offline');
       this.schedule();
     };
     ws.onerror = () => {};
   }
 
+  // no more connecting: the server has shut the door
+  stop() {
+    this.stopped = true;
+    try { this.ws.close(); } catch (e) { /* already gone */ }
+  }
+
   schedule() {
+    if (this.stopped) return;
     this.retry++;
     setTimeout(() => this.connect(), Math.min(8000, 600 * this.retry));
   }
