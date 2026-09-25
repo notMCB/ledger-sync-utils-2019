@@ -2,9 +2,19 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.0.2';
+export const VERSION = '3.1.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.1.0',
+    date: '25 September 2026',
+    title: 'Play on your phone',
+    notes: [
+      'Touch controls, on by themselves on a phone or tablet: a stick to walk (push it all the way to run) and buttons for fire, aim, reload, jump, crouch, prone, run, grenade, perk, knife, swap, use, vest, map, scoreboard and pause. Drag a finger anywhere else on the screen to look.',
+      'Every control can be moved: Settings → Touch → Move the controls, then drag each one to where you want it. There are sliders for their size and for touch look sensitivity, and the controls can be forced on or off.',
+      'Buttons in the menus are bigger to tap, and a phone held upright is asked to turn sideways.',
+    ],
+  },
   {
     version: '3.0.2',
     date: '25 September 2026',

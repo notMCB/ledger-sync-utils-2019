@@ -42,6 +42,11 @@ const DEFAULTS = {
   shadows: true,
   renderScale: 1.0,
   showFps: false,
+  // touch controls: 'auto' shows them on a touch screen; the layout is where each control was dragged to
+  touchMode: 'auto',
+  touchScale: 1.0,
+  touchSens: 1.0,
+  touch: {},
   binds: Object.fromEntries(ACTIONS.map((a) => [a.id, a.key])),
   alt: Object.fromEntries(ACTIONS.map((a) => [a.id, a.alt || ''])),
 };
@@ -58,6 +63,7 @@ function load() {
   const s = { ...DEFAULTS, ...saved };
   s.binds = { ...DEFAULTS.binds, ...(saved.binds || {}) };
   s.alt = { ...DEFAULTS.alt, ...(saved.alt || {}) };
+  s.touch = saved.touch && typeof saved.touch === 'object' ? saved.touch : {};
   return s;
 }
 

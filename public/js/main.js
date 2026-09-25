@@ -13,6 +13,7 @@ import { locker } from './locker.js';
 import { openLocker, lockerOpen, previewOutfit, previewShot } from './lockerui.js';
 import { Chat } from './chat.js';
 import { auth } from './auth.js';
+import { touch, touchWanted } from './touch.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -100,6 +101,16 @@ const ui = {
 };
 
 const game = new Game(canvas, ui);
+touch.init();
+touch.onPause = () => input.unlock();
+input.setTouch(touchWanted());
+// the controls show over a match on a touch screen; a phone held upright is asked to turn
+setInterval(() => {
+  input.setTouch(touchWanted());
+  touch.setActive(input.touch && game.inRoom && input.locked, !!game.br);
+  const portrait = input.touch && game.inRoom && window.innerHeight > window.innerWidth * 1.1;
+  if ($('turn').hidden === portrait) $('turn').hidden = !portrait;
+}, 120);
 const net = new Net(onMessage, onStatus);
 game.net = net;
 const chat = new Chat(net);
@@ -522,6 +533,8 @@ function renderBinds() {
 }
 
 const SLIDERS = [
+  ['s-touchscale', 'o-touchscale', 'touchScale', (v) => `${Math.round(v * 100)}%`],
+  ['s-touchsens', 'o-touchsens', 'touchSens', (v) => v.toFixed(2)],
   ['s-sens', 'o-sens', 'sens', (v) => v.toFixed(2)],
   ['s-ads', 'o-ads', 'adsSens', (v) => v.toFixed(2)],
   ['s-fov', 'o-fov', 'fov', (v) => `${v}°`],
@@ -555,6 +568,7 @@ function openSettings() {
     $(sid).value = settings[key];
     $(oid).textContent = fmt(Number(settings[key]));
   }
+  $('s-touchmode').value = settings.touchMode || 'auto';
   for (const [cid, key] of CHECKS) $(cid).checked = !!settings[key];
   renderBinds();
   $('pause').hidden = true;
@@ -573,6 +587,26 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   document.querySelectorAll('.tab-body').forEach((b) => { b.hidden = b.dataset.body !== t.dataset.tab; });
 }));
 $('btn-settings').addEventListener('click', openSettings);
+// the touch controls: how they show, and moving them about
+$('s-touchmode').addEventListener('change', () => {
+  settings.touchMode = $('s-touchmode').value;
+  saveSettings();
+  input.setTouch(touchWanted());
+});
+$('btn-touch-reset').addEventListener('click', () => { touch.resetLayout(); uiBlip(); });
+$('btn-touch-edit').addEventListener('click', () => {
+  uiBlip();
+  $('settings').hidden = true;
+  touch.edit(true);
+});
+const endTouchEdit = () => {
+  touch.edit(false);
+  uiBlip();
+  $('settings').hidden = false;
+};
+$('tc-done').addEventListener('click', endTouchEdit);
+$('tc-reset').addEventListener('click', () => { touch.resetLayout(); uiBlip(); });
+$('s-touchscale').addEventListener('input', () => touch.layout());
 $('btn-settings-close').addEventListener('click', closeSettings);
 $('btn-reset-binds').addEventListener('click', () => {
   resetBinds();
@@ -782,6 +816,8 @@ if (LOCAL && params.has('attachui')) {
     log('done');
   }, 700);
 }
+// ?touchmode=on|off|auto sets the on-screen controls for this visit (for checking a build)
+if (LOCAL && params.get('touchmode')) { settings.touchMode = params.get('touchmode'); input.setTouch(touchWanted()); }
 // ?peek=<outfit> shows an outfit in the locker's preview and posts pictures of it to the server
 if (LOCAL && params.get('peek')) {
   const id = params.get('peek');

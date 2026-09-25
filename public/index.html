@@ -187,6 +187,7 @@
         <button class="tab" data-tab="mouse">Trackpad &amp; mouse</button>
         <button class="tab" data-tab="video">Video</button>
         <button class="tab" data-tab="audio">Sound</button>
+        <button class="tab" data-tab="touch">Touch</button>
       </div>
     </div>
     <div class="tab-body" data-body="controls">
@@ -211,6 +212,13 @@
     </div>
     <div class="tab-body" data-body="audio" hidden>
       <label class="slider"><span>Volume</span><input type="range" id="s-vol" min="0" max="1" step="0.02"><output id="o-vol"></output></label>
+    </div>
+    <div class="tab-body" data-body="touch" hidden>
+      <p class="panel-sub">On a phone or tablet the game is played with a stick and buttons on the screen. Drag your finger anywhere else to look. Push the stick all the way to run.</p>
+      <label class="slider"><span>On-screen controls</span><select id="s-touchmode"><option value="auto">Automatic (on a touch screen)</option><option value="on">Always on</option><option value="off">Off</option></select><output></output></label>
+      <label class="slider"><span>Control size</span><input type="range" id="s-touchscale" min="0.6" max="1.6" step="0.05"><output id="o-touchscale"></output></label>
+      <label class="slider"><span>Touch look sensitivity</span><input type="range" id="s-touchsens" min="0.3" max="3" step="0.05"><output id="o-touchsens"></output></label>
+      <div class="row-end"><button class="btn ghost" id="btn-touch-reset">Reset layout</button><button class="btn" id="btn-touch-edit">Move the controls</button></div>
     </div>
     <div class="row-end"><button class="btn" id="btn-settings-close">Done</button></div>
   </div>
@@ -343,6 +351,12 @@
     <div class="row-end"><button class="btn" id="btn-notes-close">Play</button></div>
   </div>
 </div>
+
+<!-- ============ touch controls ============ -->
+<div id="touch" hidden>
+  <div id="tc-bar"><span>Drag the controls where you want them</span><button class="btn small" id="tc-reset">Reset layout</button><button class="btn small" id="tc-done">Done</button></div>
+</div>
+<div id="turn" hidden><div>Turn your phone sideways to play</div></div>
 
 <div id="banned" class="overlay dim" hidden>
   <div class="panel narrow">

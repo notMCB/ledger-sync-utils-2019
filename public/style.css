@@ -160,6 +160,7 @@ button { cursor: pointer; }
 .slider { display: grid; grid-template-columns: 170px 1fr 56px; gap: 14px; align-items: center; }
 .slider input { width: 100%; accent-color: var(--saffron); }
 .slider output { font-family: var(--mono); font-size: 14px; text-align: right; }
+.slider select { width: 100%; background: var(--ink-3); color: var(--plaster); border: 1px solid var(--line); border-radius: 3px; padding: 8px 10px; font: inherit; }
 .check { display: flex; gap: 10px; align-items: center; }
 .check input { width: 18px; height: 18px; accent-color: var(--saffron); }
 
@@ -569,3 +570,24 @@ button { cursor: pointer; }
 #fullmap-canvas { width: min(78vh, 78vw); height: min(78vh, 78vw); border-radius: 6px;
   box-shadow: 0 0 0 1px rgba(239, 228, 207, 0.25), 0 20px 60px rgba(0, 0, 0, 0.6); background: rgba(18, 21, 28, 0.9); }
 #fullmap-hint { margin-top: 10px; font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em; color: var(--plaster-dim); }
+
+/* ---------- touch controls ---------- */
+#touch { position: fixed; inset: 0; z-index: 12; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#touch.tc-editing { z-index: 30; background: rgba(10, 12, 16, 0.55); }
+.tc { position: absolute; border-radius: 50%; background: rgba(18, 21, 28, 0.42); box-shadow: inset 0 0 0 2px rgba(239, 228, 207, 0.5); color: var(--plaster);
+  display: grid; place-items: center; font-family: var(--display); font-weight: 700; letter-spacing: 0.04em; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); touch-action: none; }
+.tc.tc-on { background: rgba(230, 162, 60, 0.55); box-shadow: inset 0 0 0 2px var(--saffron); }
+.tc.tc-off { display: none; }
+.tc-stick { background: rgba(18, 21, 28, 0.3); }
+.tc-stick .tc-knob { width: 44%; height: 44%; border-radius: 50%; background: rgba(239, 228, 207, 0.75); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5); transition: transform 0.03s linear; }
+.tc-editing .tc { box-shadow: inset 0 0 0 2px var(--saffron), 0 0 0 4px rgba(230, 162, 60, 0.25); cursor: grab; }
+.tc-editing .tc.tc-drag { background: rgba(230, 162, 60, 0.45); cursor: grabbing; }
+.tc-editing .tc.tc-off { display: grid; opacity: 0.7; }
+#tc-bar { display: none; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); gap: 10px; align-items: center; padding: 8px 12px; border-radius: 4px; background: rgba(18, 21, 28, 0.85); font-weight: 600; }
+.tc-editing #tc-bar { display: flex; }
+#turn { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(10, 12, 16, 0.92); font-family: var(--display); font-size: 26px; text-align: center; padding: 24px; }
+@media (pointer: coarse) {
+  .btn, .mode, .room, .ld { min-height: 44px; }
+  #arms { bottom: 4px; right: 8px; }
+  #vitals { bottom: 4px; left: 8px; }
+}

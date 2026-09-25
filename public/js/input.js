@@ -13,8 +13,13 @@ let wheelLast = 0;
 
 export const input = {
   locked: false,
+  touch: false,    // a touch screen: no pointer lock, the on-screen controls do the work
   onUnlock: null,
   onKeyCode: null, // raw key listener for menus (Escape etc.)
+
+  setTouch(on) {
+    this.touch = on;
+  },
 
   attach(el) {
     canvas = el;
@@ -81,7 +86,7 @@ export const input = {
     });
     window.addEventListener('blur', () => { if (!this.simulated) held.clear(); });
     document.addEventListener('pointerlockchange', () => {
-      if (this.simulated) return;
+      if (this.simulated || this.touch) return;
       const was = this.locked;
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) held.clear();
@@ -91,6 +96,11 @@ export const input = {
 
   lock() {
     if (!canvas || this.locked) return;
+    if (this.touch) {
+      // nothing to lock: the screen is the controls
+      this.locked = true;
+      return;
+    }
     try {
       const p = canvas.requestPointerLock({ unadjustedMovement: true });
       if (p && p.catch) p.catch(() => canvas.requestPointerLock());
@@ -100,6 +110,13 @@ export const input = {
   },
 
   unlock() {
+    if (this.touch) {
+      if (!this.locked) return;
+      this.locked = false;
+      held.clear();
+      if (this.onUnlock) this.onUnlock();
+      return;
+    }
     if (document.pointerLockElement) document.exitPointerLock();
   },
 
