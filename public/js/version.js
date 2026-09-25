@@ -7,7 +7,7 @@ export const VERSION = '3.2.0';
 export const PATCH_NOTES = [
   {
     version: '3.2.0',
-    date: '26 September 2026',
+    date: '25 September 2026',
     title: 'The Battle Pass: Italian Brainrot',
     notes: [
       'A Battle Pass, free for everyone: ten tiers, 35 kills each, in any mode. Every reward is yours the moment you reach its tier. Open it from the menu.',
