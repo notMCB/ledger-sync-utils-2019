@@ -148,26 +148,30 @@ export function makeChute() {
 
 // -- loot chests: eskies, with a glow underneath until they are opened --
 const ESKY = {};
-export function makeChest() {
+// a gold chest is the same esky in gold, with a gold glow: one legendary gun inside
+export function makeChest(gold = false) {
   if (!ESKY.body) {
     ESKY.body = lam('#f1eee6');
     ESKY.lid = lam('#3f8fd0');
     ESKY.dark = lam('#26292c');
     ESKY.inside = lam('#0f1418');
     ESKY.glowTex = softDot('rgba(90,170,255,0.9)', 'rgba(90,170,255,0)');
+    ESKY.gold = new THREE.MeshPhongMaterial({ color: '#d9a92e', shininess: 80, specular: '#fff0b0' });
+    ESKY.goldLid = new THREE.MeshPhongMaterial({ color: '#f0c848', shininess: 90, specular: '#fff6c8' });
+    ESKY.goldGlow = softDot('rgba(255,214,90,0.95)', 'rgba(255,214,90,0)');
   }
   const g = new THREE.Group();
-  bx(g, 0.92, 0.5, 0.56, ESKY.body, 0, 0.25, 0);
+  bx(g, 0.92, 0.5, 0.56, gold ? ESKY.gold : ESKY.body, 0, 0.25, 0);
   bx(g, 0.86, 0.02, 0.5, ESKY.inside, 0, 0.5, 0);
   for (const z of [-0.22, 0.22]) bx(g, 0.96, 0.06, 0.06, ESKY.dark, 0, 0.12, z);      // trim bands
   const lid = new THREE.Group();
-  bx(lid, 0.96, 0.12, 0.6, ESKY.lid, 0, 0.06, 0.3);
+  bx(lid, 0.96, 0.12, 0.6, gold ? ESKY.goldLid : ESKY.lid, 0, 0.06, 0.3);
   bx(lid, 0.42, 0.05, 0.08, ESKY.dark, 0, 0.15, 0.3);                                  // the handle
   bx(lid, 0.16, 0.06, 0.04, ESKY.dark, 0, 0.02, 0.6);                                  // the latch
   lid.position.set(0, 0.5, -0.3);
   g.add(lid);
   // the glow lies flat on the ground under it
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(1.2, 28), new THREE.MeshBasicMaterial({ map: ESKY.glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.8 }));
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(gold ? 1.7 : 1.2, 28), new THREE.MeshBasicMaterial({ map: gold ? ESKY.goldGlow : ESKY.glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: gold ? 0.95 : 0.8 }));
   disc.rotation.x = -Math.PI / 2;
   disc.position.y = 0.03;
   g.add(disc);

@@ -611,3 +611,13 @@ button { cursor: pointer; }
   #arms { bottom: 4px; right: 8px; }
   #vitals { bottom: 4px; left: 8px; }
 }
+
+/* Souk Royale: the results table at the end of a match */
+.panel.results { max-width: 620px; }
+.results-table { max-height: 52vh; overflow-y: auto; margin: 10px 0 4px; }
+.results-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.results-table th, .results-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid rgba(255, 255, 255, 0.08); white-space: nowrap; }
+.results-table th { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--plaster-dim); font-weight: 600; }
+.results-table .l { text-align: left; }
+.results-table tr.me td { background: rgba(255, 210, 90, 0.12); color: #ffe39a; }
+.results-table tr.won td:first-child { color: #ffd45a; font-weight: 700; }

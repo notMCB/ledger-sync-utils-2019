@@ -279,6 +279,8 @@ export class Game {
       case 'items': return this.onItems(m);
       case 'chest': return this.onChest(m);
       case 'brstats': return this.onStats(m);
+      case 'brend': return this.onResults(m);
+      case 'fallto': return this.onFallTo(m);
       case 'brwin':
         locker.grantOutfit(m.outfit, m.locker);
         return;
@@ -484,7 +486,7 @@ export class Game {
     let rem = dt;
     while (rem > 1e-5) {
       const h = Math.min(rem, 1 / 90);
-      this.world.physics.move(body, h, GRAVITY, 0.3);
+      this.world.physics.move(body, h, GRAVITY, 0.45);   // up a kerb or a step of ground
       rem -= h;
     }
     F.grounded = body.grounded;
@@ -726,6 +728,7 @@ export class Game {
       this.endMyChute();
       this.hud.center('Souk Royale', `${keyName(settings.binds.jump)} to jump when you are over where you want to land`, '', 6, 3);
     }
+    if (m.guard) this.hud.center('Spawn protection', 'Nothing can hurt you until you move or shoot', '', 1.8, 1);
     if (m.lv !== undefined && this.room && this.room.mode === 'oitc') this.hud.center(`${m.lv} ${m.lv === 1 ? 'life' : 'lives'}`, 'One round in the chamber. A kill loads another', '', 2.2, 2);
     this.updateTeamLook();
     this.hud.setHP(100);
@@ -1596,8 +1599,9 @@ export class Game {
     this.aimWant = act && !this.drone && !me.aboard && !me.falling && this.readAim();
     if (act && me.aboard) {
       this.updateAboard(dt);
-    } else if (act && me.falling) {
-      this.updateFalling(dt);
+    } else if (me.falling && this.inRoom && me.alive && this.g && this.g.ph !== 'ended') {
+      // paused or not, you keep falling: nobody waits it out in the air
+      this.updateFalling(dt, act);
     } else if (act && this.drone) {
       this.updateDrone(dt);
     } else if (act && this.driving) {
@@ -1987,18 +1991,19 @@ export class Game {
     this.itemMeshes.clear();
     if (!map.chests) return;
     map.chests.forEach((c, i) => {
-      const mesh = makeChest();
+      const gold = !!c[4];
+      const mesh = makeChest(gold);
       mesh.position.set(c[0], c[1], c[2]);
       mesh.rotation.y = c[3] || 0;
       this.scene.add(mesh);
-      this.chestMeshes.set(i + 1, { mesh, x: c[0], y: c[1], z: c[2], open: false });
+      this.chestMeshes.set(i + 1, { mesh, x: c[0], y: c[1], z: c[2], open: false, gold });
     });
   }
 
   onChest(m) {
     if (m.reset) {
       for (const C of this.chestMeshes.values()) {
-        if (C.open) { this.scene.remove(C.mesh); C.mesh = makeChest(); C.mesh.position.set(C.x, C.y, C.z); this.scene.add(C.mesh); C.open = false; }
+        if (C.open) { this.scene.remove(C.mesh); C.mesh = makeChest(C.gold); C.mesh.position.set(C.x, C.y, C.z); this.scene.add(C.mesh); C.open = false; }
       }
       return;
     }
@@ -2085,6 +2090,25 @@ export class Game {
     this.ui.showStats(m);
   }
 
+  // the whole match's table, at the end, for everyone in the room
+  onResults(m) {
+    if (!this.br) return;
+    this.ui.showResults(m, this.myId);
+  }
+
+  // the server has taken over a fall that stopped (paused, or the tab put away)
+  onFallTo(m) {
+    const me = this.me;
+    if (!me.alive || me.aboard) return;
+    me.pos.set(m.p[0], m.p[1], m.p[2]);
+    if (m.land) {
+      me.vel.set(0, 0, 0);
+      me.falling = null;
+      me.grounded = true;
+      this.endMyChute();
+    }
+  }
+
   onGasState(gs) {
     const br = this.br;
     br.gas = gs;
@@ -2141,13 +2165,13 @@ export class Game {
     this.hud.center('Jumped', 'Steer with the move keys · look down to dive', '', 2.5, 2);
   }
 
-  updateFalling(dt) {
+  updateFalling(dt, live = true) {
     const me = this.me, F = me.falling;
     const phys = this.world.physics;
     F.t += dt;
     me.adsK = 0;
-    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
-    const s = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    const f = live ? (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0) : 0;
+    const s = live ? (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0) : 0;
     const sy = Math.sin(me.yaw), cy = Math.cos(me.yaw);
     let wx = -sy * f + cy * s, wz = -cy * f - sy * s;
     const wl = Math.hypot(wx, wz);
@@ -2155,7 +2179,7 @@ export class Game {
     const steer = F.chute ? CHUTE_STEER : STEER;
     me.vel.x += (wx * steer - me.vel.x) * Math.min(1, dt * (F.chute ? 1.5 : 2.5));
     me.vel.z += (wz * steer - me.vel.z) * Math.min(1, dt * (F.chute ? 1.5 : 2.5));
-    const dive = Math.max(0, -me.pitch) / 1.52;
+    const dive = live ? Math.max(0, -me.pitch) / 1.52 : 0;
     const fall = F.chute ? CHUTE_SPEED : FALL_SPEED + DIVE_EXTRA * dive;
     me.vel.y += (-fall - me.vel.y) * Math.min(1, dt * (F.chute ? 6 : 2));
     me.pos.x += me.vel.x * dt;
@@ -2235,7 +2259,7 @@ export class Game {
   autoTake(it) {
     const br = this.br, me = this.me;
     if (it.k === 'ammo') return (br.ammo[it.a] || 0) < AMMO_CAP[it.a];
-    if (it.k === 'vest') return br.vests < 2;
+    if (it.k === 'vest') return br.vests < 3;
     if (it.k === 'med') return !br.perk;
     if (it.k === 'perk') return !br.perk;
     if (it.k === 'nade') return me.nades < 3 && (me.nades === 0 || me.nadeKind === it.nk);
@@ -2280,7 +2304,7 @@ export class Game {
     }
     if (!prompt) {
       const ch = this.nearestChest();
-      if (ch) { prompt = { text: 'Open the chest', color: '#7fc8ff' }; act = () => { if (this.clock - (this.openT || -9) > 0.5) { this.openT = this.clock; this.send({ t: 'open', id: ch.id }); } }; }
+      if (ch) { prompt = { text: ch.C.gold ? 'Open the gold chest' : 'Open the chest', color: ch.C.gold ? '#ffd45a' : '#7fc8ff' }; act = () => { if (this.clock - (this.openT || -9) > 0.5) { this.openT = this.clock; this.send({ t: 'open', id: ch.id }); } }; }
     }
     this.brPrompt = prompt;
     if (act && input.pressed('interact')) act();

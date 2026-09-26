@@ -43,6 +43,7 @@ const ui = {
   },
   onSpawn() {
     $('death').hidden = true;
+    $('results').hidden = true;
     clearInterval(deathTimer);
   },
   onPhase() {},
@@ -97,10 +98,27 @@ const ui = {
       setTimeout(() => { if (!game.me.alive) $('death').hidden = true; }, 9000);
     }
   },
+  // Souk Royale: everyone's numbers for the match that just ended, a few seconds after
+  // the personal card, for as long as they want to look
+  showResults(m, myId) {
+    const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    clearTimeout(resultsTimer);
+    resultsTimer = setTimeout(() => {
+      if (!game.inRoom || !game.br) return;
+      $('results-sub').textContent = m.w ? `${m.w} won · ${m.of} dropped` : `${m.of} dropped`;
+      $('results-table').innerHTML = '<table><tr><th>#</th><th class="l">Player</th><th>Kills</th><th>Damage</th><th>Survived</th><th>Chests</th></tr>' +
+        m.rows.map((r) => `<tr class="${r.id === myId ? 'me' : ''}${r.pl === 1 ? ' won' : ''}"><td>${r.pl || '–'}</td><td class="l">${esc(r.n)}</td><td>${r.k}</td><td>${r.d}</td><td>${fmt(r.sv)}</td><td>${r.ch}</td></tr>`).join('') + '</table>';
+      $('death').hidden = true;
+      $('results').hidden = false;
+      input.unlock();
+    }, 5000);
+  },
   openLoadout() {
     openLoadout();
   },
 };
+let resultsTimer = 0;
+$('results-close').addEventListener('click', () => { $('results').hidden = true; });
 
 const game = new Game(canvas, ui);
 touch.init();
@@ -392,7 +410,7 @@ function showMenu() {
 }
 
 function hideAll() {
-  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass']) $(id).hidden = true;
+  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass', 'results']) $(id).hidden = true;
 }
 
 // -- the battle pass ---------------------------------------------------------------
@@ -509,7 +527,7 @@ $('btn-pause-loadout').addEventListener('click', () => {
 $('btn-pause-settings').addEventListener('click', () => openSettings());
 $('btn-pause-notes').addEventListener('click', () => openNotes());
 canvas.addEventListener('click', () => {
-  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden) input.lock();
+  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden && $('results').hidden) input.lock();
 });
 $('death').addEventListener('click', (e) => {
   if (e.target.closest('.ld')) return;
@@ -1076,6 +1094,24 @@ async function runRoyale() {
   log(`landed at ${me.pos.toArray().map((v) => v.toFixed(1))} grounded ${me.grounded}`);
   await sleep(500);
   log('CAPTURE landed');
+  // ?views=x,y,z,yaw,pitch[,1];... stands at each spot in turn and takes a picture (1: with the map open)
+  const views = params.get('views');
+  if (views) {
+    let i = 0;
+    for (const v of views.split(';')) {
+      const [x, y, z, yaw, pitch, key] = v.split(',').map(Number);
+      me.pos.set(x, y, z);
+      me.vel.set(0, 0, 0);
+      me.yaw = yaw;
+      me.pitch = pitch;
+      if (key) input.tap('KeyM');
+      await sleep(900);
+      log(`CAPTURE view${i}`);
+      log(`view${i} at ${me.pos.toArray().map((q) => q.toFixed(1))} grounded ${me.grounded}`);
+      if (key) input.tap('KeyM');
+      i++;
+    }
+  }
   // the nearest chests in turn: stand by one, open it, take what is worth taking, until a gun is in hand
   const chests = [...game.chestMeshes.entries()].map(([id, C]) => ({ id, C, d: Math.hypot(C.x - me.pos.x, C.z - me.pos.z) })).sort((a, b) => a.d - b.d);
   let shot = false;

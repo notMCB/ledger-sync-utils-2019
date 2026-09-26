@@ -10,6 +10,7 @@ const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b', '#3b34
 const CLOTH = ['#b3352b', '#2f7f7a', '#d49a2a', '#6b3f7a', '#2d5f9a', '#c46a2e'];
 const BARREL = ['#35577a', '#8a4a26', '#5a6b3a'];
 const CONCRETE_TINTS = ['#a6a59f', '#8f8e89', '#b8b6ae'];
+const GLASS_TINTS = ['#8fa6b8', '#7c8e9c', '#9db3c4'];       // the towers downtown
 const VELVET_TINTS = ['#8a2a2e', '#2e4a7a', '#4a6a3a'];      // crimson, royal blue, sage
 const BOOK_TINTS = ['#7a2a2a', '#2a3f6a', '#3f6a3a', '#8a6a2a', '#5a2a5a', '#2a5a5a', '#a08a5a'];
 // the paintings: sky, ground, a figure, a building — landscape or portrait in oils
@@ -38,7 +39,7 @@ function textures() {
     crate: T.crate(), metal: T.metal(), leaf: T.palmLeaf(),
     cloth: CLOTH.map((c) => T.cloth(c)),
     concrete: T.concrete(), snow: T.snow(), corrugated: T.corrugated(), rock: T.rock(), container: T.containerSkin(),
-    grass: T.grass(), marble: T.marble(), hedge: T.hedge(),
+    grass: T.grass(), marble: T.marble(), hedge: T.hedge(), windows: T.windows(), asphalt: T.roadStyle('asphalt'),
   };
   return texCache;
 }
@@ -97,8 +98,9 @@ class GeoBuilder {
     f([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], UV(u(ox + x0), u(yb), u(ox + x1), u(yt)));
     // -z
     f([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [0, 0, -1], UV(u(-(ox + x1)), u(yb), u(-(ox + x0)), u(yt)));
-    // top
-    f([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0], UV(u(ox + x0), u(-(oz + z1)), u(ox + x1), u(-(oz + z0))));
+    // top (a road's top runs its texture across the width and along its length)
+    f([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0], [0, 1, 0],
+      opts.roadUV ? [[0, 0], [1, 0], [1, u(2 * hz)], [0, u(2 * hz)]] : UV(u(ox + x0), u(-(oz + z1)), u(ox + x1), u(-(oz + z0))));
     // bottom
     if (!skipBottom) f([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], UV(u(ox + x0), u(oz + z0), u(ox + x1), u(oz + z1)));
   }
@@ -338,6 +340,9 @@ export class World {
       hedge: new THREE.MeshLambertMaterial({ map: tx.hedge, vertexColors: true }),
       velvet: new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }),
       lacquer: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 90, specular: '#666666' }),
+      asphalt: new THREE.MeshLambertMaterial({ map: tx.asphalt, vertexColors: true }),
+      glass: new THREE.MeshLambertMaterial({ map: tx.windows, vertexColors: true }),
+      gold: new THREE.MeshPhongMaterial({ map: tx.marble, vertexColors: true, shininess: 70, specular: '#8a6a20' }),
     };
     const builders = {};
     const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
@@ -382,6 +387,13 @@ export class World {
         B('velvet').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(VELVET_TINTS[tint % 3]), 1.0);
       } else if (mat === 'lacquer') {
         B('lacquer').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#141416'), 1.0);
+      } else if (mat === 'asphalt') {
+        // a road: the markings run along it, the kerb face is plain
+        B('asphalt').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 8.0, { roadUV: true, sideColor: colorOf('#55565a') });
+      } else if (mat === 'glass') {
+        B('glass').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(GLASS_TINTS[tint % 3]), 6.4);
+      } else if (mat === 'gold') {
+        B('gold').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#e6bd45'), 2.0);
       } else if (mat === 'rock') {
         const snowy = map.theme === 'snow';
         B('rock').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(snowy ? '#d9dce0' : '#ffffff'), { ao: true }), 3.0);
@@ -1355,6 +1367,7 @@ export class World {
 
   // a dirt road: one strip following the points, a little above the sand
   addRoad(root, d) {
+    if (d.solid) return;      // a solid road is built from its boxes; this entry is for the map
     const pos = [], uv = [], idx = [];
     const pts = d.pts;
     let along = 0;

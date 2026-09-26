@@ -17,7 +17,7 @@ export const MODE_INFO = {
   knives: { name: 'Knife Fight', short: 'Knives', desc: 'Knives only. A stab to the head or the back kills. First to 25.' },
   firefight: { name: 'Firefight', short: 'Fire', desc: 'Flamethrowers and molotovs only. First to 25.' },
   oitc: { name: 'One in the Chamber', short: 'OITC', desc: 'A pistol with one round, a knife, three lives. A hit kills and gives you another round; a miss leaves you the knife. Most kills wins.' },
-  royale: { name: 'Souk Royale', short: 'Royale', desc: 'Battle royale, up to 64. Jump from the plane over all four maps at once, loot the chests, stay out of the gas. Last one standing.' },
+  royale: { name: 'Souk Royale', short: 'Royale', desc: 'Battle royale, up to 64, one match at a time. Jump from the plane over Downtown and all four maps, loot the chests, stay out of the gas. Last one standing.' },
 };
 export const TEAM_MODES = ['tdm', 'koth', 'bomb'];
 export const NICHE_MODES = ['snipers', 'knives', 'firefight', 'oitc'];
@@ -73,7 +73,7 @@ export class Hud {
     if (!on) return;
     $('sh-bar').style.width = Math.max(0, Math.min(100, shield / 2)) + '%';
     $('sh-num').textContent = shield;
-    $('sh-vests').innerHTML = Array.from({ length: 2 }, (_, i) => `<i class="${i < vests ? '' : 'none'}"></i>`).join('') + `<span>${vests} spare</span>`;
+    $('sh-vests').innerHTML = Array.from({ length: 3 }, (_, i) => `<i class="${i < vests ? '' : 'none'}"></i>`).join('') + `<span>${vests} spare</span>`;
   }
 
   // the alive count, the gas timer and the jump prompt, over the top bar

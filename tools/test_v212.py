@@ -103,12 +103,16 @@ async def test_oitc():
     assert dead.get('lv') == 2, 'the victim has two lives left: %r' % dead
     # the one round kills wherever it lands
     await wait(lambda: any(row[0] == b.id and (row[6] & 1) for row in (a.snap_players or [])), 8, 'the victim back up')
-    await asyncio.sleep(3.2)      # spawn protection
+    await asyncio.sleep(0.5)
+    b.move([b.pos[0] + 0.6, b.pos[1], b.pos[2]])      # a step: since 3.2.1 a fresh life is safe until it moves
+    await asyncio.sleep(2.0)      # spawn protection
     shot(a, b, 'pistol', 'b')
     await wait(lambda: len(a.saw('kill')) >= 2, 3, 'a body hit with the round killing')
     # a third death and the victim is out, with no respawn
     await wait(lambda: any(row[0] == b.id and (row[6] & 1) for row in (a.snap_players or [])), 8, 'the victim back up again')
-    await asyncio.sleep(3.2)
+    await asyncio.sleep(0.5)
+    b.move([b.pos[0] + 0.6, b.pos[1], b.pos[2]])
+    await asyncio.sleep(2.0)
     shot(a, b, 'pistol', 'b')
     await wait(lambda: len(a.saw('kill')) >= 3, 3, 'the third kill')
     dead = [m for m in b.msgs if m.get('t') == 'dead'][-1]

@@ -35,7 +35,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.2.0'
+VERSION = '3.2.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -75,9 +75,10 @@ TEAM_MODES = ('tdm', 'koth', 'bomb')
 # -- the battle royale --------------------------------------------------------
 PLANE_ALT = 160.0          # how high the plane flies
 PLANE_SPEED = 24.0         # metres a second
+FALL_SPEED = 26.0          # a player brought down by the server falls this fast
 PLANE_MARGIN = 70.0        # it starts and ends this far outside the map
 # the gas: (radius it closes from, radius it closes to, seconds before it moves, seconds it takes, health a second outside it)
-GAS_STAGES = [(250.0, 120.0, 60.0, 45.0, 5), (120.0, 70.0, 35.0, 35.0, 5), (70.0, 40.0, 30.0, 30.0, 10),
+GAS_STAGES = [(320.0, 140.0, 60.0, 45.0, 5), (140.0, 75.0, 35.0, 35.0, 5), (75.0, 40.0, 30.0, 30.0, 10),
               (40.0, 20.0, 25.0, 25.0, 10), (20.0, 8.0, 20.0, 20.0, 10), (8.0, 0.0, 15.0, 30.0, 10)]
 # SOUK_GAS=0.1 makes the gas ten times quicker, for the tests
 _gas_scale = float(os.environ.get('SOUK_GAS') or 1.0)
@@ -93,7 +94,7 @@ BR_PERKS = ('ammo', 'med', 'ladder', 'beacon', 'wall', 'drone', 'knives')
 BR_CHARGES = {'knives': 3}      # uses before a perk has to recharge; everything else is one
 PERK_CD = 30.0                  # seconds for a used perk to come back
 SHIELD_MAX = 200                # two vests' worth
-VEST_MAX = 2                    # spare vests carried
+VEST_MAX = 3                    # spare vests carried
 VEST_TIME = 2.5                 # seconds to put one on
 MEDKIT_HEAL = 50
 MEDKIT_RATE = 10.0              # health a second, so five seconds for the lot
@@ -384,9 +385,20 @@ class Player:
         self.fuel = 100.0        # the flamethrower in hand, from the client
         self.vest_at = 0.0
         self.late = False        # joined a match already under way: watches until the next
+        self.afk_guard = False   # a fresh life outside the royale: unhurt until they make an input
+        self.fall_y = None       # the royale drop: where their fall was last seen to go on
+        self.fall_t = 0.0
+        self.fall_force = False  # the server is bringing them down, because their client stopped
+        self.fall_lock = 0.0     # stale positions from that client are ignored until then
+        self.surv = 0            # seconds they lasted this match
 
     def send(self, obj):
         self.conn.send(obj)
+
+    def acted(self):
+        """Any input at all: the idle clock restarts, and a fresh life's protection ends."""
+        self.last_active = now()
+        self.afk_guard = False
 
     def pick(self, m):
         """Loadout, perk and grenade choices from a join, ld or picks message."""
@@ -534,7 +546,7 @@ class Room:
         self.drones = {}
         self.fires = {}
         # loot chests, closed, where the map put them
-        self.chests = {i + 1: {'p': [c[0], c[1], c[2]], 'open': False} for i, c in enumerate(self.map.get('chests', []))}
+        self.chests = {i + 1: {'p': [c[0], c[1], c[2]], 'open': False, 'gold': len(c) > 4 and bool(c[4])} for i, c in enumerate(self.map.get('chests', []))}
         self.items = {}
         self.plane = None
         self.gas = None
@@ -715,8 +727,14 @@ class Room:
         p.sc += 1
         p.protect_until = now() + PROTECT
         p.last_active = now()      # a fresh life starts the idle clock again
+        # outside the royale nobody can be hurt until they have done something: a player
+        # left standing in another tab is not a free kill
+        p.afk_guard = self.mode != 'royale'
+        p.fall_y = None
+        p.fall_force = False
+        p.surv = 0
         p.in_round = True
-        p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team, 'lv': p.lives})
+        p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team, 'lv': p.lives, 'guard': 1 if p.afk_guard else 0})
         if self.mode == 'royale':
             p.send(self.inv_msg(p))
         self.roster_dirty = True
@@ -996,7 +1014,7 @@ class Room:
             q = self.players.get(tid)
             if not q or not q.alive or not self.enemies(p, q):
                 continue
-            if t < q.protect_until:
+            if t_protected(q):
                 shielded = True
                 continue
             d = dist3(p.pos, q.pos)
@@ -1068,7 +1086,7 @@ class Room:
             print('room %s: dropped %s shot from %s (%s)' % (self.name, why, p.name, ', '.join('%s=%d' % kv for kv in sorted(p.rejects.items()))), flush=True)
 
     def damage(self, q, attacker, dmg, w, head):
-        if not q.alive or dmg <= 0 or q.aboard:
+        if not q.alive or dmg <= 0 or q.aboard or q.afk_guard:
             return
         if w in ('flamer', 'molotov'):
             q.burn_until = now() + BURN_TIME
@@ -1144,6 +1162,7 @@ class Room:
         if royale_live:
             out = True
             q.place = 1 + sum(1 for x in self.players.values() if x.alive and not x.late)
+            q.surv = int(max(0.0, now() - q.alive_since))
             self.drop_kit(q)
         if out:
             q.respawn_at = 0
@@ -1697,6 +1716,7 @@ class Room:
             if d >= P['len'] and not any(p.aboard for p in self.players.values()):
                 self.plane = None
         self.update_gas(t)
+        self.watch_falls(t)
         # medkits working, perks coming back
         for p in self.players.values():
             if not p.alive:
@@ -1729,7 +1749,12 @@ class Room:
     def finish_royale(self, winner):
         w = self.players.get(winner)
         self.plane = None
+        t = now()
         for p in self.players.values():
+            if p.alive and not p.late:
+                p.surv = int(max(0.0, t - p.alive_since))
+                if p is not w and not p.place:
+                    p.place = 2
             if p is w:
                 p.place = 1
                 p.send(self.stats_msg(p, True))
@@ -1743,6 +1768,52 @@ class Room:
                 p.send(self.stats_msg(p, False))
             p.alive = False
             p.aboard = False
+        # the match's table, for everyone in the room to look over
+        rows = [{'id': p.id, 'n': p.name, 'pl': p.place or 0, 'k': p.kills, 'd': int(p.dmg), 'sv': p.surv, 'ch': p.chests}
+                for p in self.players.values() if not p.late]
+        rows.sort(key=lambda r: (r['pl'] or 999, -r['k']))
+        self.broadcast({'t': 'brend', 'rows': rows, 'w': w.name if w else '', 'of': max(self.br_total, 1)})
+
+    def land_height(self, x, z, y):
+        """The highest thing under a point in the air, up to a little above it, or the ground."""
+        best = 0.0
+        for (cx, cy, cz, hx, hy, hz, yaw, mat, tint) in self.map['boxes']:
+            top = cy + hy
+            if top <= best or top > y + 0.5:
+                continue
+            if abs(cx - x) > hx + hz or abs(cz - z) > hx + hz:
+                continue
+            c, s = math.cos(yaw), math.sin(yaw)
+            dx, dz = x - cx, z - cz
+            lx = c * dx - s * dz
+            lz = s * dx + c * dz
+            if abs(lx) <= hx and abs(lz) <= hz:
+                best = top
+        return best
+
+    def watch_falls(self, t):
+        """Nobody hangs in the air. A player whose fall has stopped (the game paused, the
+        tab put away) is brought down by the server onto whatever is under them."""
+        for p in self.players.values():
+            if not p.alive or p.aboard or not (p.flags & 65536):
+                p.fall_y = None
+                p.fall_force = False
+                continue
+            if p.fall_force:
+                ground = self.land_height(p.pos[0], p.pos[2], p.pos[1])
+                y = max(ground, p.pos[1] - FALL_SPEED * TICK)
+                p.pos[1] = y
+                landed = y <= ground + 0.01
+                if landed:
+                    p.fall_force = False
+                    p.fall_y = None
+                    p.fall_lock = t + 4.0
+                    p.flags &= ~(65536 | 131072)
+                p.send({'t': 'fallto', 'p': [round(v, 2) for v in p.pos], 'land': 1 if landed else 0})
+            elif p.fall_y is None or p.pos[1] < p.fall_y - 0.5:
+                p.fall_y, p.fall_t = p.pos[1], t
+            elif t - p.fall_t > 2.0:
+                p.fall_force = True
 
     def stats_msg(self, p, won):
         t = now()
@@ -1771,8 +1842,11 @@ class Room:
             it['fuel'] = 100
         return it
 
-    def roll_chest(self):
-        """What a chest holds: nearly always a gun with ammo for it, and some of the rest."""
+    def roll_chest(self, gold=False):
+        """What a chest holds: nearly always a gun with ammo for it, and some of the rest.
+        A gold chest holds one legendary gun and nothing else."""
+        if gold:
+            return [self.gun_item(random.choice(BR_PRIMARIES), 'legendary')]
         items = []
         if random.random() < 0.92:
             w = random.choice(BR_PRIMARIES) if random.random() < 0.6 else random.choice(BR_SECONDARIES)
@@ -1816,7 +1890,7 @@ class Room:
         C['open'] = True
         p.chests += 1
         p.last_active = now()
-        added = [self.add_item(it, C['p']) for it in self.roll_chest()]
+        added = [self.add_item(it, C['p']) for it in self.roll_chest(C.get('gold', False))]
         self.broadcast({'t': 'chest', 'id': cid, 'open': 1, 'by': p.id})
         if added:
             self.broadcast({'t': 'items', 'add': added})
@@ -2164,7 +2238,7 @@ class Room:
             f = p.flags & ~(1 | 128 | 2048)
             if p.alive:
                 f |= 1
-            if t < p.protect_until:
+            if t_protected(p):
                 f |= 128
             if p.id in self.drones:
                 f |= 2048   # flying a drone: the body stands still, head down over the controller
@@ -2208,7 +2282,7 @@ class Room:
 
 
 def t_protected(q):
-    return now() < q.protect_until
+    return now() < q.protect_until or q.afk_guard
 
 
 def is_owner(p):
@@ -2272,6 +2346,11 @@ def ensure_rooms():
 
 
 def quick_room(mode):
+    if mode == 'royale':
+        # one Souk Royale at a time: everyone drops into the same match, or waits for the next
+        mine = sorted((r for r in rooms.values() if r.mode == 'royale'), key=lambda r: (not r.persistent, r.id))
+        if mine:
+            return mine[0]
     best = None
     for r in rooms.values():
         if r.mode == mode and r.count() < r.max:
@@ -2492,6 +2571,8 @@ class Conn:
             if r and not p.room:
                 self.send_raw(json.dumps({'t': 'map', 'map': r.map, 'preview': True}, separators=(',', ':')))
             return
+        if p.room is not None and t in ('perk', 'jump', 'reload', 'plant', 'dr', 'fkin', 'open', 'pick', 'vest'):
+            p.acted()
         if t == 'ping':
             p.ping = int(num(m.get('rtt'), 0, 9999))
             self.send({'t': 'pong', 'c': m.get('c')})
@@ -2512,6 +2593,8 @@ class Conn:
                 if mode not in MODES:
                     return
                 r = quick_room(mode)
+                if r.count() >= r.max:
+                    return self.send({'t': 'err', 'm': '%s is full (%d/%d). Try again in a moment.' % (r.name, r.count(), r.max)})
             p.pick(m)
             p.last_active = now()
             if 'cos' in m:
@@ -2584,6 +2667,8 @@ class Conn:
                 return
             r = p.room
             old_pos = list(p.pos)
+            if p.fall_force or (now() < p.fall_lock and num(vec3(m.get('p'))[1]) > p.pos[1] + 1.0):
+                return       # their client stopped mid-air: the server has them, and what it says goes
             if r.mode == 'bomb' and r.phase == 'freeze':
                 pos = vec3(m.get('p'))
                 if dist2(pos, p.pos) < 0.5:
@@ -2599,17 +2684,17 @@ class Conn:
             if 'fu' in m:
                 p.fuel = num(m.get('fu'), 0, 100, p.fuel)
             if dist3(p.pos, old_pos) > 0.3 or abs(num(m.get('y')) - p.yaw) > 0.05:
-                p.last_active = now()
+                p.acted()
             p.yaw = num(m.get('y'))
             p.pitch = num(m.get('pi'), -1.6, 1.6)
             p.flags = int(num(m.get('f'), 0, 1 << 20))
             p.slot = int(num(m.get('sl'), 0, 3))
             p.byaw = num(m.get('by'), default=p.yaw) if 'by' in m else p.yaw
         elif t == 'shot':
-            p.last_active = now()
+            p.acted()
             p.room.handle_shot(p, m)
         elif t == 'nade':
-            p.last_active = now()
+            p.acted()
             p.room.handle_nade(p, m)
         elif t == 'boom':
             p.room.handle_boom(p, m)

@@ -660,7 +660,10 @@ class Manor(Town):
             self.deco.append({'k': 'road', 'w': rd['w'], 'c': rd['c'], 'h': rd.get('h', 0.0), 'pts': [[round(x, 2), round(z, 2)] for (x, z) in rd['pts']]})
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': 0.0, 'r': 10})
         self.areas.append({'n': 'East Gate', 'x': self.spawn_e[0], 'z': 0.0, 'r': 10})
-        self.pick_spawns()
+        if not self.open:
+            self.pick_spawns()      # a quarter of the royale map has no spawns of its own
+        else:
+            self.ffa_spawns, self.team_spawns = [], [[], []]
 
     def pool(self, x, z, w, d):
         """A swimming pool: water inside a marble coping, loungers along one side, a diving board."""

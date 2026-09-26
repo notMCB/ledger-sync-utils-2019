@@ -538,7 +538,10 @@ class Town:
         self.place_props()
         # the tunnels are closed for now (their exploits are being worked on): no hatches, no network
         # self.dig_tunnels()
-        self.pick_spawns()
+        if not self.open:
+            self.pick_spawns()      # a quarter of the royale map has no spawns of its own
+        else:
+            self.ffa_spawns, self.team_spawns = [], [[], []]
 
     # -- tunnels ---------------------------------------------------------------
 

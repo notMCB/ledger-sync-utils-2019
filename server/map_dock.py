@@ -366,7 +366,10 @@ class Dockyard(Town):
                 self.portal(cx, bz - 0.02, math.pi, CROSS_W - 0.6, 3.3)
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': 0.0, 'r': 10})
         self.areas.append({'n': 'East Gate', 'x': self.spawn_e[0], 'z': 0.0, 'r': 10})
-        self.pick_spawns()
+        if not self.open:
+            self.pick_spawns()      # a quarter of the royale map has no spawns of its own
+        else:
+            self.ffa_spawns, self.team_spawns = [], [[], []]
 
     def road_dist(self, x, z):
         # the asphalt is open ground: spawns and props may use it (props check on_road themselves)

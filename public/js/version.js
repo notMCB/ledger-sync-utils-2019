@@ -2,9 +2,25 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.2.0';
+export const VERSION = '3.2.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.2.1',
+    date: '26 September 2026',
+    title: 'Souk Royale: Downtown',
+    notes: [
+      'The map is bigger and the four towns have moved out to its corners. In the middle now is Downtown: a grid of avenues and streets, glass towers with lobbies you can walk into, two-storey shops, a park, a car park and a building site. It is the largest place on the map and full of chests.',
+      'The Spire stands in the middle of Downtown: thirty storeys of glass with a marble lobby, a stairwell all the way up, terraces where it steps back, and the gold room at the very top. The three gold chests up there each hold one legendary gun and nothing else. Parachute onto the roof, or climb.',
+      'Real roads: a ring road round the city, the avenues running out to it, spurs to Ridgeline, Old Town and the Dockyard, the Manor’s drive coming up to meet it, and field roads across the open country. Every road is solid: you stand and drive on the road itself, and it steps with the ground.',
+      'Golf carts from the Manor and forklifts from the Dockyard are on the map, and they climb kerbs and steps of ground now.',
+      'One Souk Royale at a time. Everyone who picks Souk Royale drops into the same match; join while one is under way and you watch it, then drop with everybody in the next. One big game, not several empty ones.',
+      'You can carry three spare vests, up from two.',
+      'Pausing while you fall no longer leaves you hanging in the air, and neither does putting the tab away: you keep falling, and if your game stops the server brings you down to the ground itself.',
+      'At the end of every Souk Royale, the results: everyone’s placing, kills, damage, time survived and chests, on one table you can look over.',
+      'Every other mode: a fresh life cannot be hurt until you move or shoot. Someone left standing in another tab is no longer a free kill.',
+    ],
+  },
   {
     version: '3.2.0',
     date: '25 September 2026',

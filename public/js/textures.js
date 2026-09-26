@@ -653,3 +653,34 @@ export function rug(color) {
   g.fill();
   return tex(c, false);
 }
+
+// the face of a glass tower: four windows across and two storeys up in each repeat
+// (6.4 m), some of them lit, with the spandrel bands between the floors
+export function windows() {
+  const S = 256;
+  const [c, g] = canvas(S);
+  const r = rng(83);
+  g.fillStyle = '#34424f';
+  g.fillRect(0, 0, S, S);
+  speckle(g, S, r, 600, ['rgba(255,255,255,0.06)', 'rgba(0,0,0,0.12)'], 1, 2);
+  for (let row = 0; row < 2; row++) {
+    const y0 = row * (S / 2);
+    g.fillStyle = '#242c34';
+    g.fillRect(0, y0, S, 14);                      // the spandrel
+    g.fillRect(0, y0 + S / 2 - 10, S, 10);
+    for (let col = 0; col < 4; col++) {
+      const x0 = col * (S / 4);
+      g.fillStyle = '#242c34';
+      g.fillRect(x0, y0, 5, S / 2);                // the mullion
+      const lit = r() < 0.28;
+      const grd = g.createLinearGradient(x0, y0 + 14, x0 + S / 4, y0 + S / 2 - 10);
+      grd.addColorStop(0, lit ? 'rgba(255,226,172,0.8)' : 'rgba(160,196,224,0.55)');
+      grd.addColorStop(1, lit ? 'rgba(255,200,130,0.6)' : 'rgba(62,84,104,0.6)');
+      g.fillStyle = grd;
+      g.fillRect(x0 + 5, y0 + 14, S / 4 - 5, S / 2 - 24);
+      g.fillStyle = 'rgba(255,255,255,0.1)';
+      g.fillRect(x0 + 10, y0 + 18, 10, S / 2 - 32);   // a reflection down one edge
+    }
+  }
+  return tex(c);
+}

@@ -41,9 +41,16 @@ def unshielded(watcher, pid):
 
 
 async def settle(watcher, *targets):
-    """Wait for everyone to spawn and their spawn protection to lapse."""
+    """Wait for everyone to spawn and their spawn protection to lapse. Since 3.2.1 a
+    fresh life stays protected until its player does something, so each one takes a step."""
     for t in targets:
-        await wait(lambda: unshielded(watcher, t.id), 12, '%s to spawn unshielded' % t.name)
+        await wait(lambda: t.alive, 12, '%s to spawn' % t.name)
+        for _ in range(30):
+            if unshielded(watcher, t.id):
+                break
+            t.move([t.pos[0] + 0.5, t.pos[1], t.pos[2] + 0.5])
+            await asyncio.sleep(0.4)
+        await wait(lambda: unshielded(watcher, t.id), 6, '%s to spawn unshielded' % t.name)
 
 
 async def test_knife():

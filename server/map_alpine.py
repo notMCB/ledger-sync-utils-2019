@@ -600,7 +600,10 @@ class Alpine(Town):
             self.deco.append({'k': 'site', 'x': round(sx, 2), 'y': round(self.ground(sx, sz), 2), 'z': round(sz, 2), 'r': 4.5, 'l': label})
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': round(self.spawn_w[1], 1), 'r': 10})
         self.areas.append({'n': 'East Gate', 'x': self.spawn_e[0], 'z': round(self.spawn_e[1], 1), 'r': 10})
-        self.pick_spawns()
+        if not self.open:
+            self.pick_spawns()      # a quarter of the royale map has no spawns of its own
+        else:
+            self.ffa_spawns, self.team_spawns = [], [[], []]
         zf = self.z_face
         self.ffa_spawns = self.spawn_y([s for s in self.ffa_spawns if s[1] > zf + 1.5])
         self.team_spawns = [self.spawn_y(z) for z in self.team_spawns]
