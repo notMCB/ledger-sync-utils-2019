@@ -4,7 +4,7 @@
 the gold chests, the results table, the server bringing a stalled fall down,
 and a fresh life that can't be hurt until it moves.
 
-    SOUK_GAS=0.2 DATA_DIR=/tmp/souk-321 ACCOUNTS=0 python3 server/server.py 8770 &   # then:
+    SOUK_BOTS=0 DATA_DIR=/tmp/souk-321 ACCOUNTS=0 python3 server/server.py 8770 &   # then (normal gas: the loot takes a while):
     DATA_DIR=/tmp/souk-321 python3 tools/test_v321.py
 """
 

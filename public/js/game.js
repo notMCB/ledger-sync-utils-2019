@@ -534,6 +534,9 @@ export class Game {
     this.inRoom = true;
     this.room = m.room;
     this.myId = m.you;
+    this.liveT = this.clock;
+    this.dmgDealt = 0;
+    this.late = false;
     this.me.team = m.team;
     this.me.alive = false;
     this.me.aboard = false;
@@ -757,6 +760,7 @@ export class Game {
     this.endMyChute();
     let by = m.by && m.by !== this.myId ? `Killed by <b>${escapeHtml(m.byn)}</b>` : m.w === 'bomb' ? 'Caught in the blast' : m.w === 'gas' ? 'Lost to the gas' : 'You died';
     if (m.late) by = 'A match is under way';
+    this.late = !!m.late;
     if (m.lv !== undefined && m.lv >= 0) by += m.lv > 0 ? ` · ${m.lv} ${m.lv === 1 ? 'life' : 'lives'} left` : ' · no lives left, most kills wins';
     this.ui.showDeath(by, me.respawnAt, !!m.late);
   }
@@ -782,7 +786,8 @@ export class Game {
 
   onPhase(prev, ph) {
     const g = this.g;
-    if (ph === 'waiting') this.hud.center('Warm-up', this.br ? 'The plane leaves when a second player joins' : 'The match starts when a second player joins', '', 3, 1);
+    if (ph === 'live') { this.liveT = this.clock; this.dmgDealt = 0; }
+    if (ph === 'waiting') this.hud.center('Warm-up', this.br ? 'The plane leaves in a moment. Bots fill the empty seats' : 'The match starts when a second player joins', '', 3, 1);
     if (ph === 'ended' && this.br) { this.me.aboard = false; this.me.falling = null; this.endMyChute(); }
     if (ph === 'live' && g.mode !== 'bomb') {
       this.hud.center(MODE_INFO[g.mode].name, this.goalText(), '', 3.5, 2);
@@ -833,14 +838,20 @@ export class Game {
         if (m.k === this.myId && m.v !== this.myId && WEAPONS[m.w]) locker.addKill(m.w);
         if (m.k === this.myId && m.v !== this.myId) {
           for (const t of locker.passKill()) this.hud.center(`Battle Pass tier ${t.n}`, `${t.name} unlocked`, 'gold', 4, 3);
+          if (!this.warmup()) {
+            locker.stat('kills');
+            if (m.hs) locker.stat('hs');
+            if (m.d) { const st = locker.stats(); if (m.d > (st.long || 0)) locker.stat('long', m.d - (st.long || 0)); }
+          }
         }
+        if (m.v === this.myId && !this.warmup()) locker.stat('deaths');
         m.kc = this.colorOf(m.k);
         m.vc = this.colorOf(m.v);
         this.hud.feedKill(m, this.myId);
         if (m.k === this.myId && m.v !== this.myId) this.hud.center(`Killed ${m.vn}`, m.hs ? 'Headshot' : '', '', 1.6, 1);
         break;
       }
-      case 'assist': this.hud.center('Assist', `Helped kill ${m.v}`, '', 1.4, 1); break;
+      case 'assist': this.hud.center('Assist', `Helped kill ${m.v}`, '', 1.4, 1); if (!this.warmup()) locker.stat('assists'); break;
       case 'join': if (m.id !== this.myId) this.hud.feedText(`${m.n} joined`); break;
       case 'leave': this.hud.feedText(`${m.n} left`); break;
       case 'swap': if (m.id === this.myId) this.hud.center(`Moved to ${TEAM_NAMES[m.tm]}`, 'Teams were rebalanced', TEAM_NAMES[m.tm].toLowerCase(), 3, 3); break;
@@ -879,6 +890,16 @@ export class Game {
       }
       case 'matchend': {
         let big, cls = '';
+        // a guest's lifetime numbers: the match, the win, the time, the damage
+        if (!this.late) {
+          locker.stat('matches');
+          const wonIt = isTeamMode(g.mode) ? m.w === this.me.team : m.w === this.myId;
+          if (wonIt && (g.mode !== 'royale' || (g.n || 0) >= 2)) locker.stat('wins');
+          if (g.mode === 'royale') locker.stat('royales');
+          locker.stat('time', Math.max(0, Math.floor(this.clock - (this.liveT || this.clock))));
+          locker.stat('dmg', Math.floor(this.dmgDealt || 0));
+          this.dmgDealt = 0;
+        }
         if (g.mode === 'royale') {
           const won = m.w === this.myId;
           big = won ? 'Souk Royale' : m.w > 0 ? `${this.nameOf(m.w)} takes the Souk Royale` : 'Nobody left standing';
@@ -1542,6 +1563,7 @@ export class Game {
       this.hud.hit(false, false, true);
       return;
     }
+    if (!this.warmup()) this.dmgDealt = (this.dmgDealt || 0) + (m.d || 0);
     this.hud.hit(m.k, m.hs);
     sfx.hitMarker(m.k, m.hs);
   }
@@ -2087,6 +2109,7 @@ export class Game {
   onStats(m) {
     if (!this.br) return;
     this.br.stats = m;
+    if (m.place) locker.stat('best', m.place, true);
     this.ui.showStats(m);
   }
 
@@ -3127,7 +3150,7 @@ export class Game {
     } else hud.crosshair(0, false, false);
     // held messages
     if (g) {
-      if (g.ph === 'waiting') hud.holdCenter('Waiting for players', `${g.n} of 2 needed to start · warm-up`, '');
+      if (g.ph === 'waiting') hud.holdCenter(br ? 'Warm-up' : 'Waiting for players', br ? 'The plane leaves in a moment · bots fill the empty seats' : `${g.n} of 2 needed to start · warm-up`, '');
       else if (g.ph === 'countdown') hud.holdCenter(`${br ? 'The plane leaves' : 'Match starts'} in ${Math.ceil(g.tl)}`, MODE_INFO[g.mode].name, '');
       else if (g.ph === 'freeze') hud.holdCenter(`${Math.ceil(g.tl)}`, g.att === me.team ? 'Attack — the round starts soon' : 'Defend — the round starts soon', '');
       else if (g.ph === 'ended') hud.holdCenter('Match over', `Next town in ${Math.ceil(g.tl)}`, '');
@@ -3221,6 +3244,7 @@ export class Game {
         }
       }
       this.fx.update(dt, this.world.physics, this.camera, NADE_FUSE);
+      this.world.updateLights(this.camera.position);   // the night's lamps follow you about
       this.updateKnives(dt);
       this.updateDevices(dt);
       this.updateRoyale(dt);

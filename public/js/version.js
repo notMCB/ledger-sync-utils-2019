@@ -2,9 +2,24 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.2.1';
+export const VERSION = '3.2.2';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.2.2',
+    date: '28 September 2026',
+    title: 'General fixes: stats, sound, night',
+    notes: [
+      'A stats page, from the menu and the pause menu: matches, wins, best Souk Royale placing, kills, deaths, headshots, assists, damage, longest kill, time played, favourite gun and kills by gun. Kept on your account, or on this device as a guest.',
+      'Every gun sound is new. Each gun has its own voice, close up it is the crack and the action, further off the body of the shot, and far away a dull boom that arrives late, at the speed of sound, from the direction it came. The big guns echo off the town.',
+      'Suppressors really are quiet now: no crack, just the action and a breath of gas, heard within twenty-odd metres and not beyond. Footsteps on another floor come through the floor as a dull thud. The plane can be heard from the ground, and its note bends as it passes over.',
+      'Separate volumes in Settings for guns, footsteps, the world, music and callouts. There is music on the menu and in the warm-up now, a quiet piece that never repeats; it stops when a match goes live.',
+      'Night. Four matches in ten on Old Town, the Dockyard, Ridgeline and the Manor are played after dark, and the map is picked at random rather than in turn. The port has floodlights on masts, the Manor has lamps up the drive and round the gardens and floods on the court, Ridgeline has lights at the station and over the bunker doors, the souk has strings of lanterns across every street, and every room of every building is lit. Souk Royale is always by day.',
+      'Bots fill a quiet Souk Royale: with fewer than eight players in, bots named "Bot" drop with you, loot, keep out of the gas and shoot back. A match starts with one player now. A royale won against nobody but bots does not count as a win in your stats.',
+      'The kill feed shows how far a kill was from, and the Souk Royale results name the most damage and the longest kill.',
+      'The game sends three to four times less data: the live traffic is compressed. Phones on poor Wi-Fi should feel smoother.',
+    ],
+  },
   {
     version: '3.2.1',
     date: '26 September 2026',

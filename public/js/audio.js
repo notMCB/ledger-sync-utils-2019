@@ -1,12 +1,16 @@
-// Synthesised sound: gunshots, reloads, footsteps, explosions, UI blips.
-// Nothing is loaded from files; everything is built from noise and oscillators.
+// Synthesised sound: gunshots, reloads, footsteps, explosions, UI blips, and a
+// quiet generative track for the menu. Nothing is loaded from files; everything
+// is built from noise and oscillators. Every sound goes through one of five
+// mixers (guns, footsteps, the world, music, callouts) with its own volume.
 
 import { settings } from './settings.js';
 
 let ctx = null;
 let master = null;
 let noiseBuf = null;
+const cats = {};                 // guns, steps, world, music, voice
 const listener = { x: 0, y: 0, z: 0, yaw: 0 };
+const SPEED_OF_SOUND = 340;
 
 function ensure() {
   if (ctx) return ctx;
@@ -14,12 +18,16 @@ function ensure() {
   if (!AC) return null;
   ctx = new AC();
   master = ctx.createGain();
-  master.gain.value = settings.volume;
   const comp = ctx.createDynamicsCompressor();
   comp.threshold.value = -14;
   comp.ratio.value = 4;
   master.connect(comp);
   comp.connect(ctx.destination);
+  for (const k of ['guns', 'steps', 'world', 'music', 'voice']) {
+    cats[k] = ctx.createGain();
+    cats[k].connect(master);
+  }
+  setVolumes();
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 1.5, ctx.sampleRate);
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -31,20 +39,33 @@ export function unlockAudio() {
   if (c && c.state === 'suspended') c.resume();
 }
 
-export function setVolume(v) {
-  if (master) master.gain.value = v;
+// the volumes from the settings: the master and each mixer
+export function setVolumes() {
+  if (!master) return;
+  master.gain.value = settings.volume;
+  cats.guns.gain.value = settings.volGuns;
+  cats.steps.gain.value = settings.volSteps;
+  cats.world.gain.value = settings.volWorld;
+  cats.music.gain.value = settings.volMusic;
+  cats.voice.gain.value = settings.volVoice;
+}
+
+export function setVolume() {
+  setVolumes();
 }
 
 export function setListener(x, y, z, yaw) {
   listener.x = x; listener.y = y; listener.z = z; listener.yaw = yaw;
 }
 
+const out = (k) => cats[k] || master;
+
 // distance attenuation and stereo pan for a world position (null = in your head)
 function spatial(pos, range = 60) {
   const c = ctx;
   const g = c.createGain();
   let pan = null;
-  if (!pos) return { input: g, output: g, gain: 1 };
+  if (!pos) return { input: g, output: g, gain: 1, d: 0, dy: 0 };
   const dx = pos.x - listener.x, dy = pos.y - listener.y, dz = pos.z - listener.z;
   const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
   const vol = 1 / (1 + (d / (range * 0.18)) ** 1.6);
@@ -62,7 +83,7 @@ function spatial(pos, range = 60) {
   lp.type = 'lowpass';
   lp.frequency.value = 18000 / (1 + d / 18);
   (pan || g).connect(lp);
-  return { input: g, output: lp, gain: vol };
+  return { input: g, output: lp, gain: vol, d, dy, pan };
 }
 
 function noiseBurst(dest, t, dur, f0, f1, q, vol, type = 'bandpass') {
@@ -99,47 +120,88 @@ function click(dest, t, freq, vol, dur = 0.03) {
   noiseBurst(dest, t, dur, freq, freq * 0.7, 8, vol);
 }
 
+// Each gun's voice: the crack (a bright transient), the body (a low thump), the
+// mechanical clack, a tail that rings on after, and how far it carries.
+//   crack: [start Hz, end Hz, seconds, level]   body: [start Hz, end Hz, seconds, level]
 const GUN = {
-  smg:     { crack: [2600, 700, 0.09, 0.8], body: [140, 60, 0.08, 0.5], tail: 0.25 },
-  lmg:     { crack: [1900, 500, 0.12, 0.9], body: [110, 45, 0.12, 0.7], tail: 0.35 },
-  shotgun: { crack: [1400, 200, 0.22, 1.0], body: [90, 35, 0.2, 1.0], tail: 0.6 },
-  sniper:  { crack: [3200, 300, 0.2, 1.0], body: [80, 30, 0.25, 1.0], tail: 0.9 },
-  pistol:  { crack: [2900, 800, 0.08, 0.75], body: [160, 70, 0.07, 0.45], tail: 0.22 },
-  heavy:   { crack: [2400, 150, 0.4, 1.0], body: [55, 18, 0.6, 1.0], tail: 1.8 },
-  revolver: { crack: [2500, 600, 0.13, 0.9], body: [120, 45, 0.13, 0.75], tail: 0.45 },
-  pdw:     { crack: [2800, 800, 0.08, 0.8], body: [150, 65, 0.07, 0.5], tail: 0.22 },
-  carbine: { crack: [2300, 600, 0.1, 0.85], body: [130, 55, 0.1, 0.6], tail: 0.3 },
+  smg:      { crack: [3000, 900, 0.07, 0.75], body: [150, 70, 0.07, 0.45], tail: 0.22, ring: 0, mech: [4200, 0.12], range: 110 },
+  pdw:      { crack: [3400, 1100, 0.06, 0.7], body: [170, 80, 0.06, 0.4], tail: 0.18, ring: 0, mech: [4600, 0.12], range: 100 },
+  carbine:  { crack: [2400, 650, 0.1, 0.9], body: [125, 55, 0.11, 0.65], tail: 0.34, ring: 1900, mech: [3600, 0.14], range: 140 },
+  lmg:      { crack: [1800, 450, 0.13, 0.95], body: [100, 42, 0.14, 0.8], tail: 0.42, ring: 1400, mech: [3000, 0.16], range: 150 },
+  shotgun:  { crack: [1300, 180, 0.24, 1.0], body: [85, 32, 0.24, 1.0], tail: 0.7, ring: 0, mech: [2200, 0.1], range: 130 },
+  sniper:   { crack: [3400, 320, 0.2, 1.0], body: [75, 28, 0.3, 1.0], tail: 1.1, ring: 2600, mech: [3200, 0.16], range: 200 },
+  heavy:    { crack: [2200, 140, 0.45, 1.0], body: [50, 16, 0.7, 1.0], tail: 2.2, ring: 900, mech: [2600, 0.2], range: 480 },
+  pistol:   { crack: [3100, 850, 0.07, 0.7], body: [165, 72, 0.07, 0.42], tail: 0.2, ring: 0, mech: [4400, 0.1], range: 95 },
+  revolver: { crack: [2600, 560, 0.14, 0.95], body: [115, 42, 0.14, 0.8], tail: 0.5, ring: 2100, mech: [3800, 0.12], range: 150 },
+  flamer:   { crack: [900, 300, 0.1, 0.3], body: [120, 60, 0.1, 0.3], tail: 0.2, ring: 0, mech: [2000, 0.05], range: 60 },
 };
 
+// a soft ring after the crack, the way a rifle's report hangs in the air
+function ringTone(dest, t, freq, dur, vol) {
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq, t);
+  o.frequency.exponentialRampToValueAtTime(freq * 0.6, t + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(dest);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+
+// A gunshot. Close up it is the crack, the body and the action; further off the
+// crack softens and the body takes over; far away it is a dull boom that arrives
+// late, at the speed of sound, from the direction it came, so distant fire can be
+// placed. The big guns ring on and echo. Your own shots are shaped for the ear at
+// the stock.
 export function gunshot(weapon, pos, local, suppressed = false) {
   if (!ensure()) return;
   if (suppressed) return suppressedShot(weapon, pos, local);
-  // the .50 carries across the whole town
-  const sp = spatial(pos, weapon === 'heavy' ? 420 : weapon === 'sniper' ? 160 : 110);
-  if (!sp) return;
   const g = GUN[weapon] || GUN.smg;
-  const t = ctx.currentTime;
-  sp.input.gain.value = sp.gain * (local ? 0.55 : 0.8) * (weapon === 'heavy' ? 1.3 : 1);
-  sp.output.connect(master);
+  const sp = spatial(pos, g.range);
+  if (!sp) return;
+  const d = sp.d;
+  const t = ctx.currentTime + (local ? 0 : d / SPEED_OF_SOUND);
+  const big = weapon === 'heavy' || weapon === 'sniper' || weapon === 'shotgun' || weapon === 'lmg';
+  sp.input.gain.value = sp.gain * (local ? 0.6 : 0.85) * (weapon === 'heavy' ? 1.3 : 1);
+  sp.output.connect(out('guns'));
+  // near: the crack is everything; it fades with distance faster than the body does
+  const nearK = local ? 1 : 1 / (1 + (d / 45) ** 2);
+  const farK = local ? 0 : Math.min(1, d / 90);
   const [c0, c1, cd, cv] = g.crack;
-  noiseBurst(sp.input, t, cd, c0 * (0.95 + Math.random() * 0.1), c1, 0.7, cv);
+  if (nearK > 0.02) noiseBurst(sp.input, t, cd, c0 * (0.95 + Math.random() * 0.1), c1, 0.7, cv * nearK);
   noiseBurst(sp.input, t, g.tail, 900, 120, 0.4, cv * 0.35, 'lowpass');
   const [b0, b1, bd, bv] = g.body;
-  thump(sp.input, t, b0, b1, bd, bv);
-  // mechanical clack for the shooter
-  if (local) click(sp.input, t + 0.01, 4200, 0.12, 0.02);
+  thump(sp.input, t, b0, b1, bd * (1 + farK * 0.6), bv);
+  // far off: a second, duller boom rolling in behind, the report off the ground and walls
+  if (farK > 0.05) {
+    noiseBurst(sp.input, t + 0.03, 0.35 + farK * 0.4, 420, 90, 0.5, 0.5 * farK * (big ? 1.2 : 0.8), 'lowpass');
+    thump(sp.input, t + 0.02, 70, 30, 0.5, 0.5 * farK);
+  }
+  if (g.ring && nearK > 0.05) ringTone(sp.input, t + 0.005, g.ring * (0.97 + Math.random() * 0.06), g.tail * 0.8, 0.09 * nearK * (local ? 0.6 : 1));
+  // outdoors the big guns echo back off the town
+  if (big) {
+    for (const [dt, v] of [[0.13, 0.22], [0.29, 0.1]]) noiseBurst(sp.input, t + dt, 0.18, 600, 150, 0.6, cv * v, 'lowpass');
+  }
+  // the action cycling, for the one holding it
+  if (local) click(sp.input, t + 0.012, g.mech[0], g.mech[1], 0.02);
 }
 
-// a suppressed shot: a muffled thump and the action cycling, heard much closer in
+// A suppressed shot: no crack at all. A short breath of gas, the bolt going back
+// and forth, a faint thump. Heard within twenty-odd metres, nothing beyond it.
 function suppressedShot(weapon, pos, local) {
-  const sp = spatial(pos, 35);
+  const g = GUN[weapon] || GUN.smg;
+  const sp = spatial(pos, 28);
   if (!sp) return;
   const t = ctx.currentTime;
-  sp.input.gain.value = sp.gain * (local ? 0.5 : 0.7);
-  sp.output.connect(master);
-  noiseBurst(sp.input, t, 0.09, 1400, 400, 0.6, weapon === 'sniper' ? 0.7 : 0.5, 'lowpass');
-  thump(sp.input, t, weapon === 'sniper' ? 120 : 170, 60, 0.07, 0.35);
-  click(sp.input, t + 0.015, 3200, 0.18, 0.02);
+  const bigQ = weapon === 'sniper' || weapon === 'heavy' || weapon === 'shotgun';
+  sp.input.gain.value = sp.gain * (local ? 0.42 : 0.55);
+  sp.output.connect(out('guns'));
+  noiseBurst(sp.input, t, bigQ ? 0.11 : 0.07, 1100, 350, 0.7, bigQ ? 0.55 : 0.4, 'lowpass');
+  thump(sp.input, t, bigQ ? 110 : 150, 55, 0.06, bigQ ? 0.3 : 0.2);
+  click(sp.input, t + 0.012, g.mech[0] * 0.8, 0.16, 0.018);
+  if (weapon !== 'sniper' && weapon !== 'shotgun') click(sp.input, t + 0.06, g.mech[0] * 0.55, 0.1, 0.02);
 }
 
 // the knife: a short whoosh, and a wet thud when it lands
@@ -147,7 +209,7 @@ export function knifeSwing(pos) {
   if (!ensure()) return;
   const sp = spatial(pos || null, 20);
   if (!sp) return;
-  sp.output.connect(master);
+  sp.output.connect(out('guns'));
   noiseBurst(sp.input, ctx.currentTime, 0.14, 1800, 300, 0.5, 0.22, 'bandpass');
 }
 
@@ -155,7 +217,7 @@ export function knifeHit(pos) {
   if (!ensure()) return;
   const sp = spatial(pos || null, 25);
   if (!sp) return;
-  sp.output.connect(master);
+  sp.output.connect(out('guns'));
   const t = ctx.currentTime;
   thump(sp.input, t, 220, 70, 0.09, 0.5);
   noiseBurst(sp.input, t, 0.07, 900, 200, 0.6, 0.3, 'lowpass');
@@ -164,7 +226,7 @@ export function knifeHit(pos) {
 export function dryFire() {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('guns'));
   click(sp.input, ctx.currentTime, 3500, 0.25, 0.025);
 }
 
@@ -174,7 +236,7 @@ export function reloadSound(weapon, dur, empty, pos) {
   const sp = spatial(pos || null, 25);
   if (!sp) return;
   sp.input.gain.value = pos ? sp.gain * 0.6 : 0.6;
-  sp.output.connect(master);
+  sp.output.connect(out('guns'));
   const t = ctx.currentTime;
   if (weapon === 'lmg') {
     click(sp.input, t + dur * 0.12, 2200, 0.35);
@@ -191,7 +253,7 @@ export function reloadSound(weapon, dur, empty, pos) {
 export function shellSound() {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('guns'));
   sp.input.gain.value = 0.5;
   click(sp.input, ctx.currentTime + 0.28, 1300, 0.5, 0.05);
 }
@@ -199,7 +261,7 @@ export function shellSound() {
 export function pumpSound(delay = 0) {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('guns'));
   sp.input.gain.value = 0.55;
   const t = ctx.currentTime + delay;
   click(sp.input, t + 0.05, 1100, 0.5, 0.06);
@@ -209,7 +271,7 @@ export function pumpSound(delay = 0) {
 export function boltSound(delay = 0) {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('guns'));
   sp.input.gain.value = 0.5;
   const t = ctx.currentTime + delay;
   click(sp.input, t + 0.08, 2600, 0.35, 0.03);
@@ -218,14 +280,26 @@ export function boltSound(delay = 0) {
   click(sp.input, t + 0.62, 2800, 0.35, 0.03);
 }
 
+// Footsteps. Someone on another floor is heard through it: a dull thud with the
+// top taken off, from above or below; someone on your own floor is the crisp step.
 export function footstep(pos, loud = 1) {
   if (!ensure()) return;
   const sp = spatial(pos, 30);
   if (!sp) return;
-  sp.input.gain.value = sp.gain * 0.35 * loud;
-  sp.output.connect(master);
   const t = ctx.currentTime;
+  const dy = pos ? sp.dy : 0;
+  const other = pos && Math.abs(dy) > 1.6 && sp.d < 22;
+  sp.output.connect(out('steps'));
+  if (other) {
+    // through the floor or the ceiling
+    sp.input.gain.value = sp.gain * 0.5 * loud;
+    thump(sp.input, t, dy > 0 ? 95 : 70, 40, 0.09, 0.6);
+    noiseBurst(sp.input, t, 0.06, 260, 120, 1.0, 0.25, 'lowpass');
+    return;
+  }
+  sp.input.gain.value = sp.gain * 0.35 * loud;
   noiseBurst(sp.input, t, 0.07, 600 + Math.random() * 300, 200, 1.2, 0.6, 'lowpass');
+  if (!pos || sp.d < 6) click(sp.input, t + 0.005, 1800 + Math.random() * 600, 0.08, 0.015);
 }
 
 export function explosion(pos) {
@@ -233,7 +307,7 @@ export function explosion(pos) {
   const sp = spatial(pos, 200);
   if (!sp) return;
   sp.input.gain.value = sp.gain;
-  sp.output.connect(master);
+  sp.output.connect(out('world'));
   const t = ctx.currentTime;
   noiseBurst(sp.input, t, 1.4, 1200, 60, 0.3, 1.0, 'lowpass');
   thump(sp.input, t, 90, 25, 0.9, 1.0);
@@ -243,7 +317,7 @@ export function explosion(pos) {
 export function hitMarker(kill, head) {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('voice'));
   sp.input.gain.value = 0.35;
   const t = ctx.currentTime;
   const o = ctx.createOscillator();
@@ -260,7 +334,7 @@ export function hitMarker(kill, head) {
 export function hurt() {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('voice'));
   sp.input.gain.value = 0.4;
   thump(sp.input, ctx.currentTime, 180, 60, 0.15, 0.7);
 }
@@ -269,7 +343,7 @@ export function beep(freq = 1800, dur = 0.08, vol = 0.3, pos = null) {
   if (!ensure()) return;
   const sp = spatial(pos, 60);
   if (!sp) return;
-  sp.output.connect(master);
+  sp.output.connect(out('voice'));
   sp.input.gain.value = pos ? sp.gain * vol : vol;
   const t = ctx.currentTime;
   const o = ctx.createOscillator();
@@ -289,7 +363,7 @@ export function uiBlip() {
 export function slide() {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('steps'));
   sp.input.gain.value = 0.35;
   noiseBurst(sp.input, ctx.currentTime, 0.7, 900, 250, 0.8, 0.5, 'lowpass');
 }
@@ -297,7 +371,7 @@ export function slide() {
 export function vault() {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('steps'));
   sp.input.gain.value = 0.4;
   const t = ctx.currentTime;
   noiseBurst(sp.input, t, 0.12, 700, 300, 1, 0.5, 'lowpass');
@@ -307,7 +381,7 @@ export function vault() {
 export function heal() {
   if (!ensure()) return;
   const sp = spatial(null);
-  sp.output.connect(master);
+  sp.output.connect(out('voice'));
   sp.input.gain.value = 0.3;
   const t = ctx.currentTime;
   noiseBurst(sp.input, t, 0.3, 3000, 1500, 2, 0.3);
@@ -327,7 +401,7 @@ export function flashPop(pos) {
   const sp = spatial(pos, 140);
   if (!sp) return;
   sp.input.gain.value = sp.gain;
-  sp.output.connect(master);
+  sp.output.connect(out('world'));
   const t = ctx.currentTime;
   noiseBurst(sp.input, t, 0.35, 4000, 600, 0.4, 1.0);
   thump(sp.input, t, 140, 50, 0.25, 0.7);
@@ -339,7 +413,7 @@ export function flame(pos, local) {
   const sp = spatial(pos, 60);
   if (!sp) return;
   sp.input.gain.value = sp.gain * (local ? 0.35 : 0.5);
-  sp.output.connect(master);
+  sp.output.connect(out('world'));
   noiseBurst(sp.input, ctx.currentTime, 0.16, 500 + Math.random() * 200, 180, 0.6, 0.5, 'lowpass');
 }
 
@@ -347,7 +421,7 @@ export function flame(pos, local) {
 export function burnCrackle() {
   if (!ensure()) return;
   const t = ctx.currentTime;
-  noiseBurst(master, t, 0.12, 2400, 900, 1.2, 0.18, 'bandpass');
+  noiseBurst(out('world'), t, 0.12, 2400, 900, 1.2, 0.18, 'bandpass');
 }
 
 // a smoke grenade: a pop, then a long hiss as it pours out
@@ -356,7 +430,7 @@ export function smokePop(pos) {
   const sp = spatial(pos, 90);
   if (!sp) return;
   sp.input.gain.value = sp.gain;
-  sp.output.connect(master);
+  sp.output.connect(out('world'));
   const t = ctx.currentTime;
   thump(sp.input, t, 160, 60, 0.12, 0.5);
   noiseBurst(sp.input, t + 0.05, 2.2, 3200, 1400, 0.6, 0.35, 'bandpass');
@@ -374,7 +448,7 @@ export function flashRing(strength) {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.18 * strength + 0.02, t + 0.05);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(master);
+  o.connect(g); g.connect(out('voice'));
   o.start(t); o.stop(t + dur + 0.05);
 }
 
@@ -385,7 +459,7 @@ export function chestOpen(pos) {
   if (!c) return;
   const sp = spatial(pos, 30);
   if (!sp) return;
-  sp.output.connect(master);
+  sp.output.connect(out('world'));
   const t = c.currentTime;
   click(sp.input, t, 900, 0.5 * sp.gain, 0.03);
   noiseBurst(sp.input, t + 0.03, 0.12, 1200, 400, 1.2, 0.18 * sp.gain, 'bandpass');
@@ -396,8 +470,8 @@ export function pickup() {
   const c = ensure();
   if (!c) return;
   const t = c.currentTime;
-  click(master, t, 1400, 0.25, 0.04);
-  click(master, t + 0.06, 2000, 0.2, 0.05);
+  click(out('world'), t, 1400, 0.25, 0.04);
+  click(out('world'), t + 0.06, 2000, 0.2, 0.05);
 }
 
 // a vest going on: straps pulled and velcro pressed
@@ -405,9 +479,9 @@ export function vestOn() {
   const c = ensure();
   if (!c) return;
   const t = c.currentTime;
-  noiseBurst(master, t, 0.35, 2500, 900, 0.8, 0.25, 'bandpass');
-  noiseBurst(master, t + 0.5, 0.25, 1800, 600, 0.8, 0.2, 'bandpass');
-  click(master, t + 0.9, 300, 0.35, 0.05);
+  noiseBurst(out('world'), t, 0.35, 2500, 900, 0.8, 0.25, 'bandpass');
+  noiseBurst(out('world'), t + 0.5, 0.25, 1800, 600, 0.8, 0.2, 'bandpass');
+  click(out('world'), t + 0.9, 300, 0.35, 0.05);
 }
 
 // the gas warning: a two-tone siren
@@ -424,19 +498,20 @@ export function siren() {
     g.gain.exponentialRampToValueAtTime(0.12, t + i * 0.45 + 0.03);
     g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.45 + 0.42);
     o.connect(g);
-    g.connect(master);
+    g.connect(out('voice'));
     o.start(t + i * 0.45);
     o.stop(t + i * 0.45 + 0.45);
   }
 }
 
-// the plane: a drone of engines that follows it about the sky; call every frame
+// the plane: a drone of four engines that follows it about the sky, heard from
+// the ground as it comes over, the note bending down as it passes; call every frame
 let plane = null;
 export function planeHum(on, pos) {
   const c = ensure();
   if (!c) return;
   if (!on) {
-    if (plane) { plane.g.gain.setTargetAtTime(0.0001, c.currentTime, 0.3); setTimeout(() => { try { plane.o.stop(); plane.o2.stop(); } catch (e) { /* done */ } }, 800); plane = null; }
+    if (plane) { plane.g.gain.setTargetAtTime(0.0001, c.currentTime, 0.3); setTimeout(() => { try { plane.o.stop(); plane.o2.stop(); plane.o3.stop(); } catch (e) { /* done */ } }, 800); plane = null; }
     return;
   }
   if (!plane) {
@@ -446,20 +521,35 @@ export function planeHum(on, pos) {
     const o2 = c.createOscillator();
     o2.type = 'sawtooth';
     o2.frequency.value = 93;
+    const o3 = c.createOscillator();
+    o3.type = 'square';
+    o3.frequency.value = 31;
     const f = c.createBiquadFilter();
     f.type = 'lowpass';
     f.frequency.value = 260;
     const g = c.createGain();
     g.gain.value = 0.0001;
-    o.connect(f); o2.connect(f); f.connect(g); g.connect(master);
-    o.start(); o2.start();
-    plane = { o, o2, g, f };
+    const g3 = c.createGain();
+    g3.gain.value = 0.35;
+    o.connect(f); o2.connect(f); o3.connect(g3); g3.connect(f); f.connect(g); g.connect(out('world'));
+    o.start(); o2.start(); o3.start();
+    plane = { o, o2, o3, g, f, lastD: null, lastT: c.currentTime };
   }
   const dx = pos.x - listener.x, dy = pos.y - listener.y, dz = pos.z - listener.z;
   const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  const vol = 0.22 / (1 + (d / 60) ** 1.4);
+  const vol = 0.5 / (1 + (d / 150) ** 1.5);
   plane.g.gain.setTargetAtTime(Math.max(0.0001, vol), c.currentTime, 0.1);
-  plane.f.frequency.setTargetAtTime(160 + 400 / (1 + d / 40), c.currentTime, 0.1);
+  plane.f.frequency.setTargetAtTime(110 + 500 / (1 + d / 90), c.currentTime, 0.1);
+  // doppler: closing raises the note, going away drops it
+  const now = c.currentTime;
+  if (plane.lastD !== null && now > plane.lastT + 0.05) {
+    const v = (d - plane.lastD) / (now - plane.lastT);
+    const k = Math.max(0.85, Math.min(1.15, SPEED_OF_SOUND / (SPEED_OF_SOUND + v)));
+    plane.o.frequency.setTargetAtTime(62 * k, now, 0.2);
+    plane.o2.frequency.setTargetAtTime(93 * k, now, 0.2);
+    plane.o3.frequency.setTargetAtTime(31 * k, now, 0.2);
+    plane.lastD = d; plane.lastT = now;
+  } else if (plane.lastD === null) { plane.lastD = d; plane.lastT = now; }
 }
 
 // a firework going up and bursting
@@ -468,7 +558,7 @@ export function firework(pos) {
   if (!c) return;
   const sp = spatial(pos, 120);
   if (!sp) return;
-  sp.output.connect(master);
+  sp.output.connect(out('world'));
   const t = c.currentTime;
   thump(sp.input, t, 160, 40, 0.4, 0.5 * sp.gain);
   noiseBurst(sp.input, t, 0.5, 3000, 300, 0.6, 0.35 * sp.gain, 'bandpass');
@@ -480,8 +570,8 @@ export function chutePop() {
   const c = ensure();
   if (!c) return;
   const t = c.currentTime;
-  noiseBurst(master, t, 0.25, 1500, 300, 0.7, 0.5, 'bandpass');
-  thump(master, t, 120, 50, 0.2, 0.3);
+  noiseBurst(out('world'), t, 0.25, 1500, 300, 0.7, 0.5, 'bandpass');
+  thump(out('world'), t, 120, 50, 0.2, 0.3);
 }
 
 export function ding(pos, head) {
@@ -489,7 +579,7 @@ export function ding(pos, head) {
   const sp = spatial(pos, 140);
   if (!sp) return;
   sp.input.gain.value = Math.max(0.25, sp.gain);
-  sp.output.connect(master);
+  sp.output.connect(out('voice'));
   const t = ctx.currentTime;
   for (const [f, v] of [[head ? 2400 : 1700, 0.3], [head ? 3900 : 2750, 0.12]]) {
     const o = ctx.createOscillator();
@@ -500,5 +590,89 @@ export function ding(pos, head) {
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
     o.connect(g); g.connect(sp.input);
     o.start(t); o.stop(t + 0.65);
+  }
+}
+
+// -- music -------------------------------------------------------------------------
+// A slow, quiet piece for the menu and the warm-up: a pad on a drifting chord and a
+// plucked line over it, in a scale with a souk's colour. It fades out when a match
+// goes live and comes back after. Nothing repeats exactly.
+let music = null;
+const SCALE = [0, 1, 4, 5, 7, 8, 10];                     // Phrygian dominant, on D
+const CHORDS = [[0, 4, 7], [-2, 1, 5], [-4, 0, 3], [-5, -1, 2]];
+const NOTE = (semi) => 146.83 * Math.pow(2, semi / 12);   // D3
+
+function musicTick() {
+  if (!music || !ctx) return;
+  if (ctx.state !== 'running') {
+    // not allowed to play yet: nothing is queued up, or it would all land at once
+    music.timer = setTimeout(musicTick, 500);
+    return;
+  }
+  const t = ctx.currentTime;
+  const chord = CHORDS[music.bar % CHORDS.length];
+  // the pad: three soft voices sliding to the chord
+  chord.forEach((semi, i) => {
+    const o = music.pad[i];
+    o.frequency.setTargetAtTime(NOTE(semi - 12), t, 1.2);
+  });
+  music.bar++;
+  // the plucked line: a few notes from the scale over the bar
+  const n = 3 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < n; i++) {
+    const at = t + 0.3 + Math.random() * 6.4;
+    const semi = SCALE[Math.floor(Math.random() * SCALE.length)] + (Math.random() < 0.3 ? 12 : 0);
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = NOTE(semi);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.16, at + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 1.4);
+    o.connect(g); g.connect(music.g);
+    o.start(at); o.stop(at + 1.5);
+  }
+  music.timer = setTimeout(musicTick, 7600);
+}
+
+export function musicOn(on) {
+  const c = ensure();
+  if (!c) return;
+  if (on && !music) {
+    const g = c.createGain();
+    g.gain.value = 0.0001;
+    const f = c.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 900;
+    f.connect(g);
+    g.connect(out('music'));
+    const pad = [];
+    for (let i = 0; i < 3; i++) {
+      const o = c.createOscillator();
+      o.type = i === 1 ? 'triangle' : 'sine';
+      o.frequency.value = NOTE(CHORDS[0][i] - 12);
+      const pg = c.createGain();
+      pg.gain.value = 0.11;
+      o.connect(pg); pg.connect(f);
+      o.start();
+      pad.push(o);
+    }
+    // the filter breathes
+    const lfo = c.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.07;
+    const lg = c.createGain();
+    lg.gain.value = 350;
+    lfo.connect(lg); lg.connect(f.frequency);
+    lfo.start();
+    music = { g, f, pad, lfo, bar: 0, timer: 0 };
+    g.gain.setTargetAtTime(1.0, c.currentTime, 2.5);
+    musicTick();
+  } else if (!on && music) {
+    const m = music;
+    music = null;
+    clearTimeout(m.timer);
+    m.g.gain.setTargetAtTime(0.0001, c.currentTime, 1.2);
+    setTimeout(() => { try { for (const o of m.pad) o.stop(); m.lfo.stop(); } catch (e) { /* done */ } }, 5000);
   }
 }

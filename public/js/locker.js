@@ -29,8 +29,12 @@ const SHOOTERS = GUN_IDS.filter((g) => g !== 'knife');
 
 const KEY = 'souk-siege-locker-v1';
 
+// the numbers on the stats page, kept for life: on the account, or on this device for a guest
+export const STAT_KEYS = ['matches', 'wins', 'royales', 'best', 'kills', 'deaths', 'hs', 'assists', 'dmg', 'time', 'long'];
+const blankStats = () => Object.fromEntries(STAT_KEYS.map((k) => [k, 0]));
+
 function blank() {
-  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], kills: {}, pass: 0, muzzles: [],
+  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], kills: {}, pass: 0, muzzles: [], stats: blankStats(),
     equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {}, perk: {}, muzzle: '' }, opened: 0 };
 }
 
@@ -52,6 +56,8 @@ function normalise(s) {
   s.pass = Math.max(0, Math.floor(Number(s.pass) || 0));
   s.muzzles = Array.isArray(s.muzzles) ? s.muzzles : [];
   s.equip.muzzle = s.equip.muzzle || '';
+  s.stats = { ...blankStats(), ...(s.stats && typeof s.stats === 'object' ? s.stats : {}) };
+  for (const k of STAT_KEYS) s.stats[k] = Math.max(0, Math.floor(Number(s.stats[k]) || 0));
   grantPass(s, tierOf(s.pass), GUN_IDS);
   // older guest lockers kept one pistol finish for every loadout
   if (s.equip.guns.pistol) {
@@ -175,6 +181,31 @@ export const locker = {
 
   guestData() {
     return guest;
+  },
+
+  // -- the stats page --
+  stats() {
+    return state().stats;
+  },
+  // a guest's numbers are counted here; an account's come from the server
+  stat(key, n = 1, best = false) {
+    if (account) return;
+    const st = guest.stats;
+    st[key] = best ? (st[key] ? Math.min(st[key], n) : n) : (st[key] || 0) + n;
+    changed();
+  },
+  setStats(st) {
+    if (!account || !st) return;
+    account.stats = { ...blankStats(), ...st };
+    changed();
+  },
+  gunKills() {
+    return { ...state().kills };
+  },
+  favouriteGun() {
+    let best = null, n = 0;
+    for (const [w, k] of Object.entries(state().kills)) if (k > n) { best = w; n = k; }
+    return best ? { weapon: best, kills: n } : null;
   },
 
   // -- dinars --

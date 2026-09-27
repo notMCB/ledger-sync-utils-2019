@@ -18,6 +18,7 @@ damage.
 import asyncio
 import base64
 import gzip
+import zlib
 import hashlib
 import json
 import math
@@ -35,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.2.1'
+VERSION = '3.2.2'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -75,6 +76,11 @@ TEAM_MODES = ('tdm', 'koth', 'bomb')
 # -- the battle royale --------------------------------------------------------
 PLANE_ALT = 160.0          # how high the plane flies
 PLANE_SPEED = 24.0         # metres a second
+NIGHT_CHANCE = float(os.environ.get('SOUK_NIGHT') or 0.4)   # how often a match is played after dark
+BOT_FILL = int(os.environ.get('SOUK_BOTS') or 8)            # a quiet royale is filled up to this many with bots
+BOT_NAMES = ['Bot Ahmed', 'Bot Layla', 'Bot Omar', 'Bot Zara', 'Bot Idris', 'Bot Nadia', 'Bot Samir', 'Bot Rania',
+             'Bot Tariq', 'Bot Yasmin', 'Bot Karim', 'Bot Hana', 'Bot Faris', 'Bot Dalia']
+BOT_SPEED = 4.6
 FALL_SPEED = 26.0          # a player brought down by the server falls this fast
 PLANE_MARGIN = 70.0        # it starts and ends this far outside the map
 # the gas: (radius it closes from, radius it closes to, seconds before it moves, seconds it takes, health a second outside it)
@@ -320,6 +326,7 @@ class Player:
         next_ids['p'] += 1
         self.conn = conn
         self.name = name
+        self.bot = False
         self.room = None
         self.team = -1
         self.loadout = 0
@@ -506,10 +513,9 @@ class Room:
             return 'royale'
         if FORCE_MAP:
             return FORCE_MAP
+        # any of the four, never the same one twice running
         cur = getattr(self, 'map_kind', None)
-        if cur not in MAP_KINDS:
-            return MAP_KINDS[0]
-        return MAP_KINDS[(MAP_KINDS.index(cur) + 1) % len(MAP_KINDS)]
+        return random.choice([k for k in MAP_KINDS if k != cur] or list(MAP_KINDS))
 
     def prepare_map(self):
         """Build the next map on a worker thread, so matches elsewhere don't stall."""
@@ -531,6 +537,9 @@ class Room:
             self.map_kind = 'royale' if self.mode == 'royale' else (kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0]))
             town = mapgen.generate(self.seed, self.map_kind)
         self.map = town.to_json()
+        # night falls on four matches in ten, on every map but the royale's
+        self.night = self.mode != 'royale' and random.random() < NIGHT_CHANCE
+        self.map['night'] = self.night
         self.solid = mapgen.Solid(self.map['boxes'])
         # forklifts: driveable, so the server keeps their pose and who is at the wheel
         self.forklifts = {}
@@ -538,6 +547,7 @@ class Room:
             if d.get('k') in ('forklift', 'golfcart') and 'id' in d:
                 self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None}
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
+        self.map_frames = {False: frame(self.map_msg, False), True: frame(self.map_msg, True)}
         self.ladders = {}
         self.beacons = {}
         self.crates = {}
@@ -579,7 +589,7 @@ class Room:
             p.team = -1
         p.send({'t': 'joined', 'room': {'id': self.id, 'mode': self.mode, 'name': self.name},
                 'you': p.id, 'team': p.team})
-        p.conn.send_raw(self.map_msg)
+        p.conn.send_frame(self.map_frames[bool(p.conn.deflate)])
         for oid, L in self.ladders.items():
             p.send({'t': 'ladder', 'id': oid, 'p': L['p'], 'y': L['y'], 'h': L['h']})
         for oid, B in self.beacons.items():
@@ -681,9 +691,19 @@ class Room:
 
     def broadcast(self, obj, skip=None):
         raw = json.dumps(obj, separators=(',', ':'))
+        plain = zipped = None
         for p in self.players.values():
-            if p is not skip:
-                p.conn.send_raw(raw)
+            if p is skip:
+                continue
+            c = p.conn
+            if c.deflate:
+                if zipped is None:
+                    zipped = frame(raw, True)
+                c.send_frame(zipped)
+            else:
+                if plain is None:
+                    plain = frame(raw, False)
+                c.send_frame(plain)
 
     def event(self, ev, skip=None):
         self.broadcast({'t': 'ev', **ev}, skip)
@@ -776,8 +796,12 @@ class Room:
         self.winner = None
         self.round = 0
         self.attackers = random.randrange(2)
+        self.live_at = now()
+        if self.mode == 'royale':
+            self.add_bots()
         for p in self.players.values():
             p.reset_stats()
+            p.longest = 0.0
         self.rebalance()
         self.event({'e': 'matchstart'})
         if self.mode == 'bomb':
@@ -831,11 +855,27 @@ class Room:
 
     def end_match(self, winner):
         self.prepare_map()
+        t = now()
+        humans = sum(1 for p in self.players.values() if not getattr(p, 'bot', False) and not p.late)
         for p in self.players.values():
             won = (p.id == winner) if self.mode in FFA_MODES else (p.team == winner)
             self.earn(p, 'win' if won else 'match', EARN['match'] + (EARN['win'] if won else 0))
+            if p.late or p.locker is None:
+                continue
+            self.stat(p, 'matches')
+            if won and (self.mode != 'royale' or humans >= 2):
+                self.stat(p, 'wins')      # a royale won against nobody but bots is not a win
+            if self.mode == 'royale':
+                self.stat(p, 'royales')
+                if p.place:
+                    self.stat(p, 'best', p.place, best=True)
+            self.stat(p, 'dmg', int(p.dmg))
+            self.stat(p, 'time', int(max(0.0, t - max(p.joined, getattr(self, 'live_at', t)))))
+            accounts.save_locker(p.account['id'], p.locker)
+            p.send({'t': 'stats', 'stats': p.locker['stats']})
         if self.mode == 'royale':
             self.finish_royale(winner)
+            self.clear_bots()
         self.winner = winner
         self.set_phase('ended', POSTMATCH)
         self.bomb = None
@@ -1139,6 +1179,8 @@ class Room:
                 continue
             helper.assists += 1
             helper.score += 30
+            if counting:
+                self.stat(helper, 'assists')
             assisted.append(helper.name)
             helper.send({'t': 'assist', 'v': q.name})
             if counting:
@@ -1150,6 +1192,16 @@ class Room:
             if counting:
                 self.earn(attacker, 'kill', EARN['kill'] + (EARN['headshot'] if head else 0))
                 self.pass_kill(attacker, w)
+                self.stat(attacker, 'kills')
+                if head:
+                    self.stat(attacker, 'hs')
+                reach = dist3(attacker.pos, q.pos)
+                attacker.longest = max(getattr(attacker, 'longest', 0.0), reach)
+                lk = attacker.locker
+                if lk is not None:
+                    lk['stats']['long'] = max(lk['stats'].get('long', 0), int(reach))
+        if counting:
+            self.stat(q, 'deaths')
             if counting and self.mode == 'tdm':
                 self.scores[attacker.team] += 1
             if self.mode == 'oitc' and attacker.rounds < 1:
@@ -1174,13 +1226,24 @@ class Room:
             q.respawn_at = now() + delay
         self.event({'e': 'kill', 'k': attacker.id if attacker else 0, 'v': q.id, 'w': w, 'hs': head,
                     'kn': attacker.name if attacker else '', 'vn': q.name, 'as': assisted,
-                    'p': [round(v, 2) for v in q.pos]})
+                    'p': [round(v, 2) for v in q.pos], 'd': int(dist3(attacker.pos, q.pos)) if attacker and attacker is not q else 0})
         q.send({'t': 'dead', 'by': attacker.id if attacker else 0, 'byn': attacker.name if attacker else '',
                 'w': w, 'rs': max(0.0, q.respawn_at - now()) if q.respawn_at and (self.mode != 'bomb' or self.phase in ('waiting', 'countdown')) else -1,
                 'lv': q.lives if self.mode == 'oitc' else -1})
         if royale_live:
             q.send(self.stats_msg(q, False))
         self.roster_dirty = True
+
+    def stat(self, p, key, n=1, best=False):
+        """A lifetime number on a signed-in player's account: added to, or (best) the lowest kept."""
+        lk = p.locker
+        if lk is None:
+            return
+        st = lk.setdefault('stats', catalog.blank_stats())
+        if best:
+            st[key] = n if not st.get(key) else min(st[key], n)
+        else:
+            st[key] = st.get(key, 0) + n
 
     def pass_kill(self, p, w):
         """A kill on a signed-in player's account: the gun's count and the Battle Pass."""
@@ -1720,6 +1783,7 @@ class Room:
                 self.plane = None
         self.update_gas(t)
         self.watch_falls(t)
+        self.update_bots(t)
         # medkits working, perks coming back
         for p in self.players.values():
             if not p.alive:
@@ -1772,10 +1836,189 @@ class Room:
             p.alive = False
             p.aboard = False
         # the match's table, for everyone in the room to look over
-        rows = [{'id': p.id, 'n': p.name, 'pl': p.place or 0, 'k': p.kills, 'd': int(p.dmg), 'sv': p.surv, 'ch': p.chests}
+        rows = [{'id': p.id, 'n': p.name, 'pl': p.place or 0, 'k': p.kills, 'd': int(p.dmg), 'sv': p.surv, 'ch': p.chests, 'lg': int(getattr(p, 'longest', 0.0))}
                 for p in self.players.values() if not p.late]
         rows.sort(key=lambda r: (r['pl'] or 999, -r['k']))
         self.broadcast({'t': 'brend', 'rows': rows, 'w': w.name if w else '', 'of': max(self.br_total, 1)})
+
+    # -- bots: they fill a quiet royale, drop, loot, wander, keep out of the gas and shoot back --
+
+    def add_bots(self):
+        humans = sum(1 for p in self.players.values() if not p.bot)
+        want = min(BOT_FILL - humans, len(BOT_NAMES), self.max - self.count())
+        if want <= 0 or humans == 0:
+            return
+        names = [n for n in BOT_NAMES if n not in {p.name for p in self.players.values()}]
+        random.shuffle(names)
+        low = [c for c in self.map.get('chests', []) if c[1] < 2.5] or [[0, 0, 0]]
+        for name in names[:want]:
+            b = Player(BotConn(), name)
+            b.conn.player = b
+            b.bot = True
+            b.pick({'ld': random.randrange(4)})
+            b.cos = owned_cos(b, clean_cos(None))
+            c = random.choice(low)
+            b.ai = {'target': [c[0], c[2]], 'state': 'drop', 'heading': random.uniform(0, math.tau), 'turn_at': 0.0,
+                    'chest': None, 'fall': False, 'chute': False, 'fire_at': 0.0, 'looted': 0}
+            self.add(b)
+
+    def clear_bots(self):
+        for b in [p for p in self.players.values() if p.bot]:
+            self.remove(b)
+        self.roster_dirty = True
+
+    def walk_grid(self):
+        """The ground a bot can walk on, in 2 m cells: the height of the floor there and
+        whether something stands in the way. Built once a map, on first use."""
+        if getattr(self, '_grid', None) is not None:
+            return self._grid
+        bx, bz = self.map['bounds']
+        nx, nz = int(bx) + 1, int(bz) + 1
+        ground = [[0.0] * nz for _ in range(nx)]
+        block = [[False] * nz for _ in range(nx)]
+        for (cx, cy, cz, hx, hy, hz, yaw, mat, tint) in self.map['boxes']:
+            c, s = abs(math.cos(yaw)), abs(math.sin(yaw))
+            ex, ez = c * hx + s * hz, s * hx + c * hz
+            top, bot = cy + hy, cy - hy
+            i0, i1 = max(0, int((cx - ex + bx) / 2)), min(nx - 1, int((cx + ex + bx) / 2))
+            j0, j1 = max(0, int((cz - ez + bz) / 2)), min(nz - 1, int((cz + ez + bz) / 2))
+            for i in range(i0, i1 + 1):
+                for j in range(j0, j1 + 1):
+                    if top <= 2.2:
+                        if top > ground[i][j]:
+                            ground[i][j] = top
+                    elif bot < 1.8:
+                        block[i][j] = True
+        self._grid = (ground, block, bx, bz, nx, nz)
+        return self._grid
+
+    def walkable(self, x, z):
+        ground, block, bx, bz, nx, nz = self.walk_grid()
+        i, j = int((x + bx) / 2), int((z + bz) / 2)
+        if i < 1 or j < 1 or i >= nx - 1 or j >= nz - 1:
+            return None
+        return None if block[i][j] else ground[i][j]
+
+    def update_bots(self, t):
+        if self.phase != 'live':
+            return
+        for b in self.players.values():
+            if not b.bot or not b.alive:
+                continue
+            b.last_active = t
+            ai = b.ai
+            if b.aboard:
+                P = self.plane
+                if P:
+                    pos, d = self.plane_pos(t)
+                    passed = (pos[0] - ai['target'][0]) * P['dir'][0] + (pos[2] - ai['target'][1]) * P['dir'][1] if 'dir' in P else 0
+                    if self.over_map(pos[0], pos[2]) and (dist2(pos, [ai['target'][0], 0, ai['target'][1]]) < 30 or passed > 0):
+                        self.jump(b, pos)
+                        ai['fall'] = True
+                        ai['chute'] = False
+                        b.flags = 65536
+                continue
+            if ai['fall']:
+                # steering for the target, then the chute, then the ground
+                tx, tz = ai['target']
+                dx, dz = tx - b.pos[0], tz - b.pos[2]
+                L = math.hypot(dx, dz)
+                sp = (9.0 if not ai['chute'] else 3.5) * TICK
+                if L > 0.5:
+                    b.pos[0] += dx / L * min(L, sp)
+                    b.pos[2] += dz / L * min(L, sp)
+                    b.yaw = math.atan2(-dx, -dz)
+                ground = self.land_height(b.pos[0], b.pos[2], b.pos[1])
+                if not ai['chute'] and b.pos[1] - ground < 6.0:
+                    ai['chute'] = True
+                    b.flags = 65536 | 131072
+                b.pos[1] = max(ground, b.pos[1] - (3.4 if ai['chute'] else FALL_SPEED) * TICK)
+                if b.pos[1] <= ground + 0.01:
+                    ai['fall'] = False
+                    b.flags = 0
+                    ai['state'] = 'loot'
+                continue
+            # on the ground: out of the gas first, then loot, then wander; shoot at anyone close
+            g = self.gas
+            goal = None
+            if g and math.hypot(b.pos[0] - g['c'][0], b.pos[2] - g['c'][1]) > g['r'] - 6:
+                goal = [g['c'][0], g['c'][1]]
+                ai['chest'] = None
+            elif ai['state'] == 'loot':
+                if ai['chest'] is None or self.chests[ai['chest']]['open']:
+                    near = [(dist2(b.pos, C['p']), cid) for cid, C in self.chests.items()
+                            if not C['open'] and abs(C['p'][1] - b.pos[1]) < 1.5 and self.walkable(C['p'][0], C['p'][2]) is not None]
+                    near = [n for n in near if n[0] < 70]
+                    if near and ai['looted'] < 4:
+                        ai['chest'] = min(near)[1]
+                    else:
+                        ai['state'] = 'wander'
+                if ai['chest'] is not None:
+                    C = self.chests[ai['chest']]
+                    goal = [C['p'][0], C['p'][2]]
+                    if dist2(b.pos, C['p']) < CHEST_REACH - 0.4:
+                        self.handle_open(b, {'id': ai['chest']})
+                        ai['looted'] += 1
+                        ai['chest'] = None
+                        ai['pick_until'] = t + 1.5
+            if ai.get('pick_until', 0) > t:
+                for it in list(self.items.values()):
+                    if dist3(b.pos, it['p']) > PICK_REACH:
+                        continue
+                    k = it['k']
+                    if (k == 'gun' and (not b.inv['pw'] or it.get('r') in ('epic', 'legendary'))) or k in ('ammo', 'vest', 'med', 'perk') or (k == 'nade' and b.nades < 3):
+                        self.handle_pick(b, {'id': it['id']})
+            # moving
+            if goal is None:
+                if t >= ai['turn_at']:
+                    ai['heading'] = random.uniform(0, math.tau)
+                    ai['turn_at'] = t + random.uniform(2.0, 6.0)
+                    if ai['state'] == 'wander' and random.random() < 0.3:
+                        ai['state'] = 'loot'
+                hx, hz = math.sin(ai['heading']), math.cos(ai['heading'])
+            else:
+                dx, dz = goal[0] - b.pos[0], goal[1] - b.pos[2]
+                L = math.hypot(dx, dz) or 1.0
+                hx, hz = dx / L, dz / L
+                if L < 1.0:
+                    hx = hz = 0.0
+            step = BOT_SPEED * TICK
+            nxp, nzp = b.pos[0] + hx * step, b.pos[2] + hz * step
+            h = self.walkable(nxp, nzp)
+            if h is None or abs(h - b.pos[1]) > 0.9:
+                ai['heading'] = (ai['heading'] + random.choice([1.2, -1.2, math.pi])) % math.tau
+                ai['turn_at'] = t + 1.5
+                if goal is not None:
+                    hx, hz = math.sin(ai['heading']), math.cos(ai['heading'])
+                    nxp, nzp = b.pos[0] + hx * step, b.pos[2] + hz * step
+                    h = self.walkable(nxp, nzp)
+                    if h is None or abs(h - b.pos[1]) > 0.9:
+                        continue
+                else:
+                    continue
+            moving = hx or hz
+            if moving:
+                b.pos[0], b.pos[2], b.pos[1] = nxp, nzp, h
+                b.yaw = math.atan2(-hx, -hz)
+            # a shot at the nearest enemy in sight
+            w = b.inv['pw']['w'] if b.inv['pw'] else (b.inv['sw']['w'] if b.inv['sw'] else None)
+            if w and w in WEAPONS and t >= ai['fire_at']:
+                foe = None
+                bd = 45.0
+                for q in self.players.values():
+                    if q is b or not q.alive or q.aboard or q.late or (q.flags & 65536):
+                        continue
+                    d = dist3(b.pos, q.pos)
+                    if d < bd:
+                        foe, bd = q, d
+                if foe:
+                    eye = [b.pos[0], b.pos[1] + 1.5, b.pos[2]]
+                    aim = [foe.pos[0], foe.pos[1] + 1.2, foe.pos[2]]
+                    if not self.solid.blocked(eye, aim):
+                        b.yaw = math.atan2(-(aim[0] - eye[0]), -(aim[2] - eye[2]))
+                        hit = random.random() < max(0.12, 0.38 - bd / 120)
+                        self.handle_shot(b, {'w': w, 'o': eye, 'e': [aim], 'h': [[foe.id, 'b']] if hit else []})
+                        ai['fire_at'] = t + max(0.12, 60.0 / WEAPONS[w]['rpm']) * random.uniform(1.0, 2.2)
 
     def land_height(self, x, z, y):
         """The highest thing under a point in the air, up to a little above it, or the ground."""
@@ -2030,6 +2273,9 @@ class Room:
     # -- per tick --
 
     def update(self, t):
+        if self.mode == 'royale' and self.phase not in ('waiting', 'countdown') and any(p.bot for p in self.players.values()) \
+                and not any(not p.bot for p in self.players.values()):
+            self.clear_bots()      # the last human has gone: the bots do not play on alone
         n = self.count()
         self.update_devices(t)
         self.update_fires(t)
@@ -2060,13 +2306,14 @@ class Room:
                     self.spawn(p)
 
         ph = self.phase
+        enough = 2 if (self.mode != 'royale' or BOT_FILL < 2) else 1
         if ph == 'waiting':
-            if n >= 2:
+            if n >= enough:
                 cd = self.cfg.get('countdown', COUNTDOWN)
                 self.set_phase('countdown', cd)
                 self.event({'e': 'countdown', 's': cd})
         elif ph == 'countdown':
-            if n < 2:
+            if n < enough:
                 self.to_waiting('Need at least 2 players')
             elif t >= self.phase_end:
                 self.start_match()
@@ -2373,10 +2620,59 @@ def quick_room(mode):
 # connection handling
 # --------------------------------------------------------------------------
 
+class BotConn:
+    """The connection a bot has: nothing goes down it, nothing comes up it."""
+    deflate = False
+    ip = ''
+    dev = ''
+
+    def __init__(self):
+        self.closed = False
+        self.player = None
+
+    def send(self, obj):
+        pass
+
+    def send_raw(self, text):
+        pass
+
+    def send_frame(self, data):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    def banned(self, *a, **k):
+        return False
+
+
+def frame(text, deflate=False):
+    """A text frame. With permessage-deflate agreed, the payload is compressed on its own
+    (no context carried between messages) and the RSV1 bit says so."""
+    data = text.encode('utf-8')
+    first = 0x81
+    if deflate and len(data) > 60:
+        c = zlib.compressobj(6, zlib.DEFLATED, -15)
+        z = c.compress(data) + c.flush(zlib.Z_SYNC_FLUSH)
+        if z.endswith(b'\x00\x00\xff\xff'):
+            z = z[:-4]
+        data = z
+        first = 0xC1
+    n = len(data)
+    if n < 126:
+        head = struct.pack('!BB', first, n)
+    elif n < 65536:
+        head = struct.pack('!BBH', first, 126, n)
+    else:
+        head = struct.pack('!BBQ', first, 127, n)
+    return head + data
+
+
 class Conn:
-    def __init__(self, reader, writer, ip=''):
+    def __init__(self, reader, writer, ip='', deflate=False):
         self.reader = reader
         self.writer = writer
+        self.deflate = deflate     # permessage-deflate agreed with this browser
         self.closed = False
         self.player = None
         self.last_rooms = 0.0
@@ -2400,22 +2696,18 @@ class Conn:
         self.send_raw(json.dumps(obj, separators=(',', ':')))
 
     def send_raw(self, text):
+        self.send_frame(frame(text, self.deflate))
+
+    def send_frame(self, data):
+        """A ready-made frame: the same bytes can go to everyone on the same footing."""
         if self.closed:
             return
-        data = text.encode('utf-8')
-        n = len(data)
-        if n < 126:
-            head = struct.pack('!BB', 0x81, n)
-        elif n < 65536:
-            head = struct.pack('!BBH', 0x81, 126, n)
-        else:
-            head = struct.pack('!BBQ', 0x81, 127, n)
         try:
             tr = self.writer.transport
             if tr.get_write_buffer_size() > 4 * 1024 * 1024:
                 self.close()
                 return
-            self.writer.write(head + data)
+            self.writer.write(data)
         except Exception:
             self.close()
 
@@ -2431,10 +2723,13 @@ class Conn:
     async def recv(self):
         """Return the next text message, or None when the socket is done."""
         buf = b''
+        rsv1 = False
         while True:
             h = await self.reader.readexactly(2)
             fin = h[0] & 0x80
             op = h[0] & 0x0F
+            if op in (1, 2):
+                rsv1 = bool(h[0] & 0x40)
             masked = h[1] & 0x80
             ln = h[1] & 0x7F
             if ln == 126:
@@ -2466,6 +2761,11 @@ class Conn:
                     if op == 2:
                         buf = b''
                         continue
+                    if rsv1:
+                        try:
+                            buf = zlib.decompressobj(-15).decompress(buf + b'\x00\x00\xff\xff', 512 * 1024)
+                        except zlib.error:
+                            return None
                     return buf.decode('utf-8', 'replace')
 
     async def run(self):
@@ -2866,13 +3166,16 @@ async def handle_client(reader, writer):
             if path == '/ws' and 'websocket' in headers.get('upgrade', '').lower():
                 key = headers.get('sec-websocket-key', '')
                 accept = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
+                # compression, if the browser offers it: it cuts the traffic three to four times
+                deflate = 'permessage-deflate' in headers.get('sec-websocket-extensions', '')
+                ext = 'Sec-WebSocket-Extensions: permessage-deflate; server_no_context_takeover; client_no_context_takeover\r\n' if deflate else ''
                 writer.write(('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n'
-                              'Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n' % accept).encode())
+                              'Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n%s\r\n' % (accept, ext)).encode())
                 ip = (headers.get('fly-client-ip') or headers.get('x-forwarded-for', '').split(',')[0]).strip()
                 if not ip:
                     peer = writer.get_extra_info('peername')
                     ip = peer[0] if peer else ''
-                conn = Conn(reader, writer, ip)
+                conn = Conn(reader, writer, ip, deflate)
                 await conn.run()
                 return
             if method not in ('GET', 'HEAD') and not (method == 'POST' and path == '/__shot'):

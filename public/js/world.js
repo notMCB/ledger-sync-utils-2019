@@ -30,6 +30,22 @@ const THEMES = {
   // the royale map is big and seen from a plane: the haze sits further off
   royale: { top: '#5590c8', mid: '#bdd2e2', bot: '#e6d8bc', fog: '#d8cfba', near: 130, far: 460, hemi: ['#d2e0ec', '#9a8560', 1.15], sun: ['#fff0d6', 2.7, [55, 62, 35]] },
 };
+// the same maps after dark: a deep sky, a little moon, and the lamps do the rest
+const NIGHT = {
+  sand: { top: '#070c1c', mid: '#121d3a', bot: '#2e3040', fog: '#12172a', near: 34, far: 190, hemi: ['#4a5c86', '#2a231c', 0.5], sun: ['#9fb2dc', 0.5] },
+  concrete: { top: '#060b1e', mid: '#111f3a', bot: '#262c38', fog: '#111624', near: 34, far: 190, hemi: ['#485a80', '#1e2024', 0.5], sun: ['#a4b6de', 0.5] },
+  snow: { top: '#080e22', mid: '#172544', bot: '#323a4c', fog: '#1a2134', near: 30, far: 170, hemi: ['#52628a', '#2a2e3a', 0.55], sun: ['#b2c0e2', 0.55] },
+  garden: { top: '#070c1e', mid: '#121f3c', bot: '#242c2a', fog: '#121824', near: 36, far: 195, hemi: ['#485a84', '#1e2418', 0.5], sun: ['#9fb4da', 0.5] },
+};
+// what each kind of lamp does: colour, how bright, how far, and the glow on the ground
+const LAMP = {
+  flood: { c: '#e8efff', i: 55, r: 56, pool: 11.0, bulb: 0.32 },
+  wall: { c: '#ffd9a6', i: 20, r: 24, pool: 5.5, bulb: 0.18 },
+  path: { c: '#ffd2a0', i: 7, r: 13, pool: 3.6, bulb: 0.12 },
+  bulb: { c: '#ffe2b8', i: 9, r: 12, pool: 0, bulb: 0.14 },
+  string: { c: '#ffc98a', i: 8, r: 14, pool: 4.0, bulb: 0 },
+};
+const POOL = 14;             // real point lights in play at once; the nearest lamps get them
 
 let texCache = null;
 function textures() {
@@ -226,7 +242,11 @@ export class World {
 
   // the look of the sky, the haze and the light for this kind of map
   applyTheme(name) {
-    const t = THEMES[name] || THEMES.sand;
+    let t = THEMES[name] || THEMES.sand;
+    if (this.night) {
+      const n = NIGHT[name] || NIGHT.sand;
+      t = { ...t, ...n, sun: [n.sun[0], n.sun[1], t.sun[2]] };
+    }
     const u = this.sky.material.uniforms;
     u.top.value.set(t.top);
     u.mid.value.set(t.mid);
@@ -264,9 +284,89 @@ export class World {
     }
   }
 
+  // a lamp: its fixture by day, and by night the bulb lit, a glow on the ground and,
+  // when it is one of the nearest, a real light from the pool
+  addLamp(root, d) {
+    const L = LAMP[d.kind] || LAMP.bulb;
+    const dark = this.lampMat || (this.lampMat = new THREE.MeshLambertMaterial({ color: '#2c2f33' }));
+    const y0 = this.physics ? this.physics.floorAt(d.x, d.z) : 0;
+    if (d.kind === 'flood') {
+      const h = d.y - 0.2 - y0;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, h, 8), dark);
+      pole.position.set(d.x, y0 + h / 2, d.z);
+      root.add(pole);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.35, 0.5), dark);
+      head.position.set(d.x, d.y, d.z);
+      head.rotation.y = d.yaw || 0;
+      root.add(head);
+    } else if (d.kind === 'path') {
+      const h = Math.max(0.3, d.y - y0 + 0.1);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, h, 6), dark);
+      post.position.set(d.x, d.y + 0.1 - h / 2, d.z);
+      root.add(post);
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.1, 0.12, 8), dark);
+      cap.position.set(d.x, d.y + 0.14, d.z);
+      root.add(cap);
+    } else if (d.kind === 'wall') {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.22, 0.3), dark);
+      box.position.set(d.x, d.y + 0.12, d.z);
+      box.rotation.y = d.yaw || 0;
+      root.add(box);
+    } else if (d.kind === 'bulb') {
+      const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.35, 4), dark);
+      cord.position.set(d.x, d.y + 0.2, d.z);
+      root.add(cord);
+    }
+    if (!this.night) return;
+    // lit: the bulb itself, the glow round it, the pool it throws on the ground
+    if (L.bulb) {
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(L.bulb, 10, 8), new THREE.MeshBasicMaterial({ color: L.c }));
+      bulb.position.set(d.x, d.y, d.z);
+      root.add(bulb);
+    }
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.haloTex || (this.haloTex = T.softDot('rgba(255,225,170,0.55)', 'rgba(255,225,170,0)')), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: d.kind === 'flood' ? 0.9 : 0.6 }));
+    halo.scale.setScalar(d.kind === 'flood' ? 5 : d.kind === 'bulb' ? 1.6 : 2.2);
+    halo.position.set(d.x, d.y, d.z);
+    root.add(halo);
+    if (L.pool) {
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(L.pool, 24), new THREE.MeshBasicMaterial({ map: this.poolTex || (this.poolTex = T.softDot('rgba(255,215,150,0.42)', 'rgba(255,215,150,0)')), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.set(d.x, y0 + 0.04, d.z);
+      root.add(pool);
+    }
+    this.lamps.push({ x: d.x, y: d.y, z: d.z, L });
+  }
+
+  // the nearest lamps get the real lights, and the rest keep their glow
+  updateLights(pos) {
+    if (!this.night || !this.lamps || !this.lamps.length || !this.root) return;
+    const now = performance.now();
+    if (this.lightsAt && now - this.lightsAt < 250) return;
+    this.lightsAt = now;
+    if (!this.pool.length) {
+      for (let i = 0; i < POOL; i++) {
+        const l = new THREE.PointLight('#ffffff', 0, 10, 1.3);
+        l.visible = false;
+        this.root.add(l);
+        this.pool.push(l);
+      }
+    }
+    const near = this.lamps.map((l) => ({ l, d: Math.hypot(l.x - pos.x, l.y - pos.y, l.z - pos.z) })).filter((e) => e.d < 95).sort((a, b) => a.d - b.d).slice(0, POOL);
+    this.pool.forEach((pl, i) => {
+      const e = near[i];
+      if (!e) { pl.visible = false; return; }
+      pl.visible = true;
+      pl.color.set(e.l.L.c);
+      pl.intensity = e.l.L.i;
+      pl.distance = e.l.L.r;
+      pl.position.set(e.l.x, e.l.y, e.l.z);
+    });
+  }
+
   // on a map too big for one shadow map, the sun's shadow box follows the camera
   // about in big hops, re-rendering only when it moves
   followShadows(pos) {
+    this.updateLights(pos);
     if (!this.map || !this.renderer.shadowMap.enabled) return;
     const [bx, bz] = this.map.bounds;
     if (Math.max(bx, bz) <= 100) return;
@@ -311,6 +411,9 @@ export class World {
   build(map) {
     this.dispose();
     this.map = map;
+    this.night = !!map.night;
+    this.lamps = [];
+    this.pool = [];
     this.physics = new Physics(map.boxes, map.bounds, map.tunnels);
     const tx = textures();
     const root = new THREE.Group();
@@ -435,7 +538,8 @@ export class World {
       const uv = gg.attributes.uv;
       for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 9, pos.getZ(i) / 9);
     } else {
-      gg = new THREE.PlaneGeometry(W, D);
+      // at night the ground is cut fine, so the lamps can light it
+      gg = this.night ? new THREE.PlaneGeometry(W, D, Math.ceil(W / 5), Math.ceil(D / 5)) : new THREE.PlaneGeometry(W, D);
       gg.rotateX(-Math.PI / 2);
       const guv = gg.attributes.uv;
       for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * W / 9, guv.getY(i) * D / 9);
@@ -666,6 +770,8 @@ export class World {
           rung.position.set(d.x - r + 0.16, y, d.z);
           root.add(rung);
         }
+      } else if (d.k === 'light') {
+        this.addLamp(root, d);
       } else if (d.k === 'lamp') {
         const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffdc9a' }));
         bulb.position.set(d.x, d.y, d.z);

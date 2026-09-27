@@ -625,3 +625,16 @@ button { cursor: pointer; }
 /* the notice on the Render address */
 .mirror-note { margin: 0; padding: 8px 12px; border: 1px solid rgba(255, 210, 90, 0.5); background: rgba(255, 210, 90, 0.12); color: #ffe39a; font-size: 14px; border-radius: 6px; max-width: 34ch; }
 .mirror-note a { color: #ffd45a; font-weight: 600; }
+
+/* the stats page */
+.stats-panel { width: min(900px, 100%); }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0 6px; }
+.stat { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 12px 10px; display: grid; gap: 4px; }
+.stat b { font-size: 22px; letter-spacing: 0.02em; }
+.stat span { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--plaster-dim); }
+.stats-h { margin: 14px 0 6px; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--plaster-dim); }
+.stats-guns { display: grid; gap: 6px; max-height: 32vh; overflow-y: auto; }
+.stat-gun { display: grid; grid-template-columns: 130px 1fr 60px; align-items: center; gap: 10px; font-size: 13px; }
+.stat-gun i { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #ffd45a, #d9a92e); min-width: 4px; }
+.stat-gun b { text-align: right; }
+.kf .dist { font-size: 11px; color: var(--plaster-dim); margin: 0 6px; letter-spacing: 0.06em; }

@@ -131,6 +131,12 @@ class Town:
 
     # -- primitives -------------------------------------------------------
 
+    def light(self, kind, x, y, z, yaw=0.0):
+        """A light for the night version of the map: 'bulb' hangs in a room, 'flood' is
+        a mast with a head, 'path' a knee-high bollard, 'wall' a lamp on a wall, 'string'
+        a run of festoon lights. y is the light itself, above the ground it stands on."""
+        self.deco.append({'k': 'light', 'kind': kind, 'x': round(x, 2), 'y': round(self.base_y + y, 2), 'z': round(z, 2), 'yaw': round(yaw, 3)})
+
     def box(self, cx, cy, cz, hx, hy, hz, yaw=0.0, mat='wall', tint=0):
         if hx <= 0.005 or hy <= 0.005 or hz <= 0.005:
             return
@@ -412,6 +418,11 @@ class Town:
         for (cx, cy, cz, hx, hy, hz, mat) in loc:
             wx, wz = rot(cx, cz, yaw)
             self.box(bx + wx, cy, bz + wz, hx, hy, hz, yaw, mat, tint)
+        # a bulb in the ceiling of every storey, for the night
+        for f in range(floors):
+            lx = (stairs[1] + X1) / 2 if (stairs and f == 1) else 0.0
+            wx, wz = rot(lx, 0.0, yaw)
+            self.light('bulb', bx + wx, f * STORY + STORY - 0.4, bz + wz)
 
         # awnings over some doors, and door approach points
         for (s, f), ops in openings.items():
@@ -542,6 +553,7 @@ class Town:
             self.pick_spawns()      # a quarter of the royale map has no spawns of its own
         else:
             self.ffa_spawns, self.team_spawns = [], [[], []]
+        self.night_lights()
 
     # -- tunnels ---------------------------------------------------------------
 
@@ -805,6 +817,42 @@ class Town:
         if rng.random() < 0.65:
             x0 = rng.uniform(8, 50)
             self.roads.append({'w': rng.uniform(3.6, 4.6), 'pts': path((x0, -self.bz), (x0 + rng.uniform(-25, 25), self.bz), 12)})
+
+    def night_lights(self):
+        """The souk after dark: every string of lanterns lit, and a floodlight on a mast
+        at each landmark and gate, so the streets are never black."""
+        self.base_y = 0.0
+        # strings of lanterns across the streets, every dozen metres along each road
+        for rd in self.roads:
+            pts = rd['pts']
+            gap = rd['w'] / 2 + 1.4
+            acc = 7.0
+            for i in range(len(pts) - 1):
+                (ax, az), (bx2, bz2) = pts[i], pts[i + 1]
+                L = math.hypot(bx2 - ax, bz2 - az)
+                if L < 0.1:
+                    continue
+                ux, uz = (bx2 - ax) / L, (bz2 - az) / L
+                s = acc
+                while s < L:
+                    x, z = ax + ux * s, az + uz * s
+                    a = (round(x - uz * gap, 2), round(z + ux * gap, 2))
+                    b = (round(x + uz * gap, 2), round(z - ux * gap, 2))
+                    if all(abs(q[0]) < self.bx - 2 and abs(q[1]) < self.bz - 2 for q in (a, b)) and \
+                            not any(point_in_rect(q[0], q[1], rc, 0.3) for rc in self.rects for q in (a, b)):
+                        self.deco.append({'k': 'lanterns', 'a': list(a), 'b': list(b)})
+                    s += 14.0
+                acc = s - L
+        for d in list(self.deco):
+            if d['k'] == 'lanterns':
+                self.light('string', (d['a'][0] + d['b'][0]) / 2, 3.1, (d['a'][1] + d['b'][1]) / 2)
+        for a in self.areas:
+            if a['r'] and a['r'] >= 8 and 'Gate' not in a['n']:
+                x, z = a['x'] + 5.0, a['z'] + 4.0
+                if self.free(x, z, 0.4, 0.8, 0.5):
+                    self.light('flood', x, 7.5, z)
+        for (x, z) in (self.spawn_w, self.spawn_e):
+            self.light('flood', x, 7.5, z + 6.0)
 
     def road_dist(self, x, z):
         best = 1e9

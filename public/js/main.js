@@ -7,7 +7,7 @@ import { settings, saveSettings, resetBinds, ACTIONS, keyName } from './settings
 import { VERSION, PATCH_NOTES } from './version.js';
 import { LOADOUTS, WEAPONS } from './weapons.js';
 import { MODE_INFO, NICHE_MODES, esc } from './hud.js';
-import { unlockAudio, uiBlip } from './audio.js';
+import { unlockAudio, uiBlip, musicOn } from './audio.js';
 import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
 import { openLocker, lockerOpen, previewOutfit, previewGun, previewShot } from './lockerui.js';
@@ -108,7 +108,12 @@ const ui = {
     clearTimeout(resultsTimer);
     resultsTimer = setTimeout(() => {
       if (!game.inRoom || !game.br) return;
-      $('results-sub').textContent = m.w ? `${m.w} won · ${m.of} dropped` : `${m.of} dropped`;
+      const most = m.rows.slice().sort((a, b) => b.d - a.d)[0];
+      const far = m.rows.slice().sort((a, b) => (b.lg || 0) - (a.lg || 0))[0];
+      const cards = [];
+      if (most && most.d > 0) cards.push(`Most damage: ${esc(most.n)} (${most.d})`);
+      if (far && far.lg > 0) cards.push(`Longest kill: ${esc(far.n)} (${far.lg} m)`);
+      $('results-sub').innerHTML = esc(m.w ? `${m.w} won · ${m.of} dropped` : `${m.of} dropped`) + (cards.length ? ' · ' + cards.join(' · ') : '');
       $('results-table').innerHTML = '<table><tr><th>#</th><th class="l">Player</th><th>Kills</th><th>Damage</th><th>Survived</th><th>Chests</th></tr>' +
         m.rows.map((r) => `<tr class="${r.id === myId ? 'me' : ''}${r.pl === 1 ? ' won' : ''}"><td>${r.pl || '–'}</td><td class="l">${esc(r.n)}</td><td>${r.k}</td><td>${r.d}</td><td>${fmt(r.sv)}</td><td>${r.ch}</td></tr>`).join('') + '</table>';
       $('death').hidden = true;
@@ -129,6 +134,8 @@ touch.onPause = () => input.unlock();
 input.setTouch(touchWanted());
 // the controls show over a match on a touch screen; a phone held upright is asked to turn
 setInterval(() => {
+  // the menu and the warm-up have music; a live match has none
+  musicOn(!game.inRoom || game.warmup());
   input.setTouch(touchWanted());
   touch.setActive(input.touch && game.inRoom && input.locked, !!game.br);
   const portrait = input.touch && game.inRoom && window.innerHeight > window.innerWidth * 1.1;
@@ -143,6 +150,7 @@ setInterval(() => chat.update(), 500);
 auth.init(net);
 
 function onMessage(m) {
+  if (m.t === 'stats') { locker.setStats(m.stats); return; }
   if (auth.onMessage(m)) return;
   if (m.t === 'welcome') {
     game.myId = m.id;
@@ -413,7 +421,7 @@ function showMenu() {
 }
 
 function hideAll() {
-  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass', 'results']) $(id).hidden = true;
+  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass', 'results', 'stats']) $(id).hidden = true;
 }
 
 // -- the battle pass ---------------------------------------------------------------
@@ -458,6 +466,36 @@ function openPass() {
   input.unlock();
 }
 $('btn-pass').addEventListener('click', () => { uiBlip(); openPass(); });
+
+// -- the stats page ------------------------------------------------------------------
+function renderStats() {
+  const st = locker.stats();
+  const fav = locker.favouriteGun();
+  const hours = (s) => (s >= 3600 ? `${(s / 3600).toFixed(1)} h` : `${Math.floor(s / 60)} min`);
+  const kd = st.deaths ? (st.kills / st.deaths).toFixed(2) : st.kills ? st.kills.toFixed(2) : '–';
+  const winRate = st.matches ? `${Math.round((st.wins / st.matches) * 100)}%` : '–';
+  const tiles = [
+    ['Matches', st.matches], ['Wins', st.wins], ['Win rate', winRate],
+    ['Souk Royales', st.royales], ['Best placing', st.best ? `#${st.best}` : '–'],
+    ['Kills', st.kills], ['Deaths', st.deaths], ['K/D', kd],
+    ['Headshots', st.hs], ['Assists', st.assists], ['Damage dealt', st.dmg.toLocaleString()],
+    ['Longest kill', st.long ? `${st.long} m` : '–'], ['Time played', hours(st.time)],
+    ['Favourite gun', fav ? `${WEAPONS[fav.weapon] ? WEAPONS[fav.weapon].name : fav.weapon}` : '–'],
+  ];
+  $('stats-grid').innerHTML = tiles.map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+  $('stats-sub').textContent = locker.signedIn ? `${$('si-name').textContent}'s record, kept on the account` : 'Kept on this device. Sign in and your record follows you everywhere.';
+  const byGun = Object.entries(locker.gunKills()).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  $('stats-guns').innerHTML = byGun.length ? byGun.map(([w, n]) => `<div class="stat-gun"><span>${WEAPONS[w] ? WEAPONS[w].name : w}</span><i style="width:${Math.round((n / byGun[0][1]) * 100)}%"></i><b>${n}</b></div>`).join('') : '<p class="panel-sub">No kills yet. Get out there.</p>';
+}
+function openStats() {
+  renderStats();
+  $('pause').hidden = true;
+  $('stats').hidden = false;
+  input.unlock();
+}
+$('btn-stats').addEventListener('click', () => { uiBlip(); openStats(); });
+$('btn-pause-stats').addEventListener('click', () => { uiBlip(); openStats(); });
+$('stats-close').addEventListener('click', () => { $('stats').hidden = true; if (game.inRoom) resume(); });
 $('pass-close').addEventListener('click', () => {
   $('pass').hidden = true;
   if (game.inRoom) resume();
@@ -530,7 +568,7 @@ $('btn-pause-loadout').addEventListener('click', () => {
 $('btn-pause-settings').addEventListener('click', () => openSettings());
 $('btn-pause-notes').addEventListener('click', () => openNotes());
 canvas.addEventListener('click', () => {
-  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden && $('results').hidden) input.lock();
+  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden && $('results').hidden && $('stats').hidden) input.lock();
 });
 $('death').addEventListener('click', (e) => {
   if (e.target.closest('.ld')) return;
@@ -611,6 +649,11 @@ const SLIDERS = [
   ['s-fov', 'o-fov', 'fov', (v) => `${v}°`],
   ['s-scale', 'o-scale', 'renderScale', (v) => `${Math.round(v * 100)}%`],
   ['s-vol', 'o-vol', 'volume', (v) => `${Math.round(v * 100)}%`],
+  ['s-vguns', 'o-vguns', 'volGuns', (v) => `${Math.round(v * 100)}%`],
+  ['s-vsteps', 'o-vsteps', 'volSteps', (v) => `${Math.round(v * 100)}%`],
+  ['s-vworld', 'o-vworld', 'volWorld', (v) => `${Math.round(v * 100)}%`],
+  ['s-vmusic', 'o-vmusic', 'volMusic', (v) => `${Math.round(v * 100)}%`],
+  ['s-vvoice', 'o-vvoice', 'volVoice', (v) => `${Math.round(v * 100)}%`],
 ];
 const CHECKS = [
   ['s-invert', 'invertY'], ['s-aimtoggle', 'aimToggle'], ['s-crouchtoggle', 'crouchToggle'], ['s-sprinttoggle', 'sprintToggle'],
@@ -1013,7 +1056,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1051,11 +1094,61 @@ if (AUTOTEST) {
   window.__souk = game;
   if (params.get('script') === 'v2') runV2();
   if (params.get('script') === 'royale') runRoyale();
+  if (params.get('script') === 'views') {
+    (async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const snap = (s) => {
+        log(s);
+        if (s.startsWith('CAPTURE ')) {
+          try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+        }
+      };
+      while (!game.me.alive || !game.map) await sleep(200);
+      await sleep(1500);
+      await takeViews(snap);
+      log('views done');
+    })();
+  }
   if (params.get('script') === 'attach') runAttach();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
     const [w, f] = params.get('equip').split(':');
     locker.equipGun(w, f);
+  }
+}
+
+// ?views=x,y,z,yaw,pitch[,1];... stands at each spot in turn and takes a picture (1: with
+// the map open). 'b:' views are relative to the first walk-through building found (its
+// stair opening on the roof marks it); a y of 'r' means on its roof.
+async function takeViews(log) {
+  const views = params.get('views');
+  if (!views) return;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  let i = 0;
+  let B = null;
+  const caps = game.map.boxes.filter((b) => b[7] === 'flatroof' && Math.abs(b[4] - 0.05) < 0.01 && b[1] < 40 && Math.abs(b[3] - 1.8) < 0.01 && Math.abs(b[0]) < 96 && Math.abs(b[2]) < 80);
+  for (const b of caps) {
+    const other = caps.find((o) => o !== b && Math.abs(o[0] - b[0]) < 0.01 && Math.abs(o[1] - b[1]) < 0.01 && Math.abs(o[2] - b[2]) > 1);
+    if (other) { B = { x: b[0], z: (b[2] + other[2]) / 2, roof: b[1] + b[4] }; break; }
+  }
+  log(`building for views: ${JSON.stringify(B)}`);
+  for (const v of views.split(';')) {
+    const rel = v.startsWith('b:');
+    const parts = (rel ? v.slice(2) : v).split(',');
+    const [x, , z, yaw, pitch, key] = parts.map(Number);
+    const y = parts[1] === 'r' ? (B ? B.roof + 0.2 : 2) : Number(parts[1]);
+    if (rel && !B) continue;
+    me.pos.set(rel ? B.x + x : x, y, rel ? B.z + z : z);
+    me.vel.set(0, 0, 0);
+    me.yaw = yaw;
+    me.pitch = pitch;
+    if (key) input.tap('KeyM');
+    await sleep(900);
+    log(`CAPTURE view${i}`);
+    log(`view${i} at ${me.pos.toArray().map((q) => q.toFixed(1))} grounded ${me.grounded} lamps ${(game.world.lamps || []).length} lit ${(game.world.pool || []).filter((l) => l.visible).length}`);
+    if (key) input.tap('KeyM');
+    i++;
   }
 }
 
@@ -1111,37 +1204,7 @@ async function runRoyale() {
   log(`landed at ${me.pos.toArray().map((v) => v.toFixed(1))} grounded ${me.grounded}`);
   await sleep(500);
   log('CAPTURE landed');
-  // ?views=x,y,z,yaw,pitch[,1];... stands at each spot in turn and takes a picture (1: with the map open)
-  const views = params.get('views');
-  if (views) {
-    let i = 0;
-    // 'b:' views are relative to the first walk-through building found (its stair
-    // opening on the roof marks it); a y of 'r' means on its roof
-    let B = null;
-    const caps = game.map.boxes.filter((b) => b[7] === 'flatroof' && Math.abs(b[4] - 0.05) < 0.01 && b[1] < 40 && Math.abs(b[3] - 1.8) < 0.01 && Math.abs(b[0]) < 96 && Math.abs(b[2]) < 80);
-    for (const b of caps) {
-      const other = caps.find((o) => o !== b && Math.abs(o[0] - b[0]) < 0.01 && Math.abs(o[1] - b[1]) < 0.01 && Math.abs(o[2] - b[2]) > 1);
-      if (other) { B = { x: b[0], z: (b[2] + other[2]) / 2, roof: b[1] + b[4] }; break; }
-    }
-    log(`building for views: ${JSON.stringify(B)}`);
-    for (const v of views.split(';')) {
-      const rel = v.startsWith('b:');
-      const parts = (rel ? v.slice(2) : v).split(',');
-      const [x, , z, yaw, pitch, key] = parts.map(Number);
-      const y = parts[1] === 'r' ? (B ? B.roof + 0.2 : 2) : Number(parts[1]);
-      if (rel && !B) continue;
-      me.pos.set(rel ? B.x + x : x, y, rel ? B.z + z : z);
-      me.vel.set(0, 0, 0);
-      me.yaw = yaw;
-      me.pitch = pitch;
-      if (key) input.tap('KeyM');
-      await sleep(900);
-      log(`CAPTURE view${i}`);
-      log(`view${i} at ${me.pos.toArray().map((q) => q.toFixed(1))} grounded ${me.grounded}`);
-      if (key) input.tap('KeyM');
-      i++;
-    }
-  }
+  await takeViews(log);
   // the nearest chests in turn: stand by one, open it, take what is worth taking, until a gun is in hand
   const chests = [...game.chestMeshes.entries()].map(([id, C]) => ({ id, C, d: Math.hypot(C.x - me.pos.x, C.z - me.pos.z) })).sort((a, b) => a.d - b.d);
   let shot = false;

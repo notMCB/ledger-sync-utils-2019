@@ -195,7 +195,8 @@ export class Hud {
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {
       const helpers = ev.as && ev.as.length ? `<span class="as" style="color:${kc}">+ ${esc(ev.as.join(', '))}</span>` : '';
-      row.innerHTML = `<span style="color:${kc}">${esc(ev.kn)}</span>${helpers}<span class="w">${esc(wname)}</span>${ev.hs ? '<span class="hs">HEAD</span>' : ''}<span style="color:${vc}">${esc(ev.vn)}</span>`;
+      const reach = ev.d && WEAPONS[ev.w] && ev.w !== 'knife' ? `<span class="dist">${ev.d} m</span>` : '';
+      row.innerHTML = `<span style="color:${kc}">${esc(ev.kn)}</span>${helpers}<span class="w">${esc(wname)}</span>${ev.hs ? '<span class="hs">HEAD</span>' : ''}${reach}<span style="color:${vc}">${esc(ev.vn)}</span>`;
     } else {
       row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : ev.w === 'gas' ? 'the gas' : 'self')}</span>`;
     }

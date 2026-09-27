@@ -142,6 +142,7 @@
     <div class="menu-foot">
       <button class="btn" id="btn-locker">Locker <span class="dinar-pill"><i class="dinar"></i><span id="menu-dinars">0</span></span></button>
       <button class="btn ghost" id="btn-pass">Battle Pass</button>
+      <button class="btn ghost" id="btn-stats">Stats</button>
       <button class="btn ghost" id="btn-loadout">Loadout</button>
       <button class="btn ghost" id="btn-settings">Settings</button>
       <button class="btn ghost" id="btn-notes">Patch notes</button>
@@ -180,6 +181,7 @@
       <button class="btn" id="btn-resume">Resume</button>
       <button class="btn ghost" id="btn-pause-loadout">Loadout</button>
       <button class="btn ghost" id="btn-pause-locker">Locker</button>
+      <button class="btn ghost" id="btn-pause-stats">Stats</button>
       <button class="btn ghost" id="btn-pause-settings">Settings</button>
       <button class="btn ghost" id="btn-pause-notes">Patch notes</button>
       <button class="btn danger" id="btn-leave">Leave match</button>
@@ -222,7 +224,13 @@
       <label class="check"><input type="checkbox" id="s-fps"><span>Show frame rate</span></label>
     </div>
     <div class="tab-body" data-body="audio" hidden>
-      <label class="slider"><span>Volume</span><input type="range" id="s-vol" min="0" max="1" step="0.02"><output id="o-vol"></output></label>
+      <label class="slider"><span>Master volume</span><input type="range" id="s-vol" min="0" max="1" step="0.02"><output id="o-vol"></output></label>
+      <label class="slider"><span>Guns</span><input type="range" id="s-vguns" min="0" max="1" step="0.02"><output id="o-vguns"></output></label>
+      <label class="slider"><span>Footsteps</span><input type="range" id="s-vsteps" min="0" max="1" step="0.02"><output id="o-vsteps"></output></label>
+      <label class="slider"><span>Explosions, chests, the plane</span><input type="range" id="s-vworld" min="0" max="1" step="0.02"><output id="o-vworld"></output></label>
+      <label class="slider"><span>Music</span><input type="range" id="s-vmusic" min="0" max="1" step="0.02"><output id="o-vmusic"></output></label>
+      <label class="slider"><span>Voice lines and callouts</span><input type="range" id="s-vvoice" min="0" max="1" step="0.02"><output id="o-vvoice"></output></label>
+      <p class="panel-sub">Music plays on the menu and during the warm-up, and stops when a match goes live. Callouts are hit markers, kill confirms, the gas siren and the like.</p>
     </div>
     <div class="tab-body" data-body="touch" hidden>
       <p class="panel-sub">On a phone or tablet the game is played with a stick and buttons on the screen. Drag your finger anywhere else to look. Push the stick all the way to run.</p>
@@ -364,6 +372,19 @@
     <div class="pass-progress"><div class="pass-track"><i id="pass-bar"></i></div><div class="pass-count" id="pass-count"></div></div>
     <p class="panel-sub">Ten tiers, 35 kills each, in any mode. Every reward is yours the moment you reach its tier, in the Locker and ready to wear.</p>
     <div class="pass-tiers" id="pass-tiers"></div>
+  </div>
+</div>
+
+<!-- ============ the stats page ============ -->
+<div id="stats" class="overlay dim" hidden>
+  <div class="panel stats-panel">
+    <div class="panel-head">
+      <div><h2>Your stats</h2><div class="lk-account" id="stats-sub"></div></div>
+      <button class="btn ghost" id="stats-close">Done</button>
+    </div>
+    <div class="stats-grid" id="stats-grid"></div>
+    <h3 class="stats-h">Kills by gun</h3>
+    <div class="stats-guns" id="stats-guns"></div>
   </div>
 </div>
 

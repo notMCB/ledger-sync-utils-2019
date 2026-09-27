@@ -664,6 +664,30 @@ class Manor(Town):
             self.pick_spawns()      # a quarter of the royale map has no spawns of its own
         else:
             self.ffa_spawns, self.team_spawns = [], [[], []]
+        # the estate at night: lamps on the gateposts, bollards up both sides of the drive
+        # and round the forecourt and gardens, floods on the tennis court, and every room
+        # of the house lit
+        self.base_y = 0.0
+        FRONT = HOUSE_Z + HD
+        for z in range(int(FRONT) + 12, int(self.bz) - 4, 6):
+            for x in (-6.5, 6.5):
+                self.light('path', x, 0.9, float(z))
+        for (x, z) in ((-14.0, FRONT + 5.0), (14.0, FRONT + 5.0), (-14.0, FRONT + 13.0), (14.0, FRONT + 13.0)):
+            self.light('path', x, 0.9, z)
+        for x in (-2.6, 2.6):
+            self.light('wall', x, 3.2, FRONT + 0.6)
+        for a in self.areas:
+            if a['n'] == 'Tennis Court':
+                for (dx, dz) in ((-12.0, -7.0), (12.0, -7.0), (-12.0, 7.0), (12.0, 7.0)):
+                    self.light('flood', a['x'] + dx, 8.0, a['z'] + dz)
+            elif a['n'] in ('The Parterre', 'The Pool', 'North Lawn'):
+                for (dx, dz) in ((-9.0, -9.0), (9.0, -9.0), (-9.0, 9.0), (9.0, 9.0)):
+                    if self.free(a['x'] + dx, a['z'] + dz, 0.3, 0.5, 0.3, road=False):
+                        self.light('path', a['x'] + dx, 0.9, a['z'] + dz)
+        for f in range(3):
+            for x in (-16.0, -5.5, 5.5, 16.0):
+                for z in (HOUSE_Z - 6.5, HOUSE_Z + 6.0):
+                    self.light('bulb', x, f * FLOOR + FLOOR - 0.5, z)
 
     def pool(self, x, z, w, d):
         """A swimming pool: water inside a marble coping, loungers along one side, a diving board."""

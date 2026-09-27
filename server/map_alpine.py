@@ -604,6 +604,27 @@ class Alpine(Town):
             self.pick_spawns()      # a quarter of the royale map has no spawns of its own
         else:
             self.ffa_spawns, self.team_spawns = [], [[], []]
+        # the station at night: a few floods, a lamp over each bunker door, the helipad edged
+        # in lights, and the buildings lit inside; the slopes between stay dark
+        for a in self.areas:
+            if a['n'] == 'Radar Station':
+                for dx in (-11.0, 11.0):
+                    self.base_y = self.ground(a['x'] + dx, a['z'] + 9.0)
+                    self.light('flood', a['x'] + dx, 8.0, a['z'] + 9.0)
+            elif a['n'] == 'Fuel Dump':
+                self.base_y = self.ground(a['x'] + 8.0, a['z'])
+                self.light('flood', a['x'] + 8.0, 7.5, a['z'])
+            elif 'Bunker' in a['n'] or a['n'] == 'Ridge Post':
+                self.base_y = self.ground(a['x'], a['z'] + 5.0)
+                self.light('wall', a['x'], 2.6, a['z'] + 5.2)
+                self.base_y = self.ground(a['x'], a['z'])
+                self.light('bulb', a['x'], 2.3, a['z'])
+        for i in range(8):
+            ang = i / 8 * math.tau
+            x, z = math.cos(ang) * 7.5, 19.0 + math.sin(ang) * 7.5
+            self.base_y = self.ground(x, z)
+            self.light('path', x, 0.6, z)
+        self.base_y = 0.0
         zf = self.z_face
         self.ffa_spawns = self.spawn_y([s for s in self.ffa_spawns if s[1] > zf + 1.5])
         self.team_spawns = [self.spawn_y(z) for z in self.team_spawns]

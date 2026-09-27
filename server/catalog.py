@@ -203,8 +203,16 @@ PERK_CHOICES = {'0': ('ammo',), '1': ('med', 'wall'), '2': ('ladder',), '3': ('b
 PRIMARY_CHOICES = {'0': ('smg', 'pdw', 'carbine'), '1': ('lmg', 'carbine'), '2': ('shotgun', 'flamer'), '3': ('sniper', 'heavy')}
 
 
+# the numbers on the stats page, kept for life
+STAT_KEYS = ('matches', 'wins', 'royales', 'best', 'kills', 'deaths', 'hs', 'assists', 'dmg', 'time', 'long')
+
+
+def blank_stats():
+    return {k: 0 for k in STAT_KEYS}
+
+
 def new_locker():
-    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {}, 'pass': 0, 'muzzles': [],
+    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {}, 'pass': 0, 'muzzles': [], 'stats': blank_stats(),
             'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}, 'muzzle': ''}, 'opened': 0}
 
 
@@ -250,6 +258,12 @@ def clean_locker(d, dinar_cap=None):
         out['opened'] = max(0, int(d.get('opened', 0)))
     except (TypeError, ValueError):
         out['opened'] = 0
+    st = d.get('stats') if isinstance(d.get('stats'), dict) else {}
+    for k in STAT_KEYS:
+        try:
+            out['stats'][k] = max(0, min(10 ** 9, int(st.get(k, 0))))
+        except (TypeError, ValueError):
+            out['stats'][k] = 0
     return out
 
 

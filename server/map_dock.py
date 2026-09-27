@@ -370,6 +370,21 @@ class Dockyard(Town):
             self.pick_spawns()      # a quarter of the royale map has no spawns of its own
         else:
             self.ffa_spawns, self.team_spawns = [], [[], []]
+        # the port at night: floodlights on masts all round the yard and along the quays,
+        # a light over each roller door, and the sheds and the office lit inside
+        self.base_y = 0.0
+        bx, bz = self.bx, self.bz
+        for (x, z) in ((-50.0, -40.0), (50.0, -40.0), (-50.0, 40.0), (50.0, 40.0), (0.0, -42.0), (0.0, 42.0),
+                       (-20.0, 6.0), (20.0, 6.0), (-56.0, 12.0), (56.0, 12.0), (-56.0, -12.0), (56.0, -12.0)):
+            if self.free(x, z, 0.4, 0.6, 0.4):
+                self.light('flood', x, 9.5, z)
+        for a in self.areas:
+            if 'Warehouse' in a['n']:
+                for dx in (-7.0, 7.0):
+                    self.light('bulb', a['x'] + dx, 5.6, a['z'])
+                self.light('wall', a['x'], 4.2, a['z'] + 9.5, 0.0)
+            elif a['n'] in ('The Office', 'Fuel Yard', 'Loading Bay'):
+                self.light('bulb' if a['n'] == 'The Office' else 'flood', a['x'], 2.6 if a['n'] == 'The Office' else 8.0, a['z'] + (0.0 if a['n'] == 'The Office' else 6.0))
 
     def road_dist(self, x, z):
         # the asphalt is open ground: spawns and props may use it (props check on_road themselves)

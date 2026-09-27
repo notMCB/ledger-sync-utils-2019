@@ -36,6 +36,11 @@ const DEFAULTS = {
   invertY: false,
   fov: 80,
   volume: 0.7,
+  volGuns: 1.0,
+  volSteps: 1.0,
+  volWorld: 1.0,
+  volMusic: 0.45,
+  volVoice: 1.0,
   aimToggle: true,  // holding a two-finger click is hard on a trackpad
   crouchToggle: false,
   sprintToggle: false,
