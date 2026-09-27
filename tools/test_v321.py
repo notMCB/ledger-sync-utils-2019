@@ -60,6 +60,8 @@ async def test_royale():
     await b.start('royale')
     await wait(lambda: a.map is not None and a.map.get('royale'), 10, 'the royale map')
     await wait(lambda: any(x.get('t') == 'joined' for x in b.msgs), 10, 'the second player in')
+    # a match may be ending from an earlier run: wait for the fresh lobby, and take its map
+    await wait(lambda: a.alive and b.alive and a.g.get('ph') in ('waiting', 'countdown'), 60, 'a fresh lobby')
     m = a.map
     gold = [(i + 1, c) for i, c in enumerate(m['chests']) if len(c) > 4 and c[4]]
     assert len(gold) == 3, 'three gold chests: %r' % gold
@@ -125,10 +127,14 @@ async def test_royale():
     b.move([20, 0.16, 20])
     await asyncio.sleep(0.3)
     a.move([20, 0.16, 20])
-    for _ in range(3):
+    # the knife, at arm's length, until it lands: the gold gun could be anything, even the flamethrower
+    for _ in range(80):
+        if a.saw('kill'):
+            break
         a.pos = [20, 0.16, 20]
-        a.shoot(b, times=12, w=gun['w'])
-        await asyncio.sleep(0.3)
+        a.shoot(b, times=1, w='knife')
+        await asyncio.sleep(0.15)
+    await wait(lambda: a.saw('kill'), 5, 'the knife to land')
     await wait(lambda: got(a, 'brend') and got(c, 'brend'), 25, 'the results for everyone')
     res = got(a, 'brend')[0]
     assert res['w'] == 'Drop1' and [r['n'] for r in res['rows'][:2]] == ['Drop1', 'Drop2'], res

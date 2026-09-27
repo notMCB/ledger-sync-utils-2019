@@ -2905,7 +2905,9 @@ export class Game {
       cam.position.copy(dr.pos);
       cam.rotation.set(dr.pitch, dr.yaw, Math.sin(this.clock * 9) * 0.004, 'YXZ');
     } else if (this.inRoom && me.alive && me.aboard && this.planeMesh) {
-      // standing in the cargo bay, looking out of the back
+      // standing in the cargo bay, looking out of the back. The plane is put where it
+      // is this frame first, or the eye would trail it by a frame's flight
+      if (this.br && this.br.plane) this.planeMesh.position.copy(this.planePos(tmpB));
       this.planeMesh.updateMatrixWorld();
       cam.position.copy(this.planeMesh.userData.seat).applyMatrix4(this.planeMesh.matrixWorld);
       cam.position.y += EYE_STAND - 0.1;

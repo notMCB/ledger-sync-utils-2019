@@ -564,6 +564,9 @@ class Room:
         return c
 
     def add(self, p):
+        if getattr(self, 'map_stale', False):
+            self.map_stale = False
+            self.new_map()
         self.players[p.id] = p
         p.room = self
         p.reset_stats()
@@ -2044,6 +2047,10 @@ class Room:
             if self.phase != 'waiting':
                 self.set_phase('waiting')
                 self.bomb = None
+                if self.mode == 'royale':
+                    # a match everyone walked out of: its looted map is not used again
+                    self.map_stale = True
+                    self.prepare_map()
             return
         # respawns
         for p in self.players.values():

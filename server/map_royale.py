@@ -39,7 +39,7 @@ BX, BZ = 292.0, 166.0     # half size of the whole map
 RING_X, RING_Z = 110.0, 94.0    # the ring road round the city
 ROAD_H = 0.12             # a road's top stands this much over the ground it runs on
 GROUND_TINT = {'alpine': 1, 'town': 0, 'dock': 3, 'manor': 2, 'city': 3}    # terrain tops: sand, snow, grass, concrete
-N_CHESTS = 300
+N_CHESTS = 340
 # where each town goes: centre and the turn, chosen so their roads come out facing the ring
 LAYOUT = {
     'alpine': (-202.0, -96.0, 0.0),
@@ -47,7 +47,7 @@ LAYOUT = {
     'dock': (-192.0, 94.0, 0.0),
     'manor': (202.0, 100.0, math.pi),
 }
-CHESTS_OF = {'town': (24, 14), 'dock': (16, 16), 'alpine': (14, 18), 'manor': (26, 14), 'city': (30, 34)}
+CHESTS_OF = {'town': (24, 14), 'dock': (16, 16), 'alpine': (14, 18), 'manor': (26, 14), 'city': (60, 34)}
 
 
 def transform(cx, cz, yaw):

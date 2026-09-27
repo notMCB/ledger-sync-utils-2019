@@ -24,6 +24,8 @@ input.attach(canvas);
 // ?autotest=<mode> joins straight away and drives the controls, for checking a build
 const params = new URLSearchParams(location.search);
 const LOCAL = location.hostname === 'localhost';
+// the Render copy of the game (the address that works at school): its players are pointed at the real site
+const MIRROR = /onrender\.com$/i.test(location.hostname);
 const AUTOTEST = LOCAL ? params.get('autotest') : null;
 const MODE_ORDER = ['tdm', 'ffa', 'koth', 'bomb'];
 const ROYALE = 'royale';
@@ -40,6 +42,7 @@ const ui = {
     $('menu').hidden = true;
     hideAll();
     toast(`Joined ${room.name}`);
+    if (MIRROR) chat.system('During off school hours, play Souk Siege on Souksiege.com');
   },
   onSpawn() {
     $('death').hidden = true;
@@ -929,6 +932,7 @@ function toast(text) {
 
 $('version').textContent = `v${VERSION}`;
 $('pause-version').textContent = `Souk Siege v${VERSION}`;
+if (MIRROR) $('mirror-note').hidden = false;
 $('name').value = settings.name || '';
 $('name').addEventListener('change', () => {
   settings.name = currentName();
@@ -1070,7 +1074,20 @@ async function runRoyale() {
   while (!me.aboard) await sleep(200);
   log(`aboard: plane ${JSON.stringify(game.br.plane && game.br.plane.a)} -> ${JSON.stringify(game.br.plane && game.br.plane.b)} cam ${game.camera.position.toArray().map((v) => v.toFixed(1))}`);
   await sleep(1500);
-  log('CAPTURE aboard');
+  {
+    // forward, towards the flight deck, then back towards the ramp
+    const d = game.br.plane.dir, L = Math.hypot(d[0], d[1]) || 1;
+    me.yaw = Math.atan2(-d[0] / L, -d[1] / L);
+    me.pitch = 0;
+    await sleep(400);
+    log('CAPTURE aboard');
+    me.yaw += Math.PI;
+    await sleep(400);
+    log('CAPTURE aboard-back');
+    me.pitch = -0.5;
+    await sleep(400);
+    log('CAPTURE aboard-deck');
+  }
   const T = await import('three');
   const pp = new T.Vector3();
   while (me.aboard && !(game.planePos(pp) && game.overMap(pp.x, pp.z))) await sleep(100);
@@ -1098,9 +1115,22 @@ async function runRoyale() {
   const views = params.get('views');
   if (views) {
     let i = 0;
+    // 'b:' views are relative to the first walk-through building found (its stair
+    // opening on the roof marks it); a y of 'r' means on its roof
+    let B = null;
+    const caps = game.map.boxes.filter((b) => b[7] === 'flatroof' && Math.abs(b[4] - 0.05) < 0.01 && b[1] < 40 && Math.abs(b[3] - 1.8) < 0.01 && Math.abs(b[0]) < 96 && Math.abs(b[2]) < 80);
+    for (const b of caps) {
+      const other = caps.find((o) => o !== b && Math.abs(o[0] - b[0]) < 0.01 && Math.abs(o[1] - b[1]) < 0.01 && Math.abs(o[2] - b[2]) > 1);
+      if (other) { B = { x: b[0], z: (b[2] + other[2]) / 2, roof: b[1] + b[4] }; break; }
+    }
+    log(`building for views: ${JSON.stringify(B)}`);
     for (const v of views.split(';')) {
-      const [x, y, z, yaw, pitch, key] = v.split(',').map(Number);
-      me.pos.set(x, y, z);
+      const rel = v.startsWith('b:');
+      const parts = (rel ? v.slice(2) : v).split(',');
+      const [x, , z, yaw, pitch, key] = parts.map(Number);
+      const y = parts[1] === 'r' ? (B ? B.roof + 0.2 : 2) : Number(parts[1]);
+      if (rel && !B) continue;
+      me.pos.set(rel ? B.x + x : x, y, rel ? B.z + z : z);
       me.vel.set(0, 0, 0);
       me.yaw = yaw;
       me.pitch = pitch;

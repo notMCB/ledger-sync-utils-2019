@@ -621,3 +621,7 @@ button { cursor: pointer; }
 .results-table .l { text-align: left; }
 .results-table tr.me td { background: rgba(255, 210, 90, 0.12); color: #ffe39a; }
 .results-table tr.won td:first-child { color: #ffd45a; font-weight: 700; }
+
+/* the notice on the Render address */
+.mirror-note { margin: 0; padding: 8px 12px; border: 1px solid rgba(255, 210, 90, 0.5); background: rgba(255, 210, 90, 0.12); color: #ffe39a; font-size: 14px; border-radius: 6px; max-width: 34ch; }
+.mirror-note a { color: #ffd45a; font-weight: 600; }

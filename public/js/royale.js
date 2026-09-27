@@ -54,76 +54,101 @@ export function makePlane() {
   const dark = lam('#2f3634');
   const glass = lam('#1a2a33');
   const inner = new THREE.MeshLambertMaterial({ color: '#7a836c', emissive: '#2c3128', side: THREE.BackSide });
+  const innerF = new THREE.MeshLambertMaterial({ color: '#6c7560', emissive: '#262a22' });
   const R = 2.2, L = 30;
-  // the fuselage: a tube, a rounded nose, a tapered tail with the ramp opening
+  const Z0 = -1 - L * 0.31;            // the front of the bay, where the nose starts
+  const Z1 = -1 + L * 0.31;            // the back of the bay, where the tail starts
+  const ZT = Z1 + L * 0.3;             // the end of the tail: the ramp opening
+  // the fuselage: a tube, a rounded nose, a tapered tail with the ramp opening. The
+  // nose and tail are drawn both sides, so there is no seeing out through them.
   const tube = new THREE.Mesh(new THREE.CylinderGeometry(R, R, L * 0.62, 24, 1, true), skin);
   tube.rotation.x = Math.PI / 2;
   tube.position.z = -1;
   g.add(tube);
   const nose = new THREE.Mesh(new THREE.SphereGeometry(R, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), skin);
   nose.rotation.x = -Math.PI / 2;
-  nose.position.z = -1 - L * 0.31;
+  nose.position.z = Z0;
   nose.scale.z = 1.6;
   g.add(nose);
-  const cockpit = bx(g, 2.4, 0.7, 1.4, glass, 0, 1.2, -1 - L * 0.31 + 0.6);
-  cockpit.rotation.x = 0.2;
-  const tail = new THREE.Mesh(new THREE.CylinderGeometry(2.0, R, L * 0.3, 24, 1, true), skin);
+  const cockpit = bx(g, 2.4, 0.7, 1.4, glass, 0, R - 0.55, Z0 - 1.6);      // on the nose, outside the bay
+  cockpit.rotation.x = 0.25;
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.95, R, L * 0.3, 24, 1, true), skin);
   tail.rotation.x = Math.PI / 2;
-  tail.position.set(0, 0.6, -1 + L * 0.31 + L * 0.15);
+  tail.position.set(0, 0, Z1 + L * 0.15);
   g.add(tail);
-  // the inside: dark walls, a deck, red seats along each side, lights
-  const bay = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.05, R - 0.05, L * 0.62 + 0.2, 24, 1, true), inner);
+  // the inside: a lit tube the whole length, a bulkhead at the front with the door to
+  // the flight deck, ribs along it, a deck, canvas seats down each side, lights
+  const bay = new THREE.Mesh(new THREE.CylinderGeometry(R - 0.05, R - 0.05, L * 0.62 + 0.1, 24, 1, true), inner);
   bay.rotation.x = Math.PI / 2;
   bay.position.z = -1;
   g.add(bay);
-  const bayTail = new THREE.Mesh(new THREE.CylinderGeometry(1.95, R - 0.05, L * 0.3, 24, 1, true), inner);
+  const bayTail = new THREE.Mesh(new THREE.CylinderGeometry(1.9, R - 0.05, L * 0.3, 24, 1, true), inner);
   bayTail.rotation.x = Math.PI / 2;
-  bayTail.position.set(0, 0.6, -1 + L * 0.31 + L * 0.15);
+  bayTail.position.set(0, 0, Z1 + L * 0.15);
   g.add(bayTail);
-  bx(g, 3.6, 0.1, L * 0.9, dark, 0, -1.55, 2.4);                          // the deck
-  bx(g, 3.2, 0.02, L * 0.9, new THREE.MeshLambertMaterial({ color: '#555d55', emissive: '#1c201c' }), 0, -1.49, 2.4);
+  const bulkhead = new THREE.Mesh(new THREE.CircleGeometry(R - 0.04, 24), innerF);
+  bulkhead.position.z = Z0 + 0.06;
+  g.add(bulkhead);
+  bx(g, 0.9, 1.7, 0.06, dark, 0, -0.55, Z0 + 0.1);                              // the door to the flight deck
+  bx(g, 0.16, 0.16, 0.04, new THREE.MeshBasicMaterial({ color: '#c8d8e8' }), 0, 0.1, Z0 + 0.14);   // its window
+  for (let z = Z0 + 2.4; z < ZT - 1.5; z += 2.4) {
+    const rib = new THREE.Mesh(new THREE.TorusGeometry(z > Z1 ? R - 0.1 - 0.25 * (z - Z1) / (ZT - Z1) : R - 0.1, 0.06, 6, 24), innerF);
+    rib.position.z = z;
+    g.add(rib);
+  }
+  const deckW = 1.5;                                                              // inside the tube at deck height
+  bx(g, deckW * 2, 0.1, ZT - Z0 - 0.2, dark, 0, -1.55, (Z0 + ZT) / 2);            // the deck
+  bx(g, deckW * 2 - 0.3, 0.02, ZT - Z0 - 0.4, new THREE.MeshLambertMaterial({ color: '#555d55', emissive: '#1c201c' }), 0, -1.49, (Z0 + ZT) / 2);
   const seat = lam('#8a2a22');
   for (const sx of [-1, 1]) {
-    bx(g, 0.5, 0.08, 14, seat, sx * 1.5, -1.05, -2);                      // canvas seats
-    bx(g, 0.08, 0.7, 14, seat, sx * 1.75, -0.6, -2);
-    for (let z = -8; z < 6; z += 1.4) bx(g, 0.05, 0.05, 0.5, dark, sx * 1.6, -1.3, z, 0.6);
+    bx(g, 0.5, 0.08, 14, seat, sx * 1.35, -1.05, -2);                            // canvas seats
+    bx(g, 0.08, 0.7, 14, seat, sx * 1.58, -0.6, -2);
+    for (let z = -8; z < 6; z += 1.4) bx(g, 0.05, 0.05, 0.5, dark, sx * 1.45, -1.3, z, 0.6);
   }
-  for (let z = -10; z < 12; z += 4) {
+  for (let z = -10; z < ZT - 2; z += 4) {
     const light = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.8), new THREE.MeshBasicMaterial({ color: '#ffe9b0' }));
-    light.position.set(0, R - 0.25, z);
+    light.position.set(0, R - 0.3, z);
     g.add(light);
+  }
+  // a couple of strapped-down pallets in the middle of the deck
+  for (const z of [-6.5, -2]) {
+    bx(g, 1.2, 0.9, 1.2, lam('#5a4a36'), 0, -1.0, z);
+    bx(g, 1.3, 0.06, 0.08, dark, 0, -0.52, z);
   }
   // a red jump light by the door
   const lampMat = new THREE.MeshBasicMaterial({ color: '#ff3b2f' });
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), lampMat);
-  lamp.position.set(1.3, 1.2, 9);
+  lamp.position.set(1.3, 1.2, ZT - 3.5);
   g.add(lamp);
   g.userData.lamp = lampMat;
-  // the ramp: hinged at the deck, swung down and open
-  const ramp = bx(g, 3.4, 0.14, 6.5, dark, 0, -1.55, 12.5 + 2.6, 0.45);
-  ramp.position.set(0, -1.55 - Math.sin(0.45) * 3.2, 12.5 + Math.cos(0.45) * 3.2);
-  bx(g, 3.6, 0.15, 3.6, dark, 0, 2.2, 13.2, -0.5);                          // the upper door, swung up
+  // the ramp: hinged at the end of the deck, swung down and open, drawn both sides
+  const rampMat = new THREE.MeshLambertMaterial({ color: '#2f3634', side: THREE.DoubleSide });
+  const ramp = bx(g, 3.4, 0.14, 6.5, rampMat, 0, -1.55, ZT, 0.45);
+  ramp.position.set(0, -1.55 - Math.sin(0.45) * 3.2, ZT - 0.3 + Math.cos(0.45) * 3.2);
+  const door = bx(g, 3.4, 0.15, 3.4, rampMat, 0, R, ZT - 1.5, -1.15);          // the upper door, swung right up under the tail
+  door.position.y = R - 0.2 + Math.sin(1.15) * 1.5;
+  door.position.z = ZT - 1.5 - Math.cos(1.15) * 1.5;
   // the wing: high, straight, with four engines and their props
-  const wing = bx(g, 40, 0.5, 5.2, skin, 0, R - 0.3, -2);
-  wing.position.y = R - 0.3;
+  const wing = bx(g, 40, 0.5, 5.2, skin, 0, R + 0.05, -2);
+  wing.position.y = R + 0.05;
   const props = [];
   for (const x of [-12.5, -5.5, 5.5, 12.5]) {
     const nac = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.9, 4.6, 12), dark);
     nac.rotation.x = Math.PI / 2;
-    nac.position.set(x, R - 0.8, -3.4);
+    nac.position.set(x, R - 0.5, -3.4);
     g.add(nac);
     const prop = new THREE.Mesh(new THREE.CircleGeometry(2.0, 24), new THREE.MeshBasicMaterial({ color: '#222', transparent: true, opacity: 0.35, side: THREE.DoubleSide }));
-    prop.position.set(x, R - 0.8, -5.8);
+    prop.position.set(x, R - 0.5, -5.8);
     g.add(prop);
     props.push(prop);
-    const blade = bx(g, 0.2, 4.0, 0.06, dark, x, R - 0.8, -5.85);
+    const blade = bx(g, 0.2, 4.0, 0.06, dark, x, R - 0.5, -5.85);
     props.push(blade);
   }
   // the tail: a tall fin with the tailplane on top
-  bx(g, 0.3, 6.5, 5.0, skin, 0, R + 2.6, 12.5, 0, 0, 0).rotation.x = 0.35;
-  bx(g, 14, 0.3, 3.4, skin, 0, R + 5.6, 13.6);
+  bx(g, 0.3, 6.5, 5.0, skin, 0, R + 2.6, ZT - 4.5, 0, 0, 0).rotation.x = 0.35;
+  bx(g, 14, 0.3, 3.4, skin, 0, R + 5.6, ZT - 3.4);
   g.userData.props = props;
-  g.userData.seat = new THREE.Vector3(0, -1.45, 12.0);   // where you stand aboard: on the deck at the top of the ramp, looking out
+  g.userData.seat = new THREE.Vector3(0, -1.45, ZT - 5.0);   // where you stand aboard: on the deck by the ramp, looking out
   g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
   return g;
 }

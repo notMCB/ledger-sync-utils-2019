@@ -277,42 +277,66 @@ class City(Town):
 
     # -- the blocks -------------------------------------------------------------------
 
-    def highrise(self, cx, cz, hw, hd, storeys, tint):
-        """A glass tower with a lobby you can walk into and a roof you can land on."""
+    def midrise(self, cx, cz, hw, hd, floors, tint, glass=True):
+        """A building you can go all the way up: a floor at every storey round a
+        stairwell in the middle, doors at the street, windows on every side, a
+        partition or two, and the stair opening onto the roof. Glass above the
+        ground floor for the towers, concrete for the rest."""
         rng = self.rng
         self.base_y = KERB
-        H0 = KERB + 4.0
+        floors = max(4, floors)
+        H = KERB + floors * STORY
         sides = ['N', 'S', 'E', 'W']
         rng.shuffle(sides)
         doors = [(s, rng.uniform(-hw * 0.4, hw * 0.4) if s in 'NS' else rng.uniform(-hd * 0.4, hd * 0.4), 2.0, 2.6) for s in sides[:rng.choice([1, 2, 2])]]
-        wins = []
-        for s in 'NSEW':
-            L = hw if s in 'NS' else hd
-            for u in (-L * 0.6, L * 0.6):
-                if all(abs(u - du) > 2.6 for (ds, du, _, _) in doors if ds == s):
-                    wins.append((s, u, 2.0, 1.0, 3.0))
-        self.walls(cx, cz, hw, hd, KERB, H0, 'concrete', tint % 3, doors, wins)
-        self.slab(cx - hw + 0.3, cx + hw - 0.3, cz - hd + 0.3, cz + hd - 0.3, KERB, KERB + 0.03, 'tile')
-        if hw > 6 and hd > 6:
-            self.slab(cx - 0.4, cx + 0.4, cz - 0.4, cz + 0.4, KERB, H0, 'concrete', 2)
-            self.props.append((cx, cz, 0.6))
-        H = H0 + storeys * STORY
-        self.slab(cx - hw, cx + hw, cz - hd, cz + hd, H0, H, 'glass', tint % 3)
-        self.slab(cx - hw, cx + hw, cz - hd, cz + hd, H, H + 0.1, 'flatroof')
+        for f in range(floors):
+            y0 = KERB + f * STORY
+            wins = []
+            for s in 'NSEW':
+                L = hw if s in 'NS' else hd
+                us = (-L * 0.6, L * 0.6) if L < 7.5 else (-L * 0.66, 0.0, L * 0.66)
+                for u in us:
+                    if f == 0 and any(abs(u - du) < 2.6 for (ds, du, _, _) in doors if ds == s):
+                        continue
+                    wins.append((s, u, 1.6, 1.0, 2.4))
+            mat, mt = ('concrete', tint % 3) if (f == 0 or not glass) else ('glass', tint % 3)
+            self.walls(cx, cz, hw, hd, y0, y0 + STORY, mat, mt, doors if f == 0 else (), wins)
+            if f == 0:
+                self.slab(cx - hw + 0.3, cx + hw - 0.3, cz - hd + 0.3, cz + hd - 0.3, KERB, KERB + 0.03, 'tile')
+            else:
+                self.ring_slabs(cx, cz, hw - 0.3, hd - 0.3, y0 - 0.25, y0, 'concrete', 0)
+            # a partition across one end, with a doorway, where there is room for a room
+            if hd >= 8.5:
+                side = 1 if f % 2 else -1
+                pz = cz + side * (hd - 0.3 + WELL_Z) / 2
+                dx = rng.uniform(-hw + 1.6, hw - 1.6)
+                self.slab(cx - hw + 0.3, cx + dx - 0.7, pz - 0.1, pz + 0.1, y0, y0 + STORY - 0.25, 'concrete', 2)
+                self.slab(cx + dx + 0.7, cx + hw - 0.3, pz - 0.1, pz + 0.1, y0, y0 + STORY - 0.25, 'concrete', 2)
+                self.slab(cx + dx - 0.7, cx + dx + 0.7, pz - 0.1, pz + 0.1, y0 + 2.3, y0 + STORY - 0.25, 'concrete', 2)
+            # something to stand behind on every floor, and a chest on the ones the
+            # general lottery does not reach
+            sz = rng.uniform(0.8, 1.1)
+            bxp = cx + rng.choice([-1, 1]) * (hw - 1.6)
+            bzp = cz + rng.choice([-1, 1]) * (hd - 1.6)
+            self.slab(bxp - sz / 2, bxp + sz / 2, bzp - sz / 2, bzp + sz / 2, y0 + (0.03 if f == 0 else 0), y0 + sz, 'crate')
+            if y0 >= 12.0:
+                self.chest_at(cx - (bxp - cx), y0, cz - (bzp - cz))
+        # the roof: a deck with the stair opening, a parapet, an air unit, a chest
+        self.ring_slabs(cx, cz, hw, hd, H, H + 0.1, 'flatroof')
         self.parapet(cx, cz, hw, hd, H + 0.1, 1.0, 'concrete', 2)
         self.base_y = H + 0.1
-        self.ac_unit(cx + rng.uniform(-hw + 2, hw - 2), cz + rng.uniform(-hd + 2, hd - 2), rng.choice([0.0, math.pi / 2]))
+        self.ac_unit(cx + rng.choice([-1, 1]) * (hw - 2.2), cz + rng.choice([-1, 1]) * (hd - 2.2), rng.choice([0.0, math.pi / 2]))
         self.chest_at(cx + rng.choice([-1, 1]) * (hw - 1.8), H + 0.1, cz + rng.choice([-1, 1]) * (hd - 1.8))
+        self.base_y = 0.0
+        self.stairwell(cx, cz, KERB, floors, doors=list(range(floors)))
         self.base_y = KERB
         self.rects.append((cx, cz, hw, hd, 0.0))
 
+    def highrise(self, cx, cz, hw, hd, storeys, tint):
+        self.midrise(cx, cz, hw, hd, storeys, tint, glass=True)
+
     def shop(self, cx, cz, w, d, tint):
-        """A two-storey building of the ordinary kind: rooms, stairs, a balcony maybe."""
-        self.base_y = KERB
-        H = self.building(cx, cz, w, d, 0.0, 2, tint % 3, 'concrete')
-        self.rects.append((cx, cz, w / 2, d / 2, 0.0))
-        if self.rng.random() < 0.5:
-            self.chest_at(cx + self.rng.uniform(-w / 2 + 1.5, w / 2 - 1.5), KERB + H, cz + self.rng.uniform(-d / 2 + 1.5, d / 2 - 1.5))
+        self.midrise(cx, cz, w / 2, d / 2, 4, tint, glass=False)
 
     def park(self, x0, x1, z0, z1):
         rng = self.rng
@@ -366,16 +390,13 @@ class City(Town):
         hw, hd = min(9.0, (x1 - x0) / 2 - 3.0), min(7.0, (z1 - z0) / 2 - 3.0)
         for lvl in range(1, 4):
             y = KERB + lvl * STORY
-            if lvl < 3:
-                self.ring_slabs(cx, cz, hw, hd, y - 0.25, y, 'concrete', 0)
-            else:
-                self.slab(cx - hw, cx + hw, cz - hd, cz + hd, y - 0.25, y, 'concrete', 0)
+            self.ring_slabs(cx, cz, hw, hd, y - 0.25, y, 'concrete', 0)
             self.parapet(cx, cz, hw, hd, y, 1.0, 'wood', 0, 0.12)
             self.chest_at(cx + (hw - 2.5) * rng.choice([-1, 1]), y, cz + (hd - 2.0) * rng.choice([-1, 1]))
         for x in (cx - hw + 0.5, cx, cx + hw - 0.5):
             for z in (cz - hd + 0.5, cz + hd - 0.5):
                 self.slab(x - 0.3, x + 0.3, z - 0.3, z + 0.3, KERB, KERB + 3 * STORY, 'concrete', 1)
-        self.stairwell(cx, cz, KERB, 2, doors=[0], walls=False)
+        self.stairwell(cx, cz, KERB, 3, doors=[0], walls=False)
         self.rects.append((cx, cz, hw, hd, 0.0))
         map_dock.Dockyard.container(self, x0 + 5.0, z1 - 3.5, 0.0, 0, False)
         map_dock.Dockyard.container(self, x1 - 5.0, z0 + 3.5, 0.0, 0, False)
@@ -525,19 +546,19 @@ class City(Town):
         m = 2.5                       # the pavement round a building
         if inner or rng.random() < 0.35:
             # one tower, or two side by side if the block is wide
-            storeys = rng.randrange(7, 15) if inner else rng.randrange(4, 8)
+            storeys = rng.randrange(5, 9) if inner else rng.randrange(4, 6)
             if w > 24 and rng.random() < 0.5:
                 bw = (w - 3 * m) / 2
                 self.highrise(x0 + m + bw / 2, cz, bw / 2, d / 2 - m, storeys, rng.randrange(3))
-                self.highrise(x1 - m - bw / 2, cz, bw / 2, d / 2 - m, rng.randrange(4, 12), rng.randrange(3))
+                self.highrise(x1 - m - bw / 2, cz, bw / 2, d / 2 - m, rng.randrange(4, 7), rng.randrange(3))
             else:
                 self.highrise(cx, cz, w / 2 - m, d / 2 - m, storeys, rng.randrange(3))
         else:
             # a row of shops along the block, each with its own doors and rooms
-            n = max(1, int((w - m) / 11.0))
+            n = max(1, int((w - m) / 12.5))
             bw = (w - (n + 1) * m) / n
             for i in range(n):
-                self.shop(x0 + m + bw / 2 + i * (bw + m), cz, bw, min(d - 2 * m, 12.0), rng.randrange(3))
+                self.shop(x0 + m + bw / 2 + i * (bw + m), cz, bw, min(d - 2 * m, 13.0), rng.randrange(3))
 
     def loot_spots(self, n_in, n_out):
         out = Town.loot_spots(self, n_in, n_out)
