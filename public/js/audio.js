@@ -604,12 +604,16 @@ const NOTE = (semi) => 146.83 * Math.pow(2, semi / 12);   // D3
 
 function musicTick() {
   if (!music || !ctx) return;
-  if (ctx.state !== 'running') {
-    // not allowed to play yet: nothing is queued up, or it would all land at once
+  const t = ctx.currentTime;
+  // Only queue a bar once the last one has played. If the sound can't play (not
+  // allowed yet, the tab put away) or its clock has stopped while the page's
+  // timers carry on (a laptop asleep with the lid shut), queuing anyway would
+  // stack bar on bar and play them all at once when it wakes.
+  if (ctx.state !== 'running' || document.hidden || t < music.until - 0.5) {
     music.timer = setTimeout(musicTick, 500);
     return;
   }
-  const t = ctx.currentTime;
+  music.until = t + 7.6;
   const chord = CHORDS[music.bar % CHORDS.length];
   // the pad: three soft voices sliding to the chord
   chord.forEach((semi, i) => {
@@ -665,7 +669,7 @@ export function musicOn(on) {
     lg.gain.value = 350;
     lfo.connect(lg); lg.connect(f.frequency);
     lfo.start();
-    music = { g, f, pad, lfo, bar: 0, timer: 0 };
+    music = { g, f, pad, lfo, bar: 0, timer: 0, until: 0 };
     g.gain.setTargetAtTime(1.0, c.currentTime, 2.5);
     musicTick();
   } else if (!on && music) {
