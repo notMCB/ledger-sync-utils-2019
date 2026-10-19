@@ -56,6 +56,10 @@ const NICHE_RULES = {
 const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, forward and back
 // the Derby's carts go twice as fast as golf carts anywhere else, and a crash at this speed or more kills
 const DERBY_MUL = 2.0, DERBY_CRASH = 5.0, DERBY_REACH = 2.7;
+// the Interceptor's Gatling turret: the key that mans it, how far it tips, how it shoots
+const TURRET_KEY = 'KeyT', TURRET_FLAG = 524288;
+const TURRET_DOWN = -0.32, TURRET_UP = 1.3;      // it can't point straight down at the cart
+const TURRET_SPREAD = 0.35;                       // degrees: a tight cone, no recoil at all
 // Souk Royale: the drop
 const FALL_SPEED = 26;      // metres a second, straight down, arms out
 const DIVE_EXTRA = 18;      // more when you look straight down
@@ -498,6 +502,7 @@ export class Game {
 
   stopDriving(sendIt = true) {
     const F = this.forklifts.get(this.driving);
+    this.setTurret(false);
     this.driving = null;
     if (F) {
       // step off beside it
@@ -519,6 +524,10 @@ export class Game {
     me.adsK = Math.max(0, me.adsK - dt * 8);
     const derby = this.isDerby();
     if (input.pressed('interact') && !derby) { this.stopDriving(); return; }
+    // the Interceptor's Gatling: T climbs into the turret and back to the wheel
+    if (input.pressedCode(TURRET_KEY) && this.canTurret()) this.setTurret(!this.turret);
+    else if (this.turret && !this.canTurret()) this.setTurret(false);
+    if (this.turret) this.updateTurret(dt, F);
     const frozen = derby && this.g && this.g.ph === 'ended';
     const f = frozen ? 0 : (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
     const r = frozen ? 0 : (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
@@ -555,7 +564,8 @@ export class Game {
     F.mesh.rotation.y = F.yaw;
     if (derby) {
       // the view turns with the cart, so looking round is on top of where it points
-      me.yaw += wrapAngle(F.yaw - (this.lastCartYaw ?? F.yaw));
+      // (the turret's aim stays put in the world while the cart turns under it)
+      if (!this.turret) me.yaw += wrapAngle(F.yaw - (this.lastCartYaw ?? F.yaw));
       this.lastCartYaw = F.yaw;
       this.derbyCrash(F, speedBefore);
       this.derbyLap(F);
@@ -576,6 +586,131 @@ export class Game {
     if (F.sendT <= 0 && !this.offline) {
       F.sendT = 1 / SEND_HZ;
       this.send({ t: 'fk', id: F.id, p: [+F.pos.x.toFixed(3), +F.pos.y.toFixed(3), +F.pos.z.toFixed(3)], y: +F.yaw.toFixed(4) });
+    }
+  }
+
+  // -- the Interceptor's Gatling turret --
+
+  // only the cart wearing the Interceptor skin has one (and only one account has that)
+  canTurret() {
+    const F = this.driving && this.forklifts.get(this.driving);
+    return !!(F && F.kind === 'golfcart' && F.skin === 'interceptor' && F.mesh.userData.turret && this.me.alive);
+  }
+
+  setTurret(on) {
+    if (!!this.turret === on) return;
+    this.turret = on;
+    this.turretHeat = 0;
+    document.getElementById('turretcam').hidden = !on;
+    document.body.classList.toggle('turretcam', on);
+    if (on) {
+      this.me.pitch = Math.max(TURRET_DOWN, Math.min(TURRET_UP, this.me.pitch));
+      this.hud.center('Gatling', `Mouse to aim · ${keyName(settings.binds.fire)} to fire · T to drive`, '', 2.4, 1);
+    }
+  }
+
+  updateTurret(dt, F) {
+    const me = this.me;
+    me.pitch = Math.max(TURRET_DOWN, Math.min(TURRET_UP, me.pitch));
+    const ws = this.turretWs || (this.turretWs = makeWeaponState('minigun'));
+    const gap = 60 / ws.def.rpm;
+    const firing = input.down('fire') && !this.frozen() && !this.paused;
+    this.turretSpin = Math.min(1, Math.max(0, (this.turretSpin || 0) + (firing ? dt * 4 : -dt * 1.5)));
+    if (!firing) { this.turretAcc = 0; return; }
+    // the barrels spin up first, then it fires as fast as they turn
+    if (this.turretSpin < 0.35) return;
+    this.turretAcc = (this.turretAcc || 0) + dt;
+    let n = 0;
+    while (this.turretAcc >= gap && n < 6) {
+      this.turretAcc -= gap;
+      this.turretShot(F, ws, n);
+      n++;
+    }
+    if (this.turretAcc > gap) this.turretAcc = 0;
+  }
+
+  turretShot(F, ws, i) {
+    const d = ws.def;
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const origin = cam.position.clone();
+    const fwd = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const right = V().set(1, 0, 0).applyQuaternion(cam.quaternion);
+    const up = V().set(0, 1, 0).applyQuaternion(cam.quaternion);
+    const ang = THREE.MathUtils.degToRad(TURRET_SPREAD) * Math.sqrt(Math.random());
+    const th = Math.random() * Math.PI * 2;
+    const t = Math.tan(ang);
+    const dir = fwd.addScaledVector(right, Math.cos(th) * t).addScaledVector(up, Math.sin(th) * t).normalize();
+    const wh = this.world.physics.raycast(origin, dir, d.range);
+    const wt = wh ? wh.t : d.range;
+    const teamMode = this.isTeamMode() && !this.warmup();
+    const ph = this.avatars.raycast(origin, dir, wt, (a) => teamMode && a.team === this.me.team);
+    const hits = [];
+    let end;
+    if (ph) {
+      end = origin.clone().addScaledVector(dir, ph.t);
+      hits.push([ph.id, ph.part]);
+      if (ph.avatar.flags & 128) this.fx.impact(end, dir.clone().negate(), 'car');
+      else this.fx.blood(end, dir);
+      ph.avatar.showName = 1.5;
+      this.hud.hit(false, ph.part === 'h');
+    } else if (wh) {
+      end = wh.point.clone();
+      this.fx.impact(wh.point, wh.normal, wh.box && wh.box.mat);
+    } else end = origin.clone().addScaledVector(dir, d.range);
+    const T = F.mesh.userData.turret;
+    const muzzle = T.muzzle.getWorldPosition(V());
+    this.fx.tracer(muzzle, end, d.tracer, 1);
+    if (i === 0) {
+      this.fx.muzzleFlash(muzzle, 0.7, false);
+      this.fx.light(muzzle, 6);
+    }
+    // one shot in three makes a sound: fifty a second would just be noise
+    this.turretSnd = ((this.turretSnd || 0) + 1) % 3;
+    if (!this.turretSnd) sfx.gunshot('minigun', null, true, false);
+    this.send({ t: 'shot', w: 'minigun', q: 0, f: 1, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(2)),
+      e: [[+end.x.toFixed(2), +end.y.toFixed(2), +end.z.toFixed(2)]], h: hits });
+  }
+
+  // the gun camera: mounted on the turret above the barrels, looking where it points
+  turretCamera(cam) {
+    const F = this.forklifts.get(this.driving);
+    const T = F && F.mesh.userData.turret;
+    if (!T) return;
+    F.mesh.updateMatrixWorld(true);
+    const me = this.me;
+    const pivot = T.pitch.getWorldPosition(tmpD);
+    const cp = Math.cos(me.pitch);
+    cam.position.set(pivot.x - Math.sin(me.yaw) * cp * 0.1, pivot.y + 0.5, pivot.z - Math.cos(me.yaw) * cp * 0.1);
+    cam.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+  }
+
+  // every turret points where its gunner aims, or straight ahead when nobody is on it
+  aimTurrets(dt) {
+    if (this.turret && !this.canTurret()) this.setTurret(false);
+    for (const F of this.forklifts.values()) {
+      // a light bar's glow would fill my own view from the seat: only others see mine
+      for (const h of F.mesh.userData.halos || []) h.visible = F.id !== this.driving;
+    }
+    for (const F of this.forklifts.values()) {
+      const T = F.mesh.userData.turret;
+      if (!T) continue;
+      let on = false, yaw = 0, pitch = 0;
+      if (F.id === this.driving) {
+        on = !!this.turret;
+        yaw = this.me.yaw; pitch = this.me.pitch;
+      } else if (F.driver) {
+        const a = this.avatars.get(F.driver);
+        if (a && (a.flags & TURRET_FLAG)) { on = true; yaw = a.yaw; pitch = a.pitch; }
+      }
+      const wantYaw = on ? wrapAngle(yaw + Math.PI / 2 - F.yaw) : 0;
+      const wantPitch = on ? Math.max(TURRET_DOWN, Math.min(TURRET_UP, pitch)) : 0;
+      const k = on && F.id === this.driving ? 1 : Math.min(1, dt * 12);
+      T.yaw.rotation.y += wrapAngle(wantYaw - T.yaw.rotation.y) * k;
+      T.pitch.rotation.z += (wantPitch - T.pitch.rotation.z) * k;
+      const spinning = F.id === this.driving ? (this.turretSpin || 0) : ((F.spinUntil || 0) > this.clock ? 1 : 0);
+      F.spinRate = (F.spinRate || 0) + (spinning * 40 - (F.spinRate || 0)) * Math.min(1, dt * 4);
+      T.spin.rotation.x += F.spinRate * dt;
     }
   }
 
@@ -1094,7 +1229,18 @@ export class Game {
   onRemoteShot(m) {
     const a = this.avatars.get(m.id);
     const w = WEAPONS[m.w] || WEAPONS.smg;
-    const from = a && a.alive ? a.muzzle(V()) : new THREE.Vector3(m.o[0], m.o[1] - 0.2, m.o[2]);
+    let from = a && a.alive ? a.muzzle(V()) : new THREE.Vector3(m.o[0], m.o[1] - 0.2, m.o[2]);
+    if (m.w === 'minigun') {
+      // from the barrels of the turret on their cart
+      const F = [...this.forklifts.values()].find((G) => G.driver === m.id && G.mesh.userData.turret);
+      if (F) { F.mesh.updateMatrixWorld(true); from = F.mesh.userData.turret.muzzle.getWorldPosition(V()); F.spinUntil = this.clock + 0.25; }
+      const e = (m.e || [])[0];
+      if (e) this.fx.tracer(from, new THREE.Vector3(e[0], e[1], e[2]), w.tracer, 1);
+      this.minigunSnd = ((this.minigunSnd || 0) + 1) % 3;
+      if (!this.minigunSnd) { this.fx.muzzleFlash(from, 0.7, false); sfx.gunshot('minigun', from, false, false); }
+      if (a) a.revealT = 2;
+      return;
+    }
     if (m.w === 'flamer') {
       const e = (m.e || [])[0];
       const dir = e ? new THREE.Vector3(e[0] - m.o[0], e[1] - m.o[1], e[2] - m.o[2]).normalize() : new THREE.Vector3(0, 0, -1);
@@ -1635,6 +1781,7 @@ export class Game {
       }
     }
     this.skinCarts();
+    this.aimTurrets(dt);
     for (const F of this.forklifts.values()) {
       // a golf cart's seat is lower than a forklift's: its driver sits down into it
       const da = F.driver && this.avatars.get(F.driver);
@@ -1820,6 +1967,7 @@ export class Game {
       if (me.prone) f |= 512;
       if (me.onBack) f |= 1024;
       if (this.driving) f |= 16384;
+      if (this.turret) f |= TURRET_FLAG;     // on the Gatling: others see it follow my aim
       // a laser on the gun in hand: everyone sees the beam
       if (ws && ws.def.laser === 'red') f |= 4096;
       else if (ws && ws.def.laser === 'green') f |= 8192;
@@ -1830,7 +1978,7 @@ export class Game {
       // a scoped optic catches the sun: other players get a chance to spot it
       if (this.vm.scoped || (ws && ws.def.sight === 'scope' && me.adsK > 0.6)) f |= 64;
       // a Derby driver sits facing the way the cart points, whatever the camera is doing
-      const dc = this.driving && this.isDerby() ? this.forklifts.get(this.driving) : null;
+      const dc = this.driving && this.isDerby() && !this.turret ? this.forklifts.get(this.driving) : null;
       const st = { t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +(dc ? wrapAngle(dc.yaw - Math.PI / 2) : me.yaw).toFixed(4),
         pi: +me.pitch.toFixed(4), f, sl: me.slot === 'knife' ? 2 : me.slot === 'pistol' ? 1 : 0, sc: me.sc,
         by: +(me.prone ? me.bodyYaw : me.yaw).toFixed(4) };
@@ -3105,6 +3253,7 @@ export class Game {
       const sh = this.fx.shake;
       this.slideRoll = (this.slideRoll || 0) + ((me.slide ? 0.06 : 0) - (this.slideRoll || 0)) * Math.min(1, dt * 10);
       cam.rotation.set(me.pitch + me.punch + (Math.random() - 0.5) * sh * 0.03, me.yaw + (Math.random() - 0.5) * sh * 0.03, this.slideRoll, 'YXZ');
+      if (this.driving && this.turret) this.turretCamera(cam);
       if (ws) {
         const zoom = 1 + (ws.def.zoom - 1) * me.adsK;
         fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(settings.fov) / 2) / zoom));

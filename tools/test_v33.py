@@ -343,6 +343,61 @@ def catalog_roll():
     return catalog.roll('kart')['cart']
 
 
+async def test_gatling():
+    """The Interceptor's Gatling: only the owner, only at the wheel of that cart, and it hits."""
+    async def joined(name, login=None, cart=''):
+        p = P(name)
+        p.ws = await WS.connect(test_server.URL)
+        p.ws.send({'t': 'hello', 'name': name, 'v': '3.3.2'})
+        asyncio.ensure_future(p.read())
+        if login:
+            p.ws.send({'t': 'login', 'id': login, 'password': 'passw0rd!'})
+            await wait(lambda: any(m.get('t') == 'auth' and m.get('user') for m in p.msgs), 6, 'signed in')
+        p.ws.send({'t': 'join', 'mode': 'tdm', 'ld': 0, 'map': 'manor', 'cos': {'o': 'standard', 'g': {}, 'c': cart}})
+        return p
+    o = await joined('Owner', 'MCB', 'interceptor')
+    g = await joined('Guest', None, 'interceptor')
+    v = await joined('Victim')
+    await wait(lambda: o.alive and g.alive and v.alive and o.map, 10, 'all three spawned')
+    carts = [d for d in o.map['deco'] if d['k'] == 'golfcart']
+    hurt = lambda: len([m for m in v.msgs if m.get('t') == 'hurt'])
+    v.move([v.pos[0] + 0.5, 0.0, v.pos[2]])
+
+    async def board(p, c):
+        p.move([c['x'] + 1.0, 0.0, c['z']])
+        await asyncio.sleep(0.2)
+        p.ws.send({'t': 'fkin', 'id': c['id']})
+        await wait(lambda: any(m.get('t') == 'fk' and m.get('driver') == p.id for m in p.msgs), 3, '%s at the wheel' % p.name)
+        p.move([c['x'], 0.0, c['z']])
+
+    def gatling(p, n=10):
+        for _ in range(n):
+            p.ws.send({'t': 'shot', 'w': 'minigun', 'o': [p.pos[0], 2.9, p.pos[2]], 'e': [v.pos], 'h': [[v.id, 'b']]})
+    await asyncio.sleep(1.8)
+    # on foot, the owner can't fire it
+    n0 = hurt()
+    gatling(o)
+    await asyncio.sleep(0.5)
+    assert hurt() == n0, 'no Gatling on foot'
+    # a guest at the wheel of a cart, asking for the Interceptor: refused
+    await board(g, carts[1])
+    gatling(g)
+    await asyncio.sleep(0.5)
+    assert hurt() == n0, 'only the owner fires it'
+    # the owner at the wheel of the Interceptor: it hits, fast
+    await board(o, carts[0])
+    await asyncio.sleep(0.3)
+    for _ in range(15):          # fifty rounds a second, as the turret fires them
+        gatling(o, 1)
+        await asyncio.sleep(0.02)
+    await wait(lambda: hurt() > n0, 3, 'the Gatling to hit')
+    await wait(lambda: not v.alive, 3, 'the Gatling to kill')
+    ev = [e for e in o.saw('kill') if e['v'] == v.id][-1]
+    assert ev['w'] == 'minigun', ev
+    print('gatling ok: refused on foot and to a guest in a cart; from the owner\'s Interceptor it killed in %d hits' % (hurt() - n0))
+    await close(o, g, v)
+
+
 async def main():
     check_track()
     check_catalog()
@@ -351,6 +406,7 @@ async def main():
     await test_midlife_swap()
     await test_owner_kill()
     await test_331()
+    await test_gatling()
     print('all 3.3.0 checks passed')
 
 

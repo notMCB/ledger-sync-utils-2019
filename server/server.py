@@ -36,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.3.1'
+VERSION = '3.3.2'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -131,6 +131,8 @@ WEAPONS = {
     'flamer':  {'dmg': 7, 'head': 1.0, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 400, 'pellets': 3, 'range': 6},
     'pdw':     {'dmg': 30, 'head': 1.6, 'near': 7,  'far': 20, 'min': 0.3,  'rpm': 1050, 'pellets': 1, 'range': 60},
     'carbine': {'dmg': 27, 'head': 1.8, 'near': 22, 'far': 55, 'min': 0.65, 'rpm': 720, 'pellets': 1, 'range': 150},
+    # the Gatling on the owner's Interceptor: only from its turret (see turret_ok)
+    'minigun': {'dmg': 18, 'head': 1.5, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 3000, 'pellets': 1, 'range': 300},
 }
 # the guns a loadout may carry: the first is the default
 PRIMARY_OPTIONS = [('smg', 'pdw', 'carbine'), ('lmg', 'carbine'), ('shotgun', 'flamer'), ('sniper', 'heavy')]
@@ -572,7 +574,7 @@ class Room:
         self.forklifts = {}
         for d in self.map['deco']:
             if d.get('k') in ('forklift', 'golfcart') and 'id' in d:
-                self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None,
+                self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None, 'k': d['k'],
                                                 'v': 0.0, 'at': now(), 'home': (d['x'], d.get('y', 0.0), d['z'], d.get('yaw', 0.0))}
         self.track = self.map.get('track') or []
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
@@ -1113,13 +1115,23 @@ class Room:
             return a.team != b.team
         return True
 
+    def turret_ok(self, p):
+        """Is this player at the wheel of a golf cart wearing the Interceptor, on the owner's account?"""
+        F = self.forklifts.get(p.vehicle) if p.vehicle is not None else None
+        return bool(F and F.get('k') == 'golfcart' and F['driver'] == p.id and p.cos.get('c') == 'interceptor' and is_owner(p))
+
     def handle_shot(self, p, m):
-        if not p.alive or self.phase in ('freeze', 'post', 'ended') or p.aboard or self.mode == 'derby':
-            return
         w = m.get('w')
+        if not p.alive or self.phase in ('freeze', 'post', 'ended') or p.aboard:
+            return
+        if self.mode == 'derby' and w != 'minigun':
+            return
         if w not in WEAPONS:
             return
-        if w == 'tknife':
+        if w == 'minigun':
+            if not self.turret_ok(p):
+                return
+        elif w == 'tknife':
             # a thrown knife landing: only as many as have been thrown and are still in the air
             t0 = now()
             p.knives_air = [x for x in p.knives_air if t0 - x < KNIFE_AIR]

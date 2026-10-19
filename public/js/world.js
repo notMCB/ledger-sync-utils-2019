@@ -1614,7 +1614,8 @@ export function makeGolfCartGroup(skin = null) {
     : new THREE.MeshLambertMaterial({ vertexColors: true });
   if (shiny) paintMat.envMap = chromeMaterial().envMap || null;
   if (skin && skin.livery) addCartLivery(g, skin);
-  if (skin && skin.lightbar) addLightBar(g);
+  if (skin && skin.lightbar) addLightBar(g, skin.turret ? 0.72 : 0.1);
+  if (skin && skin.turret) addGatling(g);
   for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, paintMat]]) {
     if (gb.empty) continue;
     const mesh = new THREE.Mesh(gb.geometry(), mat);
@@ -1633,23 +1634,75 @@ export function makeGolfCartGroup(skin = null) {
 
 // a giant police light bar across the roof: a red lamp and a blue one taking turns,
 // each with a glow round it that shows from far off and through the dark
-function addLightBar(g) {
+function addLightBar(g, x = 0.1) {
   const S = sirenMaterials();
   const base = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 1.36), new THREE.MeshLambertMaterial({ color: '#16181d' }));
-  base.position.set(0.1, 2.0, 0);
+  base.position.set(x, 2.0, 0);
   g.add(base);
   for (const [z, mat, glow] of [[0.34, S.red, S.redGlow], [-0.34, S.blue, S.blueGlow]]) {
     const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.3, 0.6), mat);
-    lamp.position.set(0.1, 2.2, z);
+    lamp.position.set(x, 2.2, z);
     g.add(lamp);
     const halo = new THREE.Sprite(glow);
-    halo.position.set(0.1, 2.22, z);
+    halo.position.set(x, 2.22, z);
     halo.scale.set(2.4, 2.4, 1);
     g.add(halo);
+    (g.userData.halos = g.userData.halos || []).push(halo);
   }
   const rim = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.04, 1.4), chromeMaterial());
-  rim.position.set(0.1, 2.37, 0);
+  rim.position.set(x, 2.37, 0);
   g.add(rim);
+}
+
+// a six-barrelled Gatling gun on a turret at the back of the roof. It turns on
+// its base (yaw), tips up and down on its cradle (pitch), and the barrels spin.
+// Its parts are left in g.userData.turret for the game to aim; local +x is forward.
+export const TURRET_AT = { x: -0.55, y: 1.95, pivot: 0.62 };   // the barrels clear the light bar
+function addGatling(g) {
+  const dark = new THREE.MeshStandardMaterial({ color: '#2a2d33', metalness: 0.7, roughness: 0.4 });
+  const steel = chromeMaterial();
+  const yaw = new THREE.Group();
+  yaw.position.set(TURRET_AT.x, TURRET_AT.y, 0);
+  g.add(yaw);
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.12, 20), dark);
+  ring.position.y = 0.06;
+  yaw.add(ring);
+  for (const z of [-0.26, 0.26]) {
+    const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.66, 0.06), dark);
+    cheek.position.set(0, 0.42, z);
+    yaw.add(cheek);
+  }
+  const pitch = new THREE.Group();
+  pitch.position.y = TURRET_AT.pivot;
+  yaw.add(pitch);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.3, 0.42), dark);
+  housing.position.x = -0.05;
+  pitch.add(housing);
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.36, 16), steel);
+  drum.rotation.x = Math.PI / 2;
+  drum.position.set(-0.25, -0.26, 0);
+  pitch.add(drum);
+  // the barrel cluster: six long barrels round a spindle, pointing forward (+x)
+  const spin = new THREE.Group();
+  spin.position.x = 0.26;
+  pitch.add(spin);
+  const barrelGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.5, 8);
+  barrelGeo.rotateZ(Math.PI / 2);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const b = new THREE.Mesh(barrelGeo, steel);
+    b.position.set(0.75, Math.cos(a) * 0.1, Math.sin(a) * 0.1);
+    spin.add(b);
+  }
+  for (const x of [0.12, 0.9, 1.45]) {
+    const clamp = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.06, 14).rotateZ(Math.PI / 2), dark);
+    clamp.position.x = x;
+    spin.add(clamp);
+  }
+  const muzzle = new THREE.Object3D();
+  muzzle.position.x = 1.55;
+  spin.add(muzzle);
+  g.userData.turret = { yaw, pitch, spin, muzzle };
 }
 
 // the livery on a skinned cart: decals a hair proud of the bonnet, the sides and the roof

@@ -64,8 +64,10 @@ function showModel(sel) {
     wrap.add(g);
     wrap.scale.setScalar(0.95);
     p.model = wrap;
-    p.camera.position.set(0, 0.9, 5.6);
-    p.camera.lookAt(0, -0.1, 0);
+    // a cart with a turret on the roof stands taller: step back to fit it in
+    const tall = CART[sel.cart] && CART[sel.cart].turret;
+    p.camera.position.set(0, tall ? 1.3 : 0.9, tall ? 7.2 : 5.6);
+    p.camera.lookAt(0, tall ? 0.25 : -0.1, 0);
   } else if (sel.kind === 'gun') {
     const g = buildPreviewGun(sel.weapon, sel.finish, locker.attachFor(sel.weapon));
     const box = new THREE.Box3().setFromObject(g.group);

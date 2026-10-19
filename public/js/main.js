@@ -1110,7 +1110,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1165,6 +1165,7 @@ if (AUTOTEST) {
   }
   if (params.get('script') === 'attach') runAttach();
   if (params.get('script') === 'derby') runDerby();
+  if (params.get('script') === 'turret') runTurret();
   if (params.get('script') === 'looks') runLooks();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
@@ -1255,6 +1256,49 @@ async function runDerby() {
   log(`after the drive: at ${F() && F().pos.toArray().map((v) => v.toFixed(1))} lap ${JSON.stringify(game.lap && { u: game.lap.u, laps: game.lap.laps, best: game.lap.best })} label ${game.derbyLabel()} alive ${me.alive}`);
   log('CAPTURE derby-end');
   log('derby done');
+}
+
+// -- the Interceptor's Gatling: signed in as the owner on a test server, man the turret and fire --
+async function runTurret() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[turret] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  while (!game.driving) await sleep(200);
+  net.send({ t: 'login', id: params.get('user'), password: params.get('pw') });
+  while (!locker.signedIn) await sleep(200);
+  locker.equipCart('interceptor');
+  game.refreshCosmetics();
+  const F = () => game.forklifts.get(game.driving);
+  while (F().skin !== 'interceptor') await sleep(100);
+  await sleep(800);
+  log(`in the Interceptor: turret ${!!F().mesh.userData.turret} can ${game.canTurret()}`);
+  log('CAPTURE turret-seat');
+  input.tap('KeyT');
+  await sleep(300);
+  log(`after T: turret ${game.turret} cam ${game.camera.position.toArray().map((v) => v.toFixed(2))}`);
+  me.yaw += 2.4;
+  me.pitch = 0.1;
+  await sleep(500);
+  log('CAPTURE turret-view');
+  me.pitch = -1.2;
+  await sleep(200);
+  log(`aimed down: pitch clamped to ${me.pitch.toFixed(2)}`);
+  me.pitch = 0.02;
+  input.hold('Mouse0', true);
+  await sleep(900);
+  log('CAPTURE turret-firing');
+  await sleep(300);
+  input.hold('Mouse0', false);
+  log(`fired: spin ${game.turretSpin.toFixed(2)}`);
+  input.tap('KeyT');
+  await sleep(300);
+  log(`after T again: turret ${game.turret} overlay hidden ${document.getElementById('turretcam').hidden}`);
+  log('turret done');
 }
 
 // -- pictures of the new things: every cart skin, and an outfit ------------------------

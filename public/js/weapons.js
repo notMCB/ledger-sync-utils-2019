@@ -98,6 +98,16 @@ export const WEAPONS = {
     recoilUp: 0.011, recoilSide: 0.0045, kick: 0.04,
     tracer: 0xffd27a, sound: 'carbine',
   },
+  // the Gatling on the Interceptor's roof: fired from the turret, never carried.
+  // Fifty rounds a second, no recoil, a tight cone (see the turret in game.js)
+  minigun: {
+    id: 'minigun', name: 'Gatling', short: 'Gatling', auto: true, rpm: 3000, mag: 9999, reserve: 0,
+    reload: 0, pellets: 1, dmg: 18, range: 300,
+    base: 0.35, bloomShot: 0, bloomMax: 0, recover: 9, move: 0, air: 0,
+    adsMul: 1, sight: 'none', zoom: 1, adsTime: 0.1, moveMul: 1,
+    recoilUp: 0, recoilSide: 0, kick: 0,
+    tracer: 0xffb04a, sound: 'minigun',
+  },
 };
 WEAPONS.shotgun.crosshair = 'circle';
 
@@ -118,6 +128,7 @@ export const DAMAGE = {
   pdw: { head: 1.6, near: 7, far: 20, min: 0.3 },
   carbine: { head: 1.8, near: 22, far: 55, min: 0.65 },
   slug: { head: 1.5, near: 30, far: 90, min: 0.55 },
+  minigun: { head: 1.5, near: 999, far: 999, min: 1.0 },
 };
 
 // Each loadout's perk. Uses are per life.

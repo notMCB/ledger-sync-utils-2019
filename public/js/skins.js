@@ -652,8 +652,9 @@ export const CARTS = [
   { id: 'inferno', name: 'Inferno', rarity: 'legendary', body: '#b0141a', seat: '#141414', canopy: '#b0141a', trim: '#d9dee3', livery: 'flames', colors: ['#ffffff', '#7fd4ff', '#2f6fe0'], metal: 0.6, rough: 0.25, glow: '#7fd4ff' },
   { id: 'goldcart', name: 'Solid Gold', rarity: 'legendary', body: '#d8ac3f', seat: '#2b2320', canopy: '#d8ac3f', trim: '#8a6a22', livery: 'twin', colors: ['#2b2320'], metal: 0.9, rough: 0.2 },
   { id: 'rainbowkart', name: 'Rainbow Road', rarity: 'legendary', body: '#1a1a2e', seat: '#1a1a2e', canopy: '#1a1a2e', trim: '#ffe94a', livery: 'rainbow', colors: ['#ff3b4a', '#ff8f1f', '#ffe94a', '#3fe05c', '#3fa0ff', '#8f4fff'], glow: '#ffffff' },
-  // given to one account by hand; no crate holds it. A patrol car with a giant light bar
-  { id: 'interceptor', name: 'Interceptor', rarity: 'legendary', crate: 'owner', body: '#0f1116', seat: '#0f1116', canopy: '#f4f4f0', trim: '#f4f4f0', livery: 'police', colors: ['#f4f4f0', '#0f1116', '#2f6fe0', '#e0302a'], lightbar: true, metal: 0.4, rough: 0.35 },
+  // given to one account by hand; no crate holds it. A patrol car with a giant light
+  // bar, and a Gatling turret behind it (see the turret in game.js)
+  { id: 'interceptor', name: 'Interceptor', rarity: 'legendary', crate: 'owner', body: '#0f1116', seat: '#0f1116', canopy: '#f4f4f0', trim: '#f4f4f0', livery: 'police', colors: ['#f4f4f0', '#0f1116', '#2f6fe0', '#e0302a'], lightbar: true, turret: true, metal: 0.4, rough: 0.35 },
 ];
 for (const c of CARTS) c.crate = c.crate || 'kart';
 export const CART = Object.fromEntries(CARTS.map((c) => [c.id, c]));
