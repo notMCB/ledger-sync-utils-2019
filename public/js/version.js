@@ -2,9 +2,18 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.3.0';
+export const VERSION = '3.3.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.3.1',
+    date: '19 October 2026',
+    title: 'Banned, in big red letters',
+    notes: [
+      'When a player is banned, everyone in the game sees it: their name goes up across the middle of every screen in big red letters, "NAME IS BANNED", in matches and on the menu alike.',
+      'Knife Fight is on foot again: no golf carts on the map.',
+    ],
+  },
   {
     version: '3.3.0',
     date: '19 October 2026',

@@ -201,6 +201,18 @@ function onMessage(m) {
     $('banned').hidden = false;
     return;
   }
+  if (m.t === 'banbanner') {
+    // someone has been banned: everyone sees it, menu or match
+    const el = $('banbanner');
+    el.textContent = `${m.n} IS BANNED`;
+    el.hidden = false;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.hidden = true; }, 6000);
+    return;
+  }
   if (m.t === 'kicked') {
     if (game.inRoom) {
       game.leave();
@@ -522,6 +534,15 @@ function openGuns() {
 $('btn-gunstats').addEventListener('click', () => { uiBlip(); openGuns(); });
 // for checking a build on this machine: ?open=gunstats or ?open=carts opens that page
 if (LOCAL && params.get('open') === 'gunstats') setTimeout(() => { $('notes').hidden = true; openGuns(); }, 800);
+if (LOCAL && params.get('open') === 'banner') {
+  setTimeout(() => { $('notes').hidden = true; onMessage({ t: 'banbanner', n: params.get('name') || 'Cheater' }); }, 800);
+  setTimeout(() => {
+    const el = $('banbanner'), r = document.createRange();
+    r.selectNodeContents(el);
+    const b = r.getBoundingClientRect(), z = el.getBoundingClientRect();
+    fetch('/__log?m=' + encodeURIComponent(`[banner] text ${Math.round(b.left)}..${Math.round(b.right)} x ${Math.round(b.top)}..${Math.round(b.bottom)}, box ${Math.round(z.width)} wide, window ${innerWidth}, opacity ${getComputedStyle(el).opacity}`));
+  }, 3000);
+}
 if (LOCAL && params.get('open') === 'carts') setTimeout(() => { $('notes').hidden = true; locker.grant(0, 0, true); openLocker(() => {}, () => {}); document.querySelector('.lk-tab[data-tab="carts"]').click(); }, 800);
 $('btn-pause-gunstats').addEventListener('click', () => { uiBlip(); openGuns(); });
 $('btn-pause-stats').addEventListener('click', () => { uiBlip(); openStats(); });

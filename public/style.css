@@ -678,3 +678,17 @@ button { cursor: pointer; }
 .lk-gunline { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; color: var(--plaster-dim); margin-bottom: 8px; }
 .lk-gunline b { color: var(--plaster); font-family: var(--mono); font-weight: 600; }
 .lk-gunline .btn { margin-left: auto; }
+
+/* a ban, announced to everyone */
+#banbanner { position: fixed; left: 0; right: 0; top: 34%; z-index: 90; pointer-events: none; text-align: center; padding-inline: 16px;
+  font-family: var(--display); font-weight: 800; font-size: clamp(34px, 7vw, 100px); line-height: 1.05; letter-spacing: 0.02em; text-transform: uppercase;
+  color: #ff2a1f; text-shadow: 0 0 24px rgba(255, 30, 20, 0.75), 0 4px 0 #5a0a06, 0 8px 24px rgba(0, 0, 0, 0.8); overflow-wrap: anywhere; }
+#banbanner.show { animation: banbanner 6s ease-out forwards; }
+@keyframes banbanner {
+  0% { opacity: 0; transform: scale(1.6); }
+  8% { opacity: 1; transform: scale(1); }
+  12%, 20%, 28% { opacity: 0.55; }
+  16%, 24%, 32% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}

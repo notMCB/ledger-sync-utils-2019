@@ -36,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.3.0'
+VERSION = '3.3.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -297,6 +297,8 @@ def owned_cos(p, cos):
         # the outfits that only ever go on an account by hand
         if cos['o'] in catalog.OWNER_ONLY:
             cos = dict(cos, o='standard')
+        if cos.get('c') in catalog.OWNER_CARTS:
+            cos = dict(cos, c='')
         return cos
     out = {'o': cos['o'] if cos['o'] in lk['outfits'] else 'standard', 'g': {}, 'ms': cos.get('ms', '') if cos.get('ms', '') in lk.get('muzzles', []) else '',
            'c': cos.get('c', '') if cos.get('c', '') in lk.get('carts', []) else ''}
@@ -559,6 +561,9 @@ class Room:
                 self.map_kind = kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0])
             town = mapgen.generate(self.seed, self.map_kind)
         self.map = town.to_json()
+        if self.mode == 'knives':
+            # Knife Fight is on foot: no golf carts to drive about in
+            self.map['deco'] = [d for d in self.map['deco'] if d.get('k') != 'golfcart']
         # night falls on four matches in ten, on every map but the royale's
         self.night = self.mode != 'royale' and random.random() < NIGHT_CHANCE
         self.map['night'] = self.night
@@ -2700,15 +2705,26 @@ def admin_command(p, text):
             bans.append(b)
             save_bans()
         kicked = 0
+        shown = arg
         for r in list(rooms.values()):
             for q in list(r.players.values()):
                 if q.name.lower() == n and q is not p:
+                    shown = q.name
                     q.conn.banned(q.name)
                     kicked += 1
         for c in list(lobby):
             if c.player and c.player.name.lower() == n and c.player is not p:
+                shown = c.player.name
                 c.banned(c.player.name)
                 kicked += 1
+        # and everyone still here sees it, in big red letters
+        msg = {'t': 'banbanner', 'n': shown[:16]}
+        for r in list(rooms.values()):
+            for q in list(r.players.values()):
+                if not q.bot:
+                    q.send(msg)
+        for c in list(lobby):
+            c.send(msg)
         return say('%s is banned%s. Their device and address are banned the moment they connect.' % (arg, ' and kicked' if kicked else ''))
     if cmd == '/unban' and arg:
         n = arg.lower()

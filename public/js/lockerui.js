@@ -484,7 +484,7 @@ function renderCarts(host) {
   host.appendChild(grid);
   const c = document.createElement('div');
   c.className = 'lk-count';
-  c.textContent = owned.length ? `${owned.length} of ${CARTS.length} cart skins collected` : `Open Pit Lane Crates to find cart skins · ${CARTS.length} to collect`;
+  c.textContent = owned.length ? `${owned.length} of ${locker.cartTotal()} cart skins collected` : `Open Pit Lane Crates to find cart skins · ${locker.cartTotal()} to collect`;
   host.appendChild(c);
 }
 
@@ -537,7 +537,7 @@ function render() {
   else if (tab === 'carts') renderCarts(host);
   else renderOutfits(host);
   const all = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife'].reduce((a, w) => a + locker.gunSkins(w).length, 0);
-  $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${locker.outfitTotal()} outfits · ${locker.carts().length} of ${CARTS.length} carts`;
+  $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${locker.outfitTotal()} outfits · ${locker.carts().length} of ${locker.cartTotal()} carts`;
   const accountsOn = !$('account-strip').classList.contains('no-accounts');
   $('lk-account').textContent = locker.signedIn ? 'Saved to your account' : accountsOn ? 'Saved in this browser — sign in to keep it everywhere' : 'Saved in this browser';
   restoreScroll(keep);

@@ -138,7 +138,7 @@ export function roll(kind) {
   }
   if (kind === 'kart') {
     const rarity = pickRarity();
-    return { kind: 'cart', cart: pick(CARTS.filter((x) => x.rarity === rarity)).id, rarity };
+    return { kind: 'cart', cart: pick(CARTS.filter((x) => x.rarity === rarity && x.crate === 'kart')).id, rarity };
   }
   if (kind === 'party') {
     const rarity = pickRarity(BAZAAR_WEIGHTS);
@@ -250,6 +250,11 @@ export const locker = {
 
   carts() {
     return state().carts.filter((c) => CART[c]);
+  },
+
+  // how many cart skins there are to collect: the ones only given by hand don't count unless you have them
+  cartTotal() {
+    return CARTS.filter((c) => c.crate !== 'owner' || state().carts.includes(c.id)).length;
   },
 
   equippedCart() {
@@ -397,7 +402,7 @@ export const locker = {
     if (everything) {
       for (const w of GUN_IDS) for (const f of FINISHES) if (!s.guns.includes(`${w}:${f.id}`)) s.guns.push(`${w}:${f.id}`);
       for (const o of OUTFITS) if (!s.outfits.includes(o.id) && o.crate !== 'owner') s.outfits.push(o.id);
-      for (const c of CARTS) if (!s.carts.includes(c.id)) s.carts.push(c.id);
+      for (const c of CARTS) if (!s.carts.includes(c.id) && c.crate !== 'owner') s.carts.push(c.id);
     }
     this.saved();
   },

@@ -302,6 +302,47 @@ async def test_owner_kill():
     await close(o, a, b)
 
 
+async def test_331():
+    """3.3.1: a ban announced on every screen, Knife Fight with no carts, the owner's police cart."""
+    o = P('Owner')
+    o.ws = await WS.connect(test_server.URL)
+    o.ws.send({'t': 'hello', 'name': 'Owner', 'v': '3.3.1'})
+    asyncio.ensure_future(o.read())
+    o.ws.send({'t': 'login', 'id': 'MCB', 'password': 'passw0rd!'})
+    await wait(lambda: any(m.get('t') == 'auth' and m.get('user') for m in o.msgs), 6, 'the owner signed in')
+    lk = [m for m in o.msgs if m.get('t') == 'auth' and m.get('user')][-1]['locker']
+    assert 'interceptor' in lk['carts'], 'the owner has the Interceptor'
+    bad, watcher, menu = P('Cheater%d' % (os.getpid() % 1000)), P('Watcher'), P('OnMenu')
+    for p in (bad, watcher, menu):
+        p.ws = await WS.connect(test_server.URL)
+        p.ws.send({'t': 'hello', 'name': p.name, 'v': '3.3.1', 'cos': {'o': 'standard', 'g': {}, 'c': 'interceptor'}})
+        asyncio.ensure_future(p.read())
+    for p in (o, bad, watcher):
+        p.ws.send({'t': 'join', 'mode': 'knives', 'ld': 0, 'map': 'manor', 'cos': {'o': 'standard', 'g': {}, 'c': 'interceptor'}})
+    await wait(lambda: watcher.map is not None and any(m.get('t') == 'roster' and len(m['pl']) >= 3 for m in watcher.msgs), 10, 'the knife fight')
+    assert watcher.map['kind'] == 'manor', watcher.map['kind']
+    assert not [d for d in watcher.map['deco'] if d['k'] == 'golfcart'], 'no golf carts in Knife Fight'
+    wear = {r['n']: r['cs'] for r in [m for m in watcher.msgs if m.get('t') == 'roster'][-1]['pl']}
+    assert wear['MCB']['c'] == 'interceptor' and wear['Watcher']['c'] == '', 'only the owner drives the Interceptor: %r' % wear
+    rolled = {catalog_roll() for _ in range(4000)}
+    assert 'interceptor' not in rolled, 'the Interceptor never comes out of a crate'
+    await asyncio.sleep(0.8)
+    o.ws.send({'t': 'chat', 'm': '/ban ' + bad.name.lower()})
+    for p in (watcher, menu):
+        await wait(lambda: any(m.get('t') == 'banbanner' for m in p.msgs), 3, 'the banner on %s' % p.name)
+        ban = [m for m in p.msgs if m.get('t') == 'banbanner'][-1]
+        assert ban['n'] == bad.name, 'the name as they wrote it: %r' % ban
+    print('3.3.1 ok: "%s IS BANNED" went to a player in a match and one on the menu; Knife Fight on the Manor has no carts; only MCB has the Interceptor' % bad.name)
+    o.ws.send({'t': 'chat', 'm': '/unban ' + bad.name.lower()})
+    await asyncio.sleep(0.3)
+    await close(o, watcher, menu)
+
+
+def catalog_roll():
+    import catalog
+    return catalog.roll('kart')['cart']
+
+
 async def main():
     check_track()
     check_catalog()
@@ -309,6 +350,7 @@ async def main():
     await test_owner_outfit()
     await test_midlife_swap()
     await test_owner_kill()
+    await test_331()
     print('all 3.3.0 checks passed')
 
 

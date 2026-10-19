@@ -43,9 +43,10 @@ for line in block('CARTS').splitlines():
     m = re.search(r"\{ id: '(\w+)', name: '([^']+)', rarity: '(\w+)'", line)
     if m:
         js_carts[m.group(1)] = m.group(3)
-if js_carts != dict(catalog.CARTS):
+py_carts = {c[0]: c[1] for c in catalog.CARTS}
+if js_carts != py_carts:
     ok = False
-    print('MISMATCH in cart skins: game=%r server=%r' % (js_carts, dict(catalog.CARTS)))
+    print('MISMATCH in cart skins: game=%r server=%r' % (js_carts, py_carts))
 else:
     print('ok  %d cart skins match' % len(js_carts))
 # every crate must be able to give something of every rarity it can roll

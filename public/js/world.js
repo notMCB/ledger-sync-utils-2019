@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import * as T from './textures.js';
 import { Physics } from './physics.js';
-import { cartCanvas, CART_SIDE, chromeMaterial } from './skins.js';
+import { cartCanvas, CART_SIDE, chromeMaterial, sirenMaterials } from './skins.js';
 
 const WALL_TINTS = ['#f3e9d6', '#ecd3a6', '#dcb68a', '#e9cdbd', '#d4c7ad', '#e0ab7e'];
 const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b', '#3b3430'];
@@ -1614,6 +1614,7 @@ export function makeGolfCartGroup(skin = null) {
     : new THREE.MeshLambertMaterial({ vertexColors: true });
   if (shiny) paintMat.envMap = chromeMaterial().envMap || null;
   if (skin && skin.livery) addCartLivery(g, skin);
+  if (skin && skin.lightbar) addLightBar(g);
   for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, paintMat]]) {
     if (gb.empty) continue;
     const mesh = new THREE.Mesh(gb.geometry(), mat);
@@ -1628,6 +1629,27 @@ export function makeGolfCartGroup(skin = null) {
   }
   wheelGeo.dispose();
   return g;
+}
+
+// a giant police light bar across the roof: a red lamp and a blue one taking turns,
+// each with a glow round it that shows from far off and through the dark
+function addLightBar(g) {
+  const S = sirenMaterials();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 1.36), new THREE.MeshLambertMaterial({ color: '#16181d' }));
+  base.position.set(0.1, 2.0, 0);
+  g.add(base);
+  for (const [z, mat, glow] of [[0.34, S.red, S.redGlow], [-0.34, S.blue, S.blueGlow]]) {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.3, 0.6), mat);
+    lamp.position.set(0.1, 2.2, z);
+    g.add(lamp);
+    const halo = new THREE.Sprite(glow);
+    halo.position.set(0.1, 2.22, z);
+    halo.scale.set(2.4, 2.4, 1);
+    g.add(halo);
+  }
+  const rim = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.04, 1.4), chromeMaterial());
+  rim.position.set(0.1, 2.37, 0);
+  g.add(rim);
 }
 
 // the livery on a skinned cart: decals a hair proud of the bonnet, the sides and the roof

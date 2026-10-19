@@ -591,6 +591,16 @@ export function tickSkins(t) {
         if (!m.map) continue;
         m.map.offset.set((t * 0.05) % 1, (t * 0.03) % 1);
       }
+    } else if (a.kind === 'siren') {
+      // red, then blue, three flashes a second each, with a hard on and off
+      const S = a.base;
+      const phase = (t * 3) % 2;
+      const redOn = phase < 1 && (phase % 0.5) < 0.32;
+      const blueOn = phase >= 1 && (phase % 0.5) < 0.32;
+      S.red.color.set(redOn ? '#ff2a1c' : '#3a0806');
+      S.blue.color.set(blueOn ? '#2a6cff' : '#06103a');
+      S.redGlow.opacity = redOn ? 1 : 0;
+      S.blueGlow.opacity = blueOn ? 1 : 0;
     } else if (a.kind === 'scroll') {
       // stripes run from the stock to the muzzle
       for (const m of a.mats) {
@@ -642,9 +652,38 @@ export const CARTS = [
   { id: 'inferno', name: 'Inferno', rarity: 'legendary', body: '#b0141a', seat: '#141414', canopy: '#b0141a', trim: '#d9dee3', livery: 'flames', colors: ['#ffffff', '#7fd4ff', '#2f6fe0'], metal: 0.6, rough: 0.25, glow: '#7fd4ff' },
   { id: 'goldcart', name: 'Solid Gold', rarity: 'legendary', body: '#d8ac3f', seat: '#2b2320', canopy: '#d8ac3f', trim: '#8a6a22', livery: 'twin', colors: ['#2b2320'], metal: 0.9, rough: 0.2 },
   { id: 'rainbowkart', name: 'Rainbow Road', rarity: 'legendary', body: '#1a1a2e', seat: '#1a1a2e', canopy: '#1a1a2e', trim: '#ffe94a', livery: 'rainbow', colors: ['#ff3b4a', '#ff8f1f', '#ffe94a', '#3fe05c', '#3fa0ff', '#8f4fff'], glow: '#ffffff' },
+  // given to one account by hand; no crate holds it. A patrol car with a giant light bar
+  { id: 'interceptor', name: 'Interceptor', rarity: 'legendary', crate: 'owner', body: '#0f1116', seat: '#0f1116', canopy: '#f4f4f0', trim: '#f4f4f0', livery: 'police', colors: ['#f4f4f0', '#0f1116', '#2f6fe0', '#e0302a'], lightbar: true, metal: 0.4, rough: 0.35 },
 ];
-for (const c of CARTS) c.crate = 'kart';
+for (const c of CARTS) c.crate = c.crate || 'kart';
 export const CART = Object.fromEntries(CARTS.map((c) => [c.id, c]));
+// the giant light bar's lamps: shared by every cart that has one, flashing red then blue
+let SIREN = null;
+export function sirenMaterials() {
+  if (SIREN) return SIREN;
+  const glow = (c) => new THREE.SpriteMaterial({ map: canvasTex(glowDot(c)), color: '#ffffff', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  SIREN = {
+    red: new THREE.MeshBasicMaterial({ color: '#ff1a10' }),
+    blue: new THREE.MeshBasicMaterial({ color: '#1a5cff' }),
+    redGlow: glow('255,40,30'),
+    blueGlow: glow('40,100,255'),
+  };
+  animated.push({ kind: 'siren', mats: [], base: SIREN });
+  return SIREN;
+}
+function glowDot(rgb) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, `rgba(${rgb},1)`);
+  gr.addColorStop(0.35, `rgba(${rgb},0.55)`);
+  gr.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 64);
+  return c;
+}
+
 // the plain cart, before any skin
 export const CART_FACTORY = { id: '', name: 'Factory', rarity: 'common', body: '#f2f2ee', seat: '#2f6b4a', canopy: '#f2f2ee', trim: '#2b2e32' };
 

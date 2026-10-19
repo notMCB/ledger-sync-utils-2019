@@ -85,15 +85,18 @@ OUTFITS = [
 # outfits nobody can wear unless their account was given them
 OWNER_ONLY = {o[0] for o in OUTFITS if o[2] == 'owner'}
 
-# golf cart skins, all from the Pit Lane Crate; keep in step with CARTS in public/js/skins.js
+# golf cart skins, from the Pit Lane Crate unless given by hand ('owner');
+# keep in step with CARTS in public/js/skins.js
 CARTS = [
-    ('fairway', 'common'), ('clubhouse', 'common'), ('caddie', 'common'), ('sandtrap', 'common'),
-    ('cabbie', 'uncommon'), ('patrol', 'uncommon'), ('woodie', 'uncommon'), ('sundae', 'uncommon'),
-    ('lemans', 'rare'), ('chequered', 'rare'), ('number7', 'rare'), ('redline', 'rare'),
-    ('hotrod', 'epic'), ('petrol', 'epic'), ('neoncart', 'epic'),
-    ('inferno', 'legendary'), ('goldcart', 'legendary'), ('rainbowkart', 'legendary'),
+    ('fairway', 'common', 'kart'), ('clubhouse', 'common', 'kart'), ('caddie', 'common', 'kart'), ('sandtrap', 'common', 'kart'),
+    ('cabbie', 'uncommon', 'kart'), ('patrol', 'uncommon', 'kart'), ('woodie', 'uncommon', 'kart'), ('sundae', 'uncommon', 'kart'),
+    ('lemans', 'rare', 'kart'), ('chequered', 'rare', 'kart'), ('number7', 'rare', 'kart'), ('redline', 'rare', 'kart'),
+    ('hotrod', 'epic', 'kart'), ('petrol', 'epic', 'kart'), ('neoncart', 'epic', 'kart'),
+    ('inferno', 'legendary', 'kart'), ('goldcart', 'legendary', 'kart'), ('rainbowkart', 'legendary', 'kart'),
+    ('interceptor', 'legendary', 'owner'),
 ]
 CART_IDS = {c[0] for c in CARTS}
+OWNER_CARTS = {c[0] for c in CARTS if c[2] == 'owner'}
 
 # -- the Battle Pass: ten tiers of 35 kills; keep in step with public/js/pass.js --
 KILLS_PER_TIER = 35
@@ -193,7 +196,7 @@ def roll(kind, rng=random):
         return {'kind': 'gun', 'weapon': rng.choice(GUNS), 'finish': f[0], 'rarity': r}
     if kind == 'kart':
         r = _pick_rarity(RARITY_WEIGHTS, rng)
-        c = rng.choice([c for c in CARTS if c[1] == r])
+        c = rng.choice([c for c in CARTS if c[1] == r and c[2] == 'kart'])
         return {'kind': 'cart', 'cart': c[0], 'rarity': r}
     if kind == 'party':
         r = _pick_rarity(PARTY_WEIGHTS, rng)

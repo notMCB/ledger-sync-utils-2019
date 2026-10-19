@@ -14,7 +14,7 @@ import { PASS_TIERS } from './pass.js';
 import { makePlane, makeChute, makeChest, openChest, makeItem, labelItem, makeGas, updateGas, fireworks, itemName, itemColor, rarityColor, RARITY_NAMES, AMMO_NAMES } from './royale.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
-import { tickSkins, OUTFIT, CAMO_OUTFITS, CART } from './skins.js';
+import { tickSkins, OUTFIT, CAMO_OUTFITS, CART, sirenMaterials, chromeMaterial } from './skins.js';
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
 
@@ -404,10 +404,13 @@ export class Game {
       F.mesh.position.copy(old.position);
       F.mesh.rotation.copy(old.rotation);
       this.scene.remove(old);
+      const keep = new Set(Object.values(sirenMaterials()).concat(chromeMaterial()));
       old.traverse((o) => {
         if (!o.isMesh) return;
-        if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
-        o.material.dispose();
+        if (!keep.has(o.material)) {
+          if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
+          o.material.dispose();
+        }
         if (!o.geometry.userData.shared) o.geometry.dispose();
       });
       this.scene.add(F.mesh);
