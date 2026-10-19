@@ -629,6 +629,7 @@ button { cursor: pointer; }
 /* the notice on the Render address */
 .mirror-note { margin: 0; padding: 8px 12px; border: 1px solid rgba(255, 210, 90, 0.5); background: rgba(255, 210, 90, 0.12); color: #ffe39a; font-size: 14px; border-radius: 6px; max-width: 34ch; }
 .mirror-note a { color: #ffd45a; font-weight: 600; }
+.mirror-note + .mirror-note { margin-top: 8px; }
 
 /* the stats page */
 .stats-panel { width: min(900px, 100%); }

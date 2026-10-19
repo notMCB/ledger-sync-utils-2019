@@ -1026,7 +1026,10 @@ function toast(text) {
 
 $('version').textContent = `v${VERSION}`;
 $('pause-version').textContent = `Souk Siege v${VERSION}`;
-if (MIRROR) $('mirror-note').hidden = false;
+if (MIRROR) {
+  $('mirror-note').hidden = false;
+  $('mirror-note-fly').hidden = false;     // the Render copy only: everyone is moving to Fly
+}
 $('name').value = settings.name || '';
 $('name').addEventListener('change', () => {
   settings.name = currentName();
