@@ -2,25 +2,17 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.3.3';
+export const VERSION = '3.3.2';
 
 export const PATCH_NOTES = [
   {
-    version: '3.3.3',
+    version: '3.3.2',
     date: '19 October 2026',
     title: 'Derby grenades, Firefight, bans',
     notes: [
       'Derby: a crash kill gives you a grenade back, even when you have none left, up to the usual three. Grenade kills don’t.',
       'Firefight: get a kill while you are on fire and the fire on you goes out. You can still catch light again.',
       'The ban announcement is bigger and in the game’s own lettering: the player’s name, and under it "is banned".',
-    ],
-  },
-  {
-    version: '3.3.2',
-    date: '19 October 2026',
-    title: 'Small fixes',
-    notes: [
-      'Small behind-the-scenes changes.',
     ],
   },
   {
