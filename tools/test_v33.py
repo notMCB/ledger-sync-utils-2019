@@ -263,12 +263,52 @@ async def test_midlife_swap():
     await close(a, b)
 
 
+async def test_owner_kill():
+    """/kill: the owner only; a named player, everyone else, or yourself. It counts for nothing."""
+    o = P('Owner')
+    o.ws = await WS.connect(test_server.URL)
+    o.ws.send({'t': 'hello', 'name': 'Owner', 'v': '3.3.0'})
+    asyncio.ensure_future(o.read())
+    o.ws.send({'t': 'login', 'id': 'MCB', 'password': 'passw0rd!'})
+    await wait(lambda: any(m.get('t') == 'auth' and m.get('user') for m in o.msgs), 6, 'the owner signed in')
+    a, b = P('Annoying'), P('Bystander')
+    for p in (o, a, b):
+        if p is not o:
+            p.ws = await WS.connect(test_server.URL)
+            p.ws.send({'t': 'hello', 'name': p.name, 'v': '3.3.0'})
+            asyncio.ensure_future(p.read())
+        p.ws.send({'t': 'join', 'mode': 'tdm', 'ld': 0, 'map': 'dock'})
+    await wait(lambda: o.alive and a.alive and b.alive, 10, 'all three spawned')
+    sys_msgs = lambda p: [m['m'] for m in p.msgs if m.get('t') == 'chat' and m.get('sys')]
+    a.ws.send({'t': 'chat', 'm': '/kill Owner'})
+    await wait(lambda: sys_msgs(a), 3, 'the refusal')
+    assert o.alive and 'owner' in sys_msgs(a)[-1].lower(), 'only the owner may: %r' % sys_msgs(a)
+    o.ws.send({'t': 'chat', 'm': '/kill annoying'})
+    await wait(lambda: not a.alive, 3, 'the named player to die')
+    ev = [e for e in o.saw('kill') if e['v'] == a.id][-1]
+    assert ev['k'] == 0 and ev['w'] == 'struck down', ev
+    await wait(lambda: a.alive, 6, 'them to respawn as usual')
+    await asyncio.sleep(0.8)      # chat takes one message every 0.7 s
+    o.ws.send({'t': 'chat', 'm': '/kill all'})
+    await wait(lambda: not a.alive and not b.alive, 3, 'everyone else to die')
+    assert o.alive, 'all means everyone but you'
+    await asyncio.sleep(0.8)      # chat takes one message every 0.7 s
+    o.ws.send({'t': 'chat', 'm': '/kill'})
+    await wait(lambda: not o.alive, 3, 'the owner to die')
+    await asyncio.sleep(0.6)
+    ros = [m for m in o.msgs if m.get('t') == 'roster'][-1]['pl']
+    assert all(r['d'] == 0 for r in ros), 'no deaths on anyone\'s record: %r' % [(r['n'], r['d']) for r in ros]
+    print('owner kill ok: refused for others; /kill name, /kill all and /kill work and count for nothing')
+    await close(o, a, b)
+
+
 async def main():
     check_track()
     check_catalog()
     await test_derby()
     await test_owner_outfit()
     await test_midlife_swap()
+    await test_owner_kill()
     print('all 3.3.0 checks passed')
 
 

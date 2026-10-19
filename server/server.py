@@ -179,6 +179,7 @@ SITE_R = 4.8
 HILL_R = 6.0
 HILL_MOVE = 75.0
 COUNTDOWN = 10.0
+ADMIN_KILL = 'struck down'      # the owner's /kill: what the kill feed calls it; it counts for nothing
 POSTMATCH = 12.0
 PROTECT = 1.5
 # players who neither move nor act for this long are taken out of their match
@@ -1268,7 +1269,8 @@ class Room:
             q.derby_at = list(q.pos)     # back on the track here, a second from now
         q.alive = False
         q.hp = 0
-        q.deaths += 1
+        if w != ADMIN_KILL:
+            q.deaths += 1
         if q.id in self.drones:
             self.drone_off(q.id, 'pilot')
         self.leave_vehicle(q)
@@ -1279,7 +1281,7 @@ class Room:
                 self.bomb['planter'] = None
             if self.bomb.get('defuser') == q.id:
                 self.bomb['defuser'] = None
-        counting = self.phase in ('live', 'freeze')
+        counting = self.phase in ('live', 'freeze') and w != ADMIN_KILL
         # anyone who did ASSIST_DAMAGE or more, and didn't land the kill, assisted
         assisted = []
         for pid, dealt in q.hurt_by.items():
@@ -2683,7 +2685,7 @@ def is_owner(p):
 
 
 def admin_command(p, text):
-    """Chat commands for the owner: /ban name, /unban name, /bans."""
+    """Chat commands for the owner: /ban name, /unban name, /bans, /kill [name | all]."""
     say = lambda s: p.send({'t': 'chat', 'sys': 1, 'm': s})
     if not is_owner(p):
         return say('Commands are for the owner.')
@@ -2718,7 +2720,22 @@ def admin_command(p, text):
         if not bans:
             return say('Nobody is banned.')
         return say('Banned: ' + ', '.join('%s (%d devices, %d addresses)' % (x['name'], len(x['devs']), len(x['ips'])) for x in bans))
-    return say('Commands: /ban name, /unban name, /bans')
+    if cmd == '/kill':
+        # /kill on its own: yourself; /kill all: everyone else in your match; /kill name: them, wherever they are
+        if not arg:
+            targets = [p] if p.room and p.alive else []
+        elif arg.lower() == 'all':
+            targets = [q for q in p.room.players.values() if q is not p and q.alive] if p.room else []
+        else:
+            n = arg.lower()
+            targets = [q for r in rooms.values() for q in r.players.values() if q.name.lower() == n and q.alive]
+        for q in targets:
+            q.hurt_by = {}            # nobody gets an assist for it either
+            q.room.kill(q, None, ADMIN_KILL, False)
+        if not targets:
+            return say('Nobody alive by that name.' if arg and arg.lower() != 'all' else 'Nobody to kill.')
+        return say('Killed %s.' % ', '.join(q.name for q in targets))
+    return say('Commands: /ban name, /unban name, /bans, /kill [name | all]')
 
 
 def room_list():
