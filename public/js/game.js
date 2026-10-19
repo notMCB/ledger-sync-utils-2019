@@ -58,6 +58,8 @@ const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, fo
 const DERBY_MUL = 2.0, DERBY_CRASH = 5.0, DERBY_REACH = 2.7;
 // the Interceptor's Gatling turret: the key that mans it, how far it tips, how it shoots
 const TURRET_KEY = 'KeyT', TURRET_FLAG = 524288;
+// and its bulletproof walls: the key that puts them up and down, and the flag that tells everyone
+const ARMOUR_KEY = 'KeyU', ARMOUR_FLAG = 1048576;     // keep in step with ARMOUR_FLAG in server/server.py
 const TURRET_DOWN = -0.32, TURRET_UP = 1.3;      // it can't point straight down at the cart
 const TURRET_SPREAD = 0.35;                       // degrees: a tight cone, no recoil at all
 // Souk Royale: the drop
@@ -332,6 +334,16 @@ export class Game {
         else if (F && wasMine && m.driver !== this.myId && this.driving === null) this.stopDriving(false);
         return;
       }
+      case 'nadeup':
+        // the Derby: a crash kill puts a grenade back in your hand
+        this.me.nades = m.n;
+        this.hud.center('+1 grenade', `${m.n} of 3 · crash kills give them back`, '', 1.4, 1);
+        return;
+      case 'doused':
+        // Firefight: the kill put out the fire on you
+        this.burnT = 0;
+        this.hud.center('Fire out', 'A kill puts out the flames on you', '', 1.4, 1);
+        return;
       case 'perkleft':
         this.me.perkLeft = m.n;
         if (this.br) {
@@ -503,6 +515,7 @@ export class Game {
   stopDriving(sendIt = true) {
     const F = this.forklifts.get(this.driving);
     this.setTurret(false);
+    this.armour = false;
     this.driving = null;
     if (F) {
       // step off beside it
@@ -527,6 +540,11 @@ export class Game {
     // the Interceptor's Gatling: T climbs into the turret and back to the wheel
     if (input.pressedCode(TURRET_KEY) && this.canTurret()) this.setTurret(!this.turret);
     else if (this.turret && !this.canTurret()) this.setTurret(false);
+    if (input.pressedCode(ARMOUR_KEY) && this.canTurret()) {
+      this.armour = !this.armour;
+      this.hud.center(this.armour ? 'Armour up' : 'Armour down', this.armour ? 'Bulletproof walls all round. U to drop them' : 'U to put the walls back up', '', 1.6, 1);
+      sfx.slide();
+    }
     if (this.turret) this.updateTurret(dt, F);
     const frozen = derby && this.g && this.g.ph === 'ended';
     const f = frozen ? 0 : (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
@@ -688,9 +706,16 @@ export class Game {
   // every turret points where its gunner aims, or straight ahead when nobody is on it
   aimTurrets(dt) {
     if (this.turret && !this.canTurret()) this.setTurret(false);
+    if (this.armour && !this.canTurret()) this.armour = false;
     for (const F of this.forklifts.values()) {
       // a light bar's glow would fill my own view from the seat: only others see mine
       for (const h of F.mesh.userData.halos || []) h.visible = F.id !== this.driving;
+      // the bulletproof walls: up when the driver has put them up
+      const A = F.mesh.userData.armour;
+      if (A) {
+        const a = F.driver && F.driver !== this.myId ? this.avatars.get(F.driver) : null;
+        A.visible = F.id === this.driving ? !!this.armour : !!(a && (a.flags & ARMOUR_FLAG));
+      }
     }
     for (const F of this.forklifts.values()) {
       const T = F.mesh.userData.turret;
@@ -1968,6 +1993,7 @@ export class Game {
       if (me.onBack) f |= 1024;
       if (this.driving) f |= 16384;
       if (this.turret) f |= TURRET_FLAG;     // on the Gatling: others see it follow my aim
+      if (this.armour && this.canTurret()) f |= ARMOUR_FLAG;   // the walls are up: bullets can't reach me
       // a laser on the gun in hand: everyone sees the beam
       if (ws && ws.def.laser === 'red') f |= 4096;
       else if (ws && ws.def.laser === 'green') f |= 8192;
@@ -3091,8 +3117,8 @@ export class Game {
       } else if (ph) {
         end = origin.clone().addScaledVector(dir, ph.t);
         hits.push([ph.id, ph.part]);
-        // a freshly spawned player is shielded for a moment: sparks, not blood
-        if (ph.avatar.flags & 128) this.fx.impact(end, dir.clone().negate(), 'car');
+        // a freshly spawned player is shielded for a moment, and armour stops everything: sparks, not blood
+        if (ph.avatar.flags & (128 | ARMOUR_FLAG)) this.fx.impact(end, dir.clone().negate(), 'car');
         else this.fx.blood(end, dir);
         ph.avatar.showName = CAMO_OUTFITS.has(ph.avatar.outfit) ? 0.5 : 1.5;
       } else if (wh) {

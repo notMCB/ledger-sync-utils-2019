@@ -36,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.3.2'
+VERSION = '3.3.3'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -181,7 +181,8 @@ SITE_R = 4.8
 HILL_R = 6.0
 HILL_MOVE = 75.0
 COUNTDOWN = 10.0
-ADMIN_KILL = 'struck down'      # the owner's /kill: what the kill feed calls it; it counts for nothing
+ADMIN_KILL = 'struck down'
+ARMOUR_FLAG = 1048576           # the Interceptor's bulletproof walls are up (a movement flag)      # the owner's /kill: what the kill feed calls it; it counts for nothing
 POSTMATCH = 12.0
 PROTECT = 1.5
 # players who neither move nor act for this long are taken out of their match
@@ -1120,6 +1121,10 @@ class Room:
         F = self.forklifts.get(p.vehicle) if p.vehicle is not None else None
         return bool(F and F.get('k') == 'golfcart' and F['driver'] == p.id and p.cos.get('c') == 'interceptor' and is_owner(p))
 
+    def armoured(self, q):
+        """Behind the Interceptor's bulletproof walls: the owner, in that cart, with them up."""
+        return bool(q.flags & ARMOUR_FLAG) and self.turret_ok(q)
+
     def handle_shot(self, p, m):
         w = m.get('w')
         if not p.alive or self.phase in ('freeze', 'post', 'ended') or p.aboard:
@@ -1184,7 +1189,7 @@ class Room:
             q = self.players.get(tid)
             if not q or not q.alive or not self.enemies(p, q):
                 continue
-            if t_protected(q):
+            if t_protected(q) or self.armoured(q):
                 shielded = True
                 continue
             d = dist3(p.pos, q.pos)
@@ -1317,6 +1322,11 @@ class Room:
                 self.earn(helper, 'assist')
         q.hurt_by = {}
         if attacker and attacker is not q:
+            if self.mode == 'firefight' and attacker.burn_until > now():
+                # Firefight: a kill puts out the fire on you (you can catch light again)
+                attacker.burn_until = 0.0
+                attacker.burn_acc = 0.0
+                attacker.send({'t': 'doused'})
             attacker.kills += 1
             attacker.score += 100
             if counting:
@@ -1677,6 +1687,10 @@ class Room:
                 return
             p.roadkill_at[q.id] = t
             self.damage(q, p, 999, 'cart', False)
+            if not q.alive and p.alive and p.nades < DERBY_NADES:
+                # a crash kill puts a grenade back in your hand, up to three
+                p.nades += 1
+                p.send({'t': 'nadeup', 'n': p.nades})
             return
         if dist3(F['p'], q.pos) > 2.6 or t_protected(q):
             return
@@ -3181,7 +3195,7 @@ class Conn:
                 p.acted()
             p.yaw = num(m.get('y'))
             p.pitch = num(m.get('pi'), -1.6, 1.6)
-            p.flags = int(num(m.get('f'), 0, 1 << 20))
+            p.flags = int(num(m.get('f'), 0, (1 << 22) - 1))
             p.slot = int(num(m.get('sl'), 0, 3))
             p.byaw = num(m.get('by'), default=p.yaw) if 'by' in m else p.yaw
         elif t == 'shot':

@@ -398,6 +398,137 @@ async def test_gatling():
     await close(o, g, v)
 
 
+async def test_333():
+    """3.3.3: a Derby crash kill gives a grenade back (to three), a Firefight kill puts out
+    your fire, and the Interceptor's armour stops bullets."""
+    # -- the Derby: crash kills refund grenades, grenade kills do not
+    a = await player('Racer2')
+    b = await player('Rival2')
+    await wait(lambda: a.alive and b.alive and cart_of(a) and cart_of(b), 10, 'both in a cart')
+    for p in (a, b):
+        p.move([p.pos[0] + 0.5, 0.0, p.pos[2]])
+    await asyncio.sleep(1.8)
+    ca = cart_of(a)
+    # throw two grenades away: one left
+    for n in (21, 22):
+        a.ws.send({'t': 'nade', 'n': n, 'k': 'frag', 'o': [a.pos[0], 1.5, a.pos[2]], 'v': [0, 0, 0]})
+    await asyncio.sleep(0.3)
+
+    here = {'pos': [ca['p'][0], 0.0, ca['p'][2]]}     # where Racer's cart really is
+
+    async def crash():
+        await wait(lambda: b.alive, 4, 'Rival in a cart')
+        await asyncio.sleep(0.3)
+        b.move([b.pos[0] + 0.5, 0.0, b.pos[2]])      # an input: spawn protection is over
+        await asyncio.sleep(1.7)
+        cb = cart_of(b)
+        target = [cb['p'][0], 0.0, cb['p'][2]]
+        start = [target[0] - 6.0, 0.0, target[2]]
+        pos = here['pos']
+        while math.hypot(pos[0] - start[0], pos[2] - start[2]) > 0.5:
+            d = math.hypot(start[0] - pos[0], start[2] - pos[2])
+            k = min(1.0, 3.0 / d)
+            pos = [pos[0] + (start[0] - pos[0]) * k, 0.0, pos[2] + (start[2] - pos[2]) * k]
+            a.ws.send({'t': 'fk', 'id': ca['id'], 'p': pos, 'y': 0.0})
+            a.move(pos)
+            await asyncio.sleep(0.3)
+        here['pos'] = await drive(a, ca['id'], start, 0.0, 11.0, 0.45, to=[target[0] - 2.0, 0.0, target[2]])
+        a.ws.send({'t': 'roadkill', 'id': b.id})
+        await wait(lambda: not b.alive, 3, 'the crash kill')
+    ups = lambda: [m['n'] for m in a.msgs if m.get('t') == 'nadeup']
+    await crash()
+    await wait(lambda: ups(), 2, 'a grenade back')
+    await crash()
+    await crash()
+    assert ups() == [2, 3], 'one back a crash kill, up to three: %r' % ups()
+    # a grenade kill gives nothing back
+    await wait(lambda: b.alive, 4, 'Rival back')
+    b.move([b.pos[0] + 0.5, 0.0, b.pos[2]])
+    await asyncio.sleep(1.8)
+    a.ws.send({'t': 'nade', 'n': 23, 'k': 'frag', 'o': [a.pos[0], 1.5, a.pos[2]], 'v': [0, 0, 0]})
+    await asyncio.sleep(0.2)
+    bp = b.pos
+    a.ws.send({'t': 'boom', 'n': 23, 'p': [bp[0] + 3.0, 0.3, bp[2]]})
+    await wait(lambda: not b.alive, 3, 'the grenade kill')
+    await asyncio.sleep(0.4)
+    assert ups() == [2, 3], 'no grenade back for a grenade kill: %r' % ups()
+    print('derby grenades ok: crash kills gave grenades back to 2 then 3 and no further; a grenade kill gave none')
+    await close(a, b)
+
+    # -- Firefight: a kill puts your own fire out
+    f1, f2 = P('Burner'), P('Burnt')
+    for p in (f1, f2):
+        p.ws = await WS.connect(test_server.URL)
+        p.ws.send({'t': 'hello', 'name': p.name, 'v': '3.3.3'})
+        asyncio.ensure_future(p.read())
+        p.ws.send({'t': 'join', 'mode': 'firefight', 'ld': 0, 'map': 'town'})
+    await wait(lambda: f1.alive and f2.alive, 10, 'both in the firefight')
+    for p in (f1, f2):
+        p.move([p.pos[0] + 0.5, p.pos[1], p.pos[2]])
+    await asyncio.sleep(1.8)
+    # set Burner alight with Burnt's molotov at their feet (thrown from close by: the
+    # server ignores a grenade going off sixty metres from its thrower)
+    f2.move([f1.pos[0] + 6.0, f1.pos[1], f1.pos[2]])
+    await asyncio.sleep(0.2)
+    f2.ws.send({'t': 'nade', 'n': 31, 'k': 'molotov', 'o': [f1.pos[0], 1.5, f1.pos[2]], 'v': [0, 0, 0]})
+    await asyncio.sleep(0.2)
+    f2.ws.send({'t': 'boom', 'n': 31, 'p': [f1.pos[0] + 0.6, f1.pos[1] + 0.2, f1.pos[2]]})
+    await wait(lambda: any(m.get('t') == 'hurt' and m.get('fire') for m in f1.msgs), 3, 'Burner on fire')
+    f1.move([f2.pos[0] + 2.0, f2.pos[1], f2.pos[2]])
+    await asyncio.sleep(0.2)
+    for _ in range(40):
+        if not f2.alive:
+            break
+        f1.ws.send({'t': 'shot', 'w': 'flamer', 'o': [f1.pos[0], f1.pos[1] + 1.5, f1.pos[2]], 'e': [f2.pos], 'h': [[f2.id, 'b']]})
+        await asyncio.sleep(0.16)
+    await wait(lambda: not f2.alive, 3, 'the kill')
+    await wait(lambda: any(m.get('t') == 'doused' for m in f1.msgs), 2, 'the fire put out')
+    n = len([m for m in f1.msgs if m.get('t') == 'hurt' and m.get('fire')])
+    await asyncio.sleep(1.5)
+    later = len([m for m in f1.msgs if m.get('t') == 'hurt' and m.get('fire')])
+    assert later == n, 'no more burning after the kill: %d -> %d' % (n, later)
+    print('firefight ok: on fire, got a kill, the fire went out and burned no more')
+    await close(f1, f2)
+
+    # -- the Interceptor's armour: bullets stop at it
+    o = P('Owner')
+    o.ws = await WS.connect(test_server.URL)
+    o.ws.send({'t': 'hello', 'name': 'Owner', 'v': '3.3.3'})
+    asyncio.ensure_future(o.read())
+    o.ws.send({'t': 'login', 'id': 'MCB', 'password': 'passw0rd!'})
+    await wait(lambda: any(m.get('t') == 'auth' and m.get('user') for m in o.msgs), 6, 'signed in')
+    s = P('Shooter')
+    s.ws = await WS.connect(test_server.URL)
+    s.ws.send({'t': 'hello', 'name': 'Shooter', 'v': '3.3.3'})
+    asyncio.ensure_future(s.read())
+    for p in (o, s):
+        p.ws.send({'t': 'join', 'mode': 'ffa', 'ld': 0, 'map': 'manor', 'cos': {'o': 'standard', 'g': {}, 'c': 'interceptor'}})
+    await wait(lambda: o.alive and s.alive and o.map, 10, 'both in')
+    c = [d for d in o.map['deco'] if d['k'] == 'golfcart'][0]
+    o.move([c['x'] + 1.0, 0.0, c['z']])
+    await asyncio.sleep(0.2)
+    o.ws.send({'t': 'fkin', 'id': c['id']})
+    await wait(lambda: any(m.get('t') == 'fk' and m.get('driver') == o.id for m in o.msgs), 3, 'at the wheel')
+    hurt = lambda: len([m for m in o.msgs if m.get('t') == 'hurt'])
+
+    def flags(f):
+        o.pos = [c['x'], 0.0, c['z']]
+        o.ws.send({'t': 'st', 'p': o.pos, 'y': 0, 'pi': 0, 'f': f, 'sl': 0, 'sc': o.sc})
+    flags(16384 | 1048576)
+    s.move([c['x'] + 3.0, 0.0, c['z']])
+    await asyncio.sleep(1.8)
+    n0 = hurt()
+    s.shoot(o, times=3)
+    await asyncio.sleep(0.6)
+    assert hurt() == n0, 'the armour stops bullets'
+    flags(16384)
+    await asyncio.sleep(0.3)
+    s.shoot(o, times=1)
+    await wait(lambda: hurt() > n0, 3, 'bullets to land with the armour down')
+    print('armour ok: with the walls up the owner took no hits; with them down a shot landed')
+    await close(o, s)
+
+
 async def main():
     check_track()
     check_catalog()
@@ -407,6 +538,7 @@ async def main():
     await test_owner_kill()
     await test_331()
     await test_gatling()
+    await test_333()
     print('all 3.3.0 checks passed')
 
 

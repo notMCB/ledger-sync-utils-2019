@@ -112,11 +112,12 @@ export function previewOutfit(id, turn = Math.PI, close = false) {
     p.camera.lookAt(0, 0.05, 0);
   }
 }
-export function previewCart(id, turn = 2.3) {
+export function previewCart(id, turn = 2.3, armour = false) {
   const p = setupPreview();
   p.key = '';
   showModel({ kind: 'cart', cart: id });
   p.t = turn / 0.6;
+  if (armour) p.model.traverse((o) => { if (o.userData.armour) o.userData.armour.visible = true; });
 }
 export function previewGun(weapon, finish, fitted, turn = Math.PI / 2) {
   const p = setupPreview();

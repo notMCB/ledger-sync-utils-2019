@@ -204,7 +204,8 @@ function onMessage(m) {
   if (m.t === 'banbanner') {
     // someone has been banned: everyone sees it, menu or match
     const el = $('banbanner');
-    el.textContent = `${m.n} IS BANNED`;
+    el.innerHTML = `<span class="bb-name">${esc(m.n)}</span><span class="bb-sub">is banned</span>`;
+    el.style.setProperty('--len', Math.max(6, String(m.n).length));     // a long name is set smaller, to stay on one line
     el.hidden = false;
     el.classList.remove('show');
     void el.offsetWidth;
@@ -535,7 +536,12 @@ $('btn-gunstats').addEventListener('click', () => { uiBlip(); openGuns(); });
 // for checking a build on this machine: ?open=gunstats or ?open=carts opens that page
 if (LOCAL && params.get('open') === 'gunstats') setTimeout(() => { $('notes').hidden = true; openGuns(); }, 800);
 if (LOCAL && params.get('open') === 'banner') {
-  setTimeout(() => { $('notes').hidden = true; onMessage({ t: 'banbanner', n: params.get('name') || 'Cheater' }); }, 800);
+  setTimeout(() => {
+    $('notes').hidden = true;
+    onMessage({ t: 'banbanner', n: params.get('name') || 'Cheater' });
+    // ?still=1 holds it on screen, unanimated, for a picture
+    if (params.get('still')) { const el = $('banbanner'); el.classList.remove('show'); clearTimeout(el._t); }
+  }, 800);
   setTimeout(() => {
     const el = $('banbanner'), r = document.createRange();
     r.selectNodeContents(el);
@@ -1281,6 +1287,9 @@ async function runTurret() {
   input.tap('KeyT');
   await sleep(300);
   log(`after T: turret ${game.turret} cam ${game.camera.position.toArray().map((v) => v.toFixed(2))}`);
+  input.tap('KeyU');
+  await sleep(300);
+  log(`after U: armour ${game.armour} walls shown ${F().mesh.userData.armour.visible}`);
   me.yaw += 2.4;
   me.pitch = 0.1;
   await sleep(500);
@@ -1298,6 +1307,10 @@ async function runTurret() {
   input.tap('KeyT');
   await sleep(300);
   log(`after T again: turret ${game.turret} overlay hidden ${document.getElementById('turretcam').hidden}`);
+  me.yaw = F().yaw - Math.PI / 2;
+  me.pitch = -0.05;
+  await sleep(400);
+  log('CAPTURE armour-seat');
   log('turret done');
 }
 
@@ -1312,7 +1325,7 @@ async function runLooks() {
   const { CARTS } = await import('./skins.js');
   const ui = await import('./lockerui.js');
   for (const id of (params.get('carts') || CARTS.map((c) => c.id).join(',')).split(',')) {
-    ui.previewCart(id, Number(params.get('turn') || 2.3));
+    ui.previewCart(id, Number(params.get('turn') || 2.3), !!params.get('armour'));
     await sleep(350);
     ui.previewShot('cart-' + id);
     await sleep(150);

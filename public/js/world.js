@@ -1615,7 +1615,7 @@ export function makeGolfCartGroup(skin = null) {
   if (shiny) paintMat.envMap = chromeMaterial().envMap || null;
   if (skin && skin.livery) addCartLivery(g, skin);
   if (skin && skin.lightbar) addLightBar(g, skin.turret ? 0.72 : 0.1);
-  if (skin && skin.turret) addGatling(g);
+  if (skin && skin.turret) { addGatling(g); addArmour(g); }
   for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, paintMat]]) {
     if (gb.empty) continue;
     const mesh = new THREE.Mesh(gb.geometry(), mat);
@@ -1652,6 +1652,75 @@ function addLightBar(g, x = 0.1) {
   const rim = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.04, 1.4), chromeMaterial());
   rim.position.set(x, 2.37, 0);
   g.add(rim);
+}
+
+// bulletproof walls all round the cart, like an armoured army truck: thick panels
+// with small slit windows front, sides and back, in the patrol colours (black, white
+// doors, a blue stripe). Hidden until the driver puts them up: g.userData.armour.
+function addArmour(g) {
+  const A = new THREE.Group();
+  A.visible = false;
+  g.add(A);
+  const black = new THREE.MeshStandardMaterial({ color: '#14161b', metalness: 0.5, roughness: 0.5 });
+  const white = new THREE.MeshStandardMaterial({ color: '#eceae4', metalness: 0.3, roughness: 0.5 });
+  const blue = new THREE.MeshLambertMaterial({ color: '#2f6fe0' });
+  // thick tinted glass you can see out of (and in through, darkly)
+  const glass = new THREE.MeshStandardMaterial({ color: '#3a5670', metalness: 0.6, roughness: 0.1, transparent: true, opacity: 0.32, depthWrite: false });
+  const B = (x0, x1, y0, y1, z0, z1, mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), mat);
+    m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    m.castShadow = true;
+    A.add(m);
+    return m;
+  };
+  const X = 1.25, Z = 0.68, T = 0.06;          // the walls' outer faces, and their thickness
+  const lo = 0.2, sill = 1.32, head = 1.6, top = 1.88;
+  for (const s of [-1, 1]) {
+    const z0 = s > 0 ? Z - T : -Z, z1 = s > 0 ? Z : -Z + T;
+    B(-X, X, lo, sill, z0, z1, black);                       // below the windows
+    B(-X, X, head, top, z0, z1, black);                      // above them
+    // the window band: two small windows, solid between
+    for (const [a, b] of [[-X, -0.55], [-0.15, 0.25], [0.65, X]]) B(a, b, sill, head, z0, z1, black);
+    for (const [a, b] of [[-0.55, -0.15], [0.25, 0.65]]) B(a, b, sill, head, z0 + T * 0.3, z1 - T * 0.3, glass);
+    // the patrol livery: a white door panel, the blue stripe, the word
+    const out = s * (Z + 0.012);
+    B(-0.62, 0.55, 0.42, 1.24, out - 0.012, out + 0.012, white);
+    B(-X, X, 0.3, 0.38, out - 0.014, out + 0.014, blue);
+    const word = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.22), new THREE.MeshLambertMaterial({ map: policeWord(), transparent: true }));
+    word.position.set(-0.03, 0.86, out + s * 0.016);
+    if (s < 0) word.rotation.y = Math.PI;
+    A.add(word);
+  }
+  // the front: a windscreen slit you drive through, and a bull bar
+  B(X - T, X, lo, sill, -Z, Z, black);
+  B(X - T, X, head, top, -Z, Z, black);
+  for (const [a, b] of [[-Z, -0.42], [0.42, Z]]) B(X - T, X, sill, head, a, b, black);
+  B(X - T * 0.7, X - T * 0.3, sill, head, -0.42, 0.42, glass);
+  B(X + 0.04, X + 0.12, 0.25, 0.8, -0.6, 0.6, black);
+  for (const z of [-0.45, 0, 0.45]) B(X, X + 0.12, 0.25, 0.8, z - 0.04, z + 0.04, black);
+  // the back: one small window
+  B(-X, -X + T, lo, sill, -Z, Z, black);
+  B(-X, -X + T, head, top, -Z, Z, black);
+  for (const [a, b] of [[-Z, -0.2], [0.2, Z]]) B(-X, -X + T, sill, head, a, b, black);
+  B(-X + T * 0.3, -X + T * 0.7, sill, head, -0.2, 0.2, glass);
+  B(-X - 0.01, -X + 0.01, 0.3, 0.38, -Z, Z, blue);
+  g.userData.armour = A;
+}
+
+let POLICE_WORD = null;
+function policeWord() {
+  if (POLICE_WORD) return POLICE_WORD;
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 64;
+  const x = c.getContext('2d');
+  x.fillStyle = '#14161b';
+  x.font = 'bold 46px sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText('POLICE', 128, 34);
+  POLICE_WORD = new THREE.CanvasTexture(c);
+  POLICE_WORD.colorSpace = THREE.SRGBColorSpace;
+  return POLICE_WORD;
 }
 
 // a six-barrelled Gatling gun on a turret at the back of the roof. It turns on
