@@ -143,6 +143,7 @@
       <button class="btn" id="btn-locker">Locker <span class="dinar-pill"><i class="dinar"></i><span id="menu-dinars">0</span></span></button>
       <button class="btn ghost" id="btn-pass">Battle Pass</button>
       <button class="btn ghost" id="btn-stats">Stats</button>
+      <button class="btn ghost" id="btn-gunstats">Gun stats</button>
       <button class="btn ghost" id="btn-loadout">Loadout</button>
       <button class="btn ghost" id="btn-settings">Settings</button>
       <button class="btn ghost" id="btn-notes">Patch notes</button>
@@ -182,6 +183,7 @@
       <button class="btn ghost" id="btn-pause-loadout">Loadout</button>
       <button class="btn ghost" id="btn-pause-locker">Locker</button>
       <button class="btn ghost" id="btn-pause-stats">Stats</button>
+      <button class="btn ghost" id="btn-pause-gunstats">Gun stats</button>
       <button class="btn ghost" id="btn-pause-settings">Settings</button>
       <button class="btn ghost" id="btn-pause-notes">Patch notes</button>
       <button class="btn danger" id="btn-leave">Leave match</button>
@@ -305,6 +307,14 @@
         </div>
         <button class="btn crate-open" id="crate-party">Open · <span id="price-party">2000</span></button>
       </div>
+      <div class="crate-card kart">
+        <div class="crate-art" aria-hidden="true"></div>
+        <div class="crate-text">
+          <div class="crate-name">Pit Lane Crate</div>
+          <div class="crate-desc">Golf cart skins: racing stripes, flames, chequered flags and race numbers. Everyone sees the cart you drive.</div>
+        </div>
+        <button class="btn crate-open" id="crate-kart">Open · <span id="price-kart">400</span></button>
+      </div>
     </div>
     <p class="panel-sub lk-earn">Earn dinars by playing: <b>50 a kill</b> (+10 for a headshot), 20 for a plant, 25 for a defuse, 15 a round win, 25 for finishing a match and 50 more for winning it. Duplicates give some dinars back.</p>
     <div class="lk-body">
@@ -314,6 +324,7 @@
           <div class="tabs">
             <button class="tab lk-tab on" data-tab="loadouts">Loadouts</button>
             <button class="tab lk-tab" data-tab="outfits">Outfits</button>
+            <button class="tab lk-tab" data-tab="carts">Carts</button>
           </div>
           <div class="lk-count" id="lk-total"></div>
         </div>
@@ -385,6 +396,25 @@
     <div class="stats-grid" id="stats-grid"></div>
     <h3 class="stats-h">Kills by gun</h3>
     <div class="stats-guns" id="stats-guns"></div>
+  </div>
+</div>
+
+<!-- ============ gun stats ============ -->
+<div id="gunstats" class="overlay dim" hidden>
+  <div class="panel gs-panel">
+    <div class="panel-head">
+      <div><h2>Gun stats</h2><div class="lk-account">With the attachments fitted in your Locker. Fit a different one here and the numbers change with it.</div></div>
+      <button class="btn ghost" id="gs-close">Done</button>
+    </div>
+    <div class="lk-weapons" id="gs-guns"></div>
+    <div class="gs-detail">
+      <div class="gs-head"><h3 id="gs-name"></h3><div class="gs-tags" id="gs-tags"></div></div>
+      <div class="gs-rows" id="gs-rows"></div>
+      <p class="gs-note" id="gs-note"></p>
+      <div class="gs-attach" id="gs-attach"></div>
+    </div>
+    <h3 class="stats-h">Every gun, as you have it</h3>
+    <div class="gs-table-wrap"><table class="gs-table" id="gs-table"></table></div>
   </div>
 </div>
 

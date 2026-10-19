@@ -101,6 +101,25 @@ export const WEAPONS = {
 };
 WEAPONS.shotgun.crosshair = 'circle';
 
+// How damage falls off and what a headshot is worth: the server's table
+// (server/server.py WEAPONS and SLUG), repeated here for the gun stats page.
+// head: headshot multiplier; full damage out to `near` metres, falling to
+// `min` of it by `far`.
+export const DAMAGE = {
+  smg: { head: 1.8, near: 15, far: 40, min: 0.6 },
+  lmg: { head: 1.8, near: 25, far: 60, min: 0.7 },
+  shotgun: { head: 1.5, near: 8, far: 30, min: 0.2 },
+  sniper: { head: 2.5, near: 999, far: 999, min: 1.0 },
+  pistol: { head: 2.0, near: 20, far: 50, min: 0.7 },
+  knife: { head: 1.0, near: 999, far: 999, min: 1.0 },
+  heavy: { head: 1.0, near: 999, far: 999, min: 1.0 },
+  revolver: { head: 1.5, near: 30, far: 80, min: 0.75 },
+  flamer: { head: 1.0, near: 999, far: 999, min: 1.0 },
+  pdw: { head: 1.6, near: 7, far: 20, min: 0.3 },
+  carbine: { head: 1.8, near: 22, far: 55, min: 0.65 },
+  slug: { head: 1.5, near: 30, far: 90, min: 0.55 },
+};
+
 // Each loadout's perk. Uses are per life.
 export const PERKS = {
   ammo: { id: 'ammo', name: 'Ammo Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to restock spare ammo. Stand on it again 15 seconds later and it restocks you again. (Grenades don’t come back.)' },

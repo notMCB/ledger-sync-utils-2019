@@ -121,6 +121,9 @@ export const OUTFITS = [
   { id: 'sahur', name: 'Tung Tung Tung Sahur', rarity: 'legendary', crate: 'pass', shirt: '#8a5a36', pants: '#6b4326', boots: '#3a2416', wrap: '#8a5a36', head: 'wrap', shape: 'log' },
   { id: 'ballerina', name: 'Ballerina Cappuccina', rarity: 'legendary', crate: 'pass', shirt: '#d8ac3f', pants: '#f1d9c0', boots: '#d8ac3f', wrap: '#c9a13b', head: 'wrap', shape: 'cup' },
   { id: 'tunggod', name: 'Tung Tung Tung God', rarity: 'legendary', crate: 'pass', shirt: '#f4f1ea', pants: '#f4f1ea', boots: '#f4f1ea', wrap: '#f4f1ea', head: 'wrap', shape: 'god', shine: true },
+  // given to one account by hand; no crate holds it. The monogram jacket worn open
+  // over his yellow T-shirt, jeans and white trainers, and Morty's head (see avatars.js)
+  { id: 'guccimorty', name: 'Gucci Morty', rarity: 'legendary', crate: 'owner', pattern: 'gucci', colors: ['#cbb68c', '#4a3324', '#1f6b3a', '#b3201c'], pants: '#3f5f93', boots: '#f4f4f0', wrap: '#4a2a12', head: 'morty', jacket: true },
 ];
 // the camouflage outfits, by id
 export const CAMO_OUTFITS = new Set(OUTFITS.filter((o) => o.camo).map((o) => o.id));
@@ -420,6 +423,39 @@ export function patternCanvas(kind, colors, seedKey = kind) {
       g.beginPath(); g.arc(r() * S, r() * S, 2 + r() * 3, 0, Math.PI * 2); g.fill();
     }
     g.globalAlpha = 1;
+  } else if (kind === 'gucci') {
+    // the monogram: pairs of interlocking G's in brown on tan, row on row, offset,
+    // with the green-red-green web stripe across the middle
+    const step = 48;
+    g.strokeStyle = colors[1];
+    g.lineWidth = 3.2;
+    const G = (cx, cy, rad, flip) => {
+      g.beginPath();
+      if (!flip) g.arc(cx, cy, rad, -Math.PI * 0.25, Math.PI * 1.55);
+      else g.arc(cx, cy, rad, Math.PI * 0.75, Math.PI * 2.55);
+      g.stroke();
+      // the G's crossbar
+      const s = flip ? -1 : 1;
+      g.beginPath();
+      g.moveTo(cx + s * rad * 0.15, cy + rad * 0.05);
+      g.lineTo(cx + s * rad * 0.75, cy + rad * 0.05);
+      g.stroke();
+    };
+    for (let row = 0, y = step / 2; y < S + step; y += step, row++) {
+      for (let x = (row % 2) * step / 2; x < S + step; x += step) {
+        G(x - 4, y, 9, false);
+        G(x + 4, y, 9, true);
+      }
+    }
+    // little diamonds between them
+    g.fillStyle = colors[1];
+    for (let y = 0; y < S; y += step) for (let x = 0; x < S; x += step) {
+      g.beginPath(); g.moveTo(x, y - 3); g.lineTo(x + 3, y); g.lineTo(x, y + 3); g.lineTo(x - 3, y); g.closePath(); g.fill();
+    }
+    const y0 = S * 0.44;
+    g.fillStyle = colors[2]; g.fillRect(0, y0, S, 10);
+    g.fillStyle = colors[3]; g.fillRect(0, y0 + 10, S, 10);
+    g.fillStyle = colors[2]; g.fillRect(0, y0 + 20, S, 10);
   } else if (kind === 'rust') {
     for (let i = 0; i < 70; i++) {
       const x = r() * S, y = r() * S, rad = 6 + r() * 26;
@@ -581,4 +617,186 @@ export function swatch(item) {
   }
   swatchCache.set(item.id + (item.shirt || ''), css);
   return css;
+}
+
+// -- golf carts ------------------------------------------------------------------
+// Skins for the golf carts, from the Pit Lane Crate. Each one paints the body,
+// the seat, the canopy and the wheels, and may put a livery on the bonnet, the
+// sides and the roof: stripes, flames, a chequered band, a race number.
+export const CARTS = [
+  { id: 'fairway', name: 'Fairway', rarity: 'common', body: '#f2f2ee', seat: '#2f6b4a', canopy: '#2f6b4a', trim: '#2b2e32' },
+  { id: 'clubhouse', name: 'Clubhouse Cream', rarity: 'common', body: '#efe2c4', seat: '#7a4a2a', canopy: '#efe2c4', trim: '#5a3a24' },
+  { id: 'caddie', name: 'Caddie Blue', rarity: 'common', body: '#3f6fb0', seat: '#1d2633', canopy: '#f2f2ee', trim: '#1d2633' },
+  { id: 'sandtrap', name: 'Sand Trap', rarity: 'common', body: '#d6bf8e', seat: '#5a4a35', canopy: '#b39a74', trim: '#5a4a35' },
+  { id: 'cabbie', name: 'Yellow Cab', rarity: 'uncommon', body: '#f5c518', seat: '#1b1b1b', canopy: '#f5c518', trim: '#1b1b1b', livery: 'band', colors: ['#141414', '#f4f4f0'] },
+  { id: 'patrol', name: 'Cart Patrol', rarity: 'uncommon', body: '#16181d', seat: '#16181d', canopy: '#f4f4f0', trim: '#f4f4f0', livery: 'police', colors: ['#f4f4f0', '#16181d', '#2f6fe0', '#e0302a'] },
+  { id: 'woodie', name: 'Woodie', rarity: 'uncommon', body: '#efe2c4', seat: '#7a4a2a', canopy: '#efe2c4', trim: '#5a3a24', livery: 'wood', colors: ['#9a6a3e', '#6b4326', '#c48a58'] },
+  { id: 'sundae', name: 'Sundae', rarity: 'uncommon', body: '#ffc8dc', seat: '#8fd8ff', canopy: '#fff6e0', trim: '#c9567f', livery: 'dots', colors: ['#ffc8dc', '#ffffff', '#8fd8ff', '#ffe08a'] },
+  { id: 'lemans', name: 'Le Mans Stripes', rarity: 'rare', body: '#1f4fa8', seat: '#14181f', canopy: '#1f4fa8', trim: '#14181f', livery: 'twin', colors: ['#f4f4f0'] },
+  { id: 'chequered', name: 'Chequered Flag', rarity: 'rare', body: '#f4f4f0', seat: '#141414', canopy: '#141414', trim: '#141414', livery: 'checker', colors: ['#141414', '#f4f4f0'] },
+  { id: 'number7', name: 'Number 7', rarity: 'rare', body: '#d0352b', seat: '#141414', canopy: '#f4f4f0', trim: '#141414', livery: 'number', num: '7', colors: ['#f4f4f0', '#141414'] },
+  { id: 'redline', name: 'Redline', rarity: 'rare', body: '#2a2c30', seat: '#d0352b', canopy: '#2a2c30', trim: '#d0352b', livery: 'single', colors: ['#d0352b'] },
+  { id: 'hotrod', name: 'Hot Rod Flames', rarity: 'epic', body: '#141414', seat: '#7a1a12', canopy: '#141414', trim: '#c9a13b', livery: 'flames', colors: ['#ffe04a', '#ff8a1f', '#e0302a'], metal: 0.5 },
+  { id: 'petrol', name: 'Petrol Blue', rarity: 'epic', body: '#8ec3e6', seat: '#1d2633', canopy: '#8ec3e6', trim: '#1d2633', livery: 'gulf', colors: ['#f08a1f'], num: '9' },
+  { id: 'neoncart', name: 'Night Racer', rarity: 'epic', body: '#101218', seat: '#101218', canopy: '#101218', trim: '#27e6ff', livery: 'twin', colors: ['#27e6ff'], glow: '#27e6ff' },
+  { id: 'inferno', name: 'Inferno', rarity: 'legendary', body: '#b0141a', seat: '#141414', canopy: '#b0141a', trim: '#d9dee3', livery: 'flames', colors: ['#ffffff', '#7fd4ff', '#2f6fe0'], metal: 0.6, rough: 0.25, glow: '#7fd4ff' },
+  { id: 'goldcart', name: 'Solid Gold', rarity: 'legendary', body: '#d8ac3f', seat: '#2b2320', canopy: '#d8ac3f', trim: '#8a6a22', livery: 'twin', colors: ['#2b2320'], metal: 0.9, rough: 0.2 },
+  { id: 'rainbowkart', name: 'Rainbow Road', rarity: 'legendary', body: '#1a1a2e', seat: '#1a1a2e', canopy: '#1a1a2e', trim: '#ffe94a', livery: 'rainbow', colors: ['#ff3b4a', '#ff8f1f', '#ffe94a', '#3fe05c', '#3fa0ff', '#8f4fff'], glow: '#ffffff' },
+];
+for (const c of CARTS) c.crate = 'kart';
+export const CART = Object.fromEntries(CARTS.map((c) => [c.id, c]));
+// the plain cart, before any skin
+export const CART_FACTORY = { id: '', name: 'Factory', rarity: 'common', body: '#f2f2ee', seat: '#2f6b4a', canopy: '#f2f2ee', trim: '#2b2e32' };
+
+// A livery drawn for one face of a cart. 'hood' and 'roof' have u along the
+// cart (the nose at u = 1) and v across it. 'sideR' is the cart's +z side and
+// 'sideL' its -z side, both seen from outside, so on 'sideL' the nose is at the
+// left; the art is mirrored but writing is not. The sides leave the seat
+// opening, and the gap above the bonnet, clear (transparent).
+// Side canvas: x = (local x + 1.15) / 2.3, y = (1.03 - height) / 0.75.
+export const CART_SIDE = { x0: -1.15, x1: 1.15, y0: 0.28, y1: 1.03 };
+const cartCanvasCache = new Map();
+export function cartCanvas(skin, face) {
+  const key = skin.id + '|' + face;
+  if (cartCanvasCache.has(key)) return cartCanvasCache.get(key);
+  const side = face === 'sideL' || face === 'sideR';
+  const W = 512, H = side ? 168 : 256;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const col = skin.colors || [];
+  g.fillStyle = face === 'roof' ? (skin.canopy || skin.body) : skin.body;
+  g.fillRect(0, 0, W, H);
+  // where a height on the side falls on the canvas
+  const hy = (h) => ((CART_SIDE.y1 - h) / (CART_SIDE.y1 - CART_SIDE.y0)) * H;
+  const ux = (lx) => ((lx - CART_SIDE.x0) / (CART_SIDE.x1 - CART_SIDE.x0)) * W;
+  if (face === 'sideL') g.setTransform(-1, 0, 0, 1, W, 0);     // the nose on the left
+  const r = rng(hashStr(skin.id + face.slice(0, 4)));
+  const L = skin.livery;
+  const band = (y0, y1, color) => { g.fillStyle = color; g.fillRect(0, Math.min(y0, y1), W, Math.abs(y1 - y0)); };
+  if (L === 'twin') {
+    if (side) { band(hy(0.5), hy(0.44), col[0]); band(hy(0.4), hy(0.34), col[0]); }
+    else { band(H * 0.36, H * 0.45, col[0]); band(H * 0.55, H * 0.64, col[0]); }
+  } else if (L === 'single') {
+    if (side) band(hy(0.52), hy(0.36), col[0]);
+    else band(H * 0.42, H * 0.58, col[0]);
+  } else if (L === 'band' || L === 'checker') {
+    const sq = side ? 14 : 22;
+    const y0 = side ? hy(0.5) : H / 2 - sq;
+    for (let x = 0; x < W; x += sq) {
+      for (let k = 0; k < 2; k++) {
+        g.fillStyle = col[((x / sq) + k) % 2];
+        g.fillRect(x, y0 + k * sq, sq, sq);
+      }
+    }
+    if (L === 'checker' && !side) {
+      for (let y = 0; y < H; y += 32) for (let x = 0; x < W; x += 32) {
+        g.fillStyle = col[((x + y) / 32) % 2];
+        g.fillRect(x, y, 32, 32);
+      }
+    }
+  } else if (L === 'police') {
+    if (side) {
+      g.fillStyle = col[0];
+      g.fillRect(ux(-1.15), hy(1.03), ux(-0.45) - ux(-1.15), H);    // white doors at the back
+      g.fillRect(ux(0.55), hy(0.92), W - ux(0.55), H);               // and at the front
+      band(hy(0.38), hy(0.3), col[2]);
+    } else if (face === 'roof') {
+      g.fillStyle = col[2]; g.fillRect(W * 0.35, H * 0.3, W * 0.12, H * 0.4);
+      g.fillStyle = col[3]; g.fillRect(W * 0.53, H * 0.3, W * 0.12, H * 0.4);
+    } else band(H * 0.4, H * 0.6, col[0]);
+  } else if (L === 'wood') {
+    if (side) {
+      g.fillStyle = col[0];
+      g.fillRect(0, hy(0.98), W, hy(0.34) - hy(0.98));
+      for (let i = 0; i < 26; i++) {
+        g.strokeStyle = i % 3 ? col[2] : col[1];
+        g.globalAlpha = 0.5;
+        g.lineWidth = 1 + r() * 2;
+        g.beginPath();
+        const y = hy(0.95) + r() * (hy(0.36) - hy(0.95));
+        for (let x = 0; x <= W; x += 16) g.lineTo(x, y + Math.sin(x * 0.02 + i) * 3);
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+      g.strokeStyle = skin.trim; g.lineWidth = 6;
+      g.strokeRect(3, hy(0.98), W - 6, hy(0.34) - hy(0.98));
+    }
+  } else if (L === 'dots') {
+    const p = patternCanvas('dots', col, skin.id);
+    for (let x = 0; x < W; x += 256) for (let y = 0; y < H; y += 256) g.drawImage(p, x, y);
+  } else if (L === 'rainbow') {
+    const n = col.length;
+    if (side) for (let i = 0; i < n; i++) band(hy(0.54 - i * 0.04), hy(0.5 - i * 0.04), col[i]);
+    else for (let i = 0; i < n; i++) band(H * (0.2 + i * 0.1), H * (0.3 + i * 0.1), col[i]);
+  } else if (L === 'gulf') {
+    if (side) band(hy(0.55), hy(0.36), col[0]);
+    else band(H * 0.35, H * 0.65, col[0]);
+  } else if (L === 'flames') {
+    // tongues of fire licking back from the nose (u = 1)
+    const tongues = side ? 6 : 9;
+    const draw = (scale, color) => {
+      g.fillStyle = color;
+      for (let i = 0; i < tongues; i++) {
+        const t = (i + 0.5) / tongues;
+        const yc = side ? hy(0.86 - t * 0.5) : H * (0.1 + t * 0.8);
+        const len = W * (0.35 + 0.35 * Math.sin(t * Math.PI) + r() * 0.08) * scale;
+        const th = (side ? H * 0.08 : H * 0.07) * scale;
+        const x0 = W + 4;
+        g.beginPath();
+        g.moveTo(x0, yc - th);
+        g.bezierCurveTo(x0 - len * 0.4, yc - th * 1.4, x0 - len * 0.7, yc - th * 0.2, x0 - len, yc + th * 0.6);
+        g.bezierCurveTo(x0 - len * 0.75, yc + th * 0.5, x0 - len * 0.4, yc + th * 1.6, x0, yc + th);
+        g.closePath();
+        g.fill();
+      }
+    };
+    draw(1.0, col[2]);
+    draw(0.78, col[1]);
+    draw(0.5, col[0]);
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  // writing goes on unmirrored: a race number in a roundel, the word on a patrol cart
+  const text = (str, cx, cy, size, color, rotate = 0) => {
+    g.save();
+    g.translate(cx, cy);
+    if (rotate) g.rotate(rotate);
+    g.fillStyle = color;
+    g.font = `bold ${size}px sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(str, 0, size * 0.05);
+    g.restore();
+  };
+  const mx = (x) => (face === 'sideL' ? W - x : x);
+  if (skin.num && face !== 'roof') {
+    const cx = side ? mx(ux(-0.8)) : W * 0.5, cy = side ? hy(0.72) : H * 0.5, rad = side ? H * 0.2 : H * 0.28;
+    g.fillStyle = '#f4f4f0';
+    g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI * 2); g.fill();
+    // the bonnet's number reads from the driver's seat, the sides from beside the cart
+    text(skin.num, cx, cy, rad * 1.35, '#141414', side ? 0 : Math.PI / 2);
+  }
+  if (L === 'police' && side) text('POLICE', mx(ux(-0.8)), hy(0.75), H * 0.12, col[1]);
+  if (side) {
+    // the seat opening, and above the bonnet: nothing there
+    const cut = (x0, x1, y0, y1) => {
+      const a = mx(ux(x0)), b = mx(ux(x1));
+      g.clearRect(Math.min(a, b), hy(y1), Math.abs(b - a), hy(y0) - hy(y1));
+    };
+    cut(-0.45, 0.55, 0.56, 1.04);
+    cut(0.55, 1.16, 0.92, 1.04);
+  }
+  cartCanvasCache.set(key, c);
+  return c;
+}
+
+// a CSS background for a cart tile in the menus: its side, nose to the right,
+// over the canopy colour where the seat opening is
+export function cartSwatch(skin) {
+  try {
+    const c = cartCanvas(skin, 'sideR');
+    return `url(${c.toDataURL()}) center / 100% 100%, ${skin.seat}`;
+  } catch (e) {
+    return skin.body;
+  }
 }

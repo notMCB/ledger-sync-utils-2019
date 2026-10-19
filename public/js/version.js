@@ -2,12 +2,29 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.2.2';
+export const VERSION = '3.3.0';
 
 export const PATCH_NOTES = [
   {
+    version: '3.3.0',
+    date: '19 October 2026',
+    title: 'Derby',
+    notes: [
+      'A new mode: Derby. Up to twelve players in golf carts on a race track laid round the Dockyard, between red and white barriers: a long start straight, a chicane up the east side, a hairpin through the middle of the yard, esses down the west quay, and two cranes standing over the track. Pick it from the menu and you are straight in, on the grid.',
+      'Two ways to get a kill in the Derby: crash into someone, or grenade them. Hit another cart with your nose at speed and it is out; brushing past, crawling into it or backing into it does nothing. Everyone carries three frags, and in the Derby any grenade damage at all kills, your own included. No guns, and nobody gets out of their cart.',
+      'When you are knocked out you wait one second, then you are back on the track where you went off, facing the right way. First to 20 kills wins.',
+      'You drive the Derby from the seat, and your view turns with the cart. Laps are counted from the chequered line, with your best lap time.',
+      'Derby carts go twice as fast as golf carts anywhere else. Brake for the tight bends.',
+      'Golf cart skins, from the new Pit Lane Crate in the Locker: eighteen of them, from Fairway and Caddie Blue up to Le Mans stripes, a chequered flag, race numbers, Hot Rod flames, Petrol Blue, Night Racer, Inferno, Solid Gold and Rainbow Road. Pick yours in the Locker’s new Carts tab. Get behind the wheel of any golf cart, in the Derby or any other mode, and it wears your skin for everyone to see; get out and it goes back to plain.',
+      'A gun stats page, from the menu and the pause menu: damage, headshot damage, falloff, fire rate, shots and time to kill, range, magazine, reload, hip-fire and aimed spread, spread on the move, bloom, recoil, aim time, zoom and move speed, for every gun. The numbers are for the gun with your attachments fitted, against the gun out of the box. Fit attachments right there and see what changes; hover one to see what it would do first. Every gun is also side by side in one table.',
+      'The Locker shows a line of each gun’s numbers under its attachments, with a button to the full page.',
+      'Fixed: changing your guns, loadout or perk in the Locker during a life no longer leaves the gun in your hands doing no damage until you die. What you pick now waits for your next life, on the server as well as on your screen.',
+      'Fixed: equipping a skin straight from a crate for the PDW, the carbine, the flamethrower, the .50, the revolver or the knife broke the Locker.',
+    ],
+  },
+  {
     version: '3.2.2',
-    date: '28 September 2026',
+    date: '19 October 2026',
     title: 'General fixes: stats, sound, night',
     notes: [
       'A stats page, from the menu and the pause menu: matches, wins, best Souk Royale placing, kills, deaths, headshots, assists, damage, longest kill, time played, favourite gun and kills by gun. Kept on your account, or on this device as a guest.',
@@ -22,7 +39,7 @@ export const PATCH_NOTES = [
   },
   {
     version: '3.2.1',
-    date: '26 September 2026',
+    date: '19 October 2026',
     title: 'Souk Royale: Downtown',
     notes: [
       'The map is bigger and the four towns have moved out to its corners. In the middle now is Downtown: a grid of avenues and streets, glass towers with lobbies you can walk into, two-storey shops, a park, a car park and a building site. It is the largest place on the map and full of chests.',

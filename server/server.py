@@ -36,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.2.2'
+VERSION = '3.3.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -60,9 +60,11 @@ MODES = {
     'oitc':      {'name': 'One in the Chamber', 'time': 300, 'limit': 0,  'respawn': 3.0},
     # the battle royale: up to 64, one life, the last one standing wins
     'royale':    {'name': 'Souk Royale',        'time': 900, 'limit': 0,  'respawn': 0.0, 'max': 64, 'countdown': 20.0},
+    # golf carts round a circuit on the Dockyard: crash into people, or grenade them
+    'derby':     {'name': 'Derby',              'time': 480, 'limit': 20, 'respawn': 1.0, 'max': 12},
 }
 NICHE_MODES = ('snipers', 'knives', 'firefight', 'oitc')
-FFA_MODES = ('ffa',) + NICHE_MODES + ('royale',)
+FFA_MODES = ('ffa',) + NICHE_MODES + ('royale', 'derby')
 # what a niche mode hands you: (primary, secondary, grenade kinds); None is nothing in that slot
 NICHE_ARMS = {
     'snipers':   ('heavy', None, ()),
@@ -72,6 +74,10 @@ NICHE_ARMS = {
 }
 OITC_LIVES = 3
 TEAM_MODES = ('tdm', 'koth', 'bomb')
+# the Derby: everyone in a golf cart, grenades only, and any grenade damage at all kills
+DERBY_NADES = 3
+DERBY_CRASH_SPEED = 3.5    # metres a second a cart must be doing to kill what it hits
+DERBY_CRASH_REACH = 3.4    # how far from the cart's middle a hit can be
 
 # -- the battle royale --------------------------------------------------------
 PLANE_ALT = 160.0          # how high the plane flies
@@ -261,11 +267,13 @@ def clean_name(n):
 def clean_cos(c):
     """Cosmetics a client says it is wearing: an outfit id and a finish per weapon."""
     ok = lambda v: isinstance(v, str) and 0 < len(v) <= 24 and v.replace('_', '').isalnum()
-    out = {'o': 'standard', 'g': {}, 'ms': ''}
+    out = {'o': 'standard', 'g': {}, 'ms': '', 'c': ''}
     if not isinstance(c, dict):
         return out
     if ok(c.get('o')):
         out['o'] = c['o']
+    if c.get('c') in catalog.CART_IDS:
+        out['c'] = c['c']
     if c.get('ms') in catalog.MUZZLE_STYLES:
         out['ms'] = c['ms']
     g = c.get('g')
@@ -284,8 +292,13 @@ def owned_cos(p, cos):
     """For signed-in players, only show cosmetics they actually own."""
     lk = p.locker
     if lk is None:
+        # a guest's locker lives in their browser, so what they say goes, except for
+        # the outfits that only ever go on an account by hand
+        if cos['o'] in catalog.OWNER_ONLY:
+            cos = dict(cos, o='standard')
         return cos
-    out = {'o': cos['o'] if cos['o'] in lk['outfits'] else 'standard', 'g': {}, 'ms': cos.get('ms', '') if cos.get('ms', '') in lk.get('muzzles', []) else ''}
+    out = {'o': cos['o'] if cos['o'] in lk['outfits'] else 'standard', 'g': {}, 'ms': cos.get('ms', '') if cos.get('ms', '') in lk.get('muzzles', []) else '',
+           'c': cos.get('c', '') if cos.get('c', '') in lk.get('carts', []) else ''}
     for w, f in cos['g'].items():
         if '%s:%s' % (w, f) in lk['guns']:
             out['g'][w] = f
@@ -346,6 +359,9 @@ class Player:
         self.perk = 'ammo'       # the perk this loadout uses (some loadouts choose)
         self.primary = 'smg'     # the guns this loadout carries
         self.secondary = 'pistol'
+        # what this life was spawned with: choices made in the Locker mid-life (the
+        # guns, the perk, the loadout) wait for the next one, as they do on screen
+        self.carry = None        # (loadout, primary, secondary, perk)
         self.vehicle = None      # the forklift being driven, if any
         self.burn_until = 0.0    # on fire until then
         self.burn_by = None
@@ -511,6 +527,8 @@ class Room:
         """The map after the current one, round the rotation."""
         if self.mode == 'royale':
             return 'royale'
+        if self.mode == 'derby':
+            return 'derby'
         if FORCE_MAP:
             return FORCE_MAP
         # any of the four, never the same one twice running
@@ -534,7 +552,10 @@ class Room:
             self.seed, self.map_kind, town = ready
         else:
             self.seed = random.randrange(1, 2 ** 31)
-            self.map_kind = 'royale' if self.mode == 'royale' else (kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0]))
+            if self.mode in ('royale', 'derby'):
+                self.map_kind = self.mode
+            else:
+                self.map_kind = kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0])
             town = mapgen.generate(self.seed, self.map_kind)
         self.map = town.to_json()
         # night falls on four matches in ten, on every map but the royale's
@@ -545,7 +566,9 @@ class Room:
         self.forklifts = {}
         for d in self.map['deco']:
             if d.get('k') in ('forklift', 'golfcart') and 'id' in d:
-                self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None}
+                self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None,
+                                                'v': 0.0, 'at': now(), 'home': (d['x'], d.get('y', 0.0), d['z'], d.get('yaw', 0.0))}
+        self.track = self.map.get('track') or []
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
         self.map_frames = {False: frame(self.map_msg, False), True: frame(self.map_msg, True)}
         self.ladders = {}
@@ -627,6 +650,14 @@ class Room:
 
     def remove(self, p):
         self.leave_vehicle(p)
+        for fid, F in self.forklifts.items():
+            if F.get('owner') == p.id:
+                F['owner'] = None
+                if self.mode == 'derby':
+                    # a Derby cart left on the track would be in everyone's way: back to the pits
+                    F['p'] = list(F['home'][:3])
+                    F['y'] = F['home'][3]
+                    self.broadcast(self.fk_msg(fid))
         if p.id not in self.players:
             return
         del self.players[p.id]
@@ -652,9 +683,13 @@ class Room:
         if self.mode in NICHE_ARMS:
             a = NICHE_ARMS[self.mode]
             return a[0], a[1]
+        if self.mode == 'derby':
+            return None, None
         if self.mode == 'royale':
             pw, sw = p.inv['pw'], p.inv['sw']
             return (pw['w'] if pw else None), (sw['w'] if sw else None)
+        if p.carry:
+            return p.carry[1], p.carry[2]
         return p.primary, p.secondary
 
     def rebalance(self):
@@ -726,11 +761,18 @@ class Room:
             random.shuffle(pts)
             best = next((pt for pt in pts if all(math.hypot(pt[0] - q.pos[0], pt[1] - q.pos[2]) > 1.2
                                                  for q in others)), pts[0])
+        elif self.mode == 'derby':
+            best = None
         else:
             best = self.random_spawn(p, others, warmup)
-        x, z = best[0], best[1]
-        y = float(best[2]) if len(best) > 2 else 0.0
-        yaw = random.uniform(-math.pi, math.pi)
+        if self.mode == 'derby':
+            x, z, cart_yaw = self.derby_spot(p, others)
+            y = 0.0
+            yaw = cart_yaw - math.pi / 2      # a player's yaw faces -z at zero; a cart's faces +x
+        else:
+            x, z = best[0], best[1]
+            y = float(best[2]) if len(best) > 2 else 0.0
+            yaw = random.uniform(-math.pi, math.pi)
         p.pos = [x, y, z]
         p.yaw = yaw
         p.hp = 100
@@ -741,12 +783,17 @@ class Room:
             kinds = NICHE_ARMS[self.mode][2]
             p.nades = 2 if kinds else 0
             p.perk_left = 0
+        elif self.mode == 'derby':
+            p.nades = DERBY_NADES
+            p.nade_kind = 'frag'
+            p.perk_left = 0
         elif self.mode == 'royale':
             p.reset_kit()
         else:
             p.nades = p.nades_for()
             p.perk_left = PERK_USES[p.perk]
         p.rounds = 1
+        p.carry = (p.loadout, p.primary, p.secondary, p.perk)
         p.sc += 1
         p.protect_until = now() + PROTECT
         p.last_active = now()      # a fresh life starts the idle clock again
@@ -760,7 +807,67 @@ class Room:
         p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team, 'lv': p.lives, 'guard': 1 if p.afk_guard else 0})
         if self.mode == 'royale':
             p.send(self.inv_msg(p))
+        if self.mode == 'derby':
+            self.derby_seat(p, x, z, cart_yaw)
         self.roster_dirty = True
+
+    # -- the Derby --
+
+    def track_heading(self, i):
+        T = self.track
+        a, b = T[(i - 1) % len(T)], T[(i + 1) % len(T)]
+        return math.atan2(-(b[1] - a[1]), b[0] - a[0])
+
+    def track_nearest(self, x, z):
+        T = self.track
+        return min(range(len(T)), key=lambda i: (T[i][0] - x) ** 2 + (T[i][1] - z) ** 2)
+
+    def derby_spot(self, p, others):
+        """Where a cart starts: on the grid at the start of a match, otherwise back on
+        the tarmac where its driver died, facing the way the race runs, with a free
+        stretch of track around it."""
+        T = self.track
+        grid = self.map['ffaSpawns']
+        dead_at = getattr(p, 'derby_at', None)
+        if dead_at is None or not T:
+            taken = [q.pos for q in others]
+            for i, g in enumerate(grid):
+                if all(math.hypot(g[0] - q[0], g[1] - q[2]) > 2.5 for q in taken):
+                    return g[0], g[1], self.track_heading(self.track_nearest(g[0], g[1])) if T else 0.0
+            g = grid[0]
+            return g[0], g[1], self.track_heading(self.track_nearest(g[0], g[1])) if T else 0.0
+        i0 = self.track_nearest(dead_at[0], dead_at[2])
+        busy = [q.pos for q in others] + [F['p'] for F in self.forklifts.values()
+                                           if F.get('owner') not in (None, p.id)]
+        for step in (0, -3, 3, -6, 6, -9, 9, -12, 12):
+            i = (i0 + step) % len(T)
+            yaw = self.track_heading(i)
+            lx, lz = math.sin(yaw), math.cos(yaw)     # across the track
+            for side in (0.0, -2.6, 2.6):
+                x, z = T[i][0] + lx * side, T[i][1] + lz * side
+                if all(math.hypot(x - q[0], z - q[2]) > 3.0 for q in busy):
+                    return x, z, yaw
+        return T[i0][0], T[i0][1], self.track_heading(i0)
+
+    def derby_seat(self, p, x, z, yaw):
+        """Put a player's cart where they spawned and them at its wheel."""
+        self.leave_vehicle(p)
+        fid = getattr(p, 'derby_cart', None)
+        if fid not in self.forklifts or self.forklifts[fid].get('owner') not in (None, p.id):
+            fid = next((f for f in sorted(self.forklifts) if self.forklifts[f].get('owner') in (None, p.id)
+                        and not self.forklifts[f]['driver']), None)
+        if fid is None:
+            return
+        F = self.forklifts[fid]
+        F['owner'] = p.id
+        F['driver'] = p.id
+        F['p'] = [x, 0.0, z]
+        F['y'] = yaw
+        F['v'] = 0.0
+        F['at'] = now()
+        p.derby_cart = fid
+        p.vehicle = fid
+        self.broadcast(self.fk_msg(fid))
 
     def random_spawn(self, p, others, warmup):
         """Anywhere in town, away from enemies and out of their sight where possible."""
@@ -802,6 +909,7 @@ class Room:
         for p in self.players.values():
             p.reset_stats()
             p.longest = 0.0
+            p.derby_at = None            # a new race starts on the grid
         self.rebalance()
         self.event({'e': 'matchstart'})
         if self.mode == 'bomb':
@@ -1000,7 +1108,7 @@ class Room:
         return True
 
     def handle_shot(self, p, m):
-        if not p.alive or self.phase in ('freeze', 'post', 'ended') or p.aboard:
+        if not p.alive or self.phase in ('freeze', 'post', 'ended') or p.aboard or self.mode == 'derby':
             return
         w = m.get('w')
         if w not in WEAPONS:
@@ -1009,7 +1117,8 @@ class Room:
             # a thrown knife landing: only as many as have been thrown and are still in the air
             t0 = now()
             p.knives_air = [x for x in p.knives_air if t0 - x < KNIFE_AIR]
-            if p.perk != 'knives' or not p.knives_air:
+            perk = p.carry[3] if p.carry and self.mode != 'royale' else p.perk
+            if perk != 'knives' or not p.knives_air:
                 return
             p.knives_air.pop(0)
         elif w not in self.arms(p) + ('knife',):
@@ -1155,6 +1264,8 @@ class Room:
             self.kill(q, attacker, w, head)
 
     def kill(self, q, attacker, w, head):
+        if self.mode == 'derby':
+            q.derby_at = list(q.pos)     # back on the track here, a second from now
         q.alive = False
         q.hp = 0
         q.deaths += 1
@@ -1222,7 +1333,7 @@ class Room:
         if out:
             q.respawn_at = 0
         elif self.mode != 'bomb' or self.phase in ('waiting', 'countdown'):
-            delay = 1.5 if self.phase in ('waiting', 'countdown') else self.cfg['respawn']
+            delay = 1.5 if self.phase in ('waiting', 'countdown') and self.mode != 'derby' else self.cfg['respawn']
             q.respawn_at = now() + delay
         self.event({'e': 'kill', 'k': attacker.id if attacker else 0, 'v': q.id, 'w': w, 'hs': head,
                     'kn': attacker.name if attacker else '', 'vn': q.name, 'as': assisted,
@@ -1264,8 +1375,9 @@ class Room:
             return
         p.nades -= 1
         nid = int(num(m.get('n')))
-        kind = m.get('k') if m.get('k') in NADE_OPTIONS[p.loadout] else 'frag'
-        if self.mode == 'royale':
+        ld = p.carry[0] if p.carry else p.loadout
+        kind = m.get('k') if m.get('k') in NADE_OPTIONS[ld] else 'frag'
+        if self.mode in ('royale', 'derby'):
             kind = p.nade_kind
         if self.mode in NICHE_ARMS:
             kinds = NICHE_ARMS[self.mode][2]
@@ -1346,6 +1458,8 @@ class Room:
                 dmg *= 0.6
             if t_protected(q):
                 continue
+            if self.mode == 'derby' and int(dmg) > 0:
+                dmg = 999      # the Derby: any grenade damage at all is a kill, your own included
             self.damage(q, p, int(dmg), w, False)
 
     # -- perks --
@@ -1359,7 +1473,11 @@ class Room:
 
     def handle_perk(self, p, m):
         k = m.get('k')
-        if not p.alive or k != p.perk or p.perk_left <= 0 or self.phase == 'ended' or self.mode in NICHE_ARMS or p.aboard:
+        if p.carry and self.mode != 'royale':
+            p_perk = p.carry[3]
+        else:
+            p_perk = p.perk
+        if not p.alive or k != p_perk or p.perk_left <= 0 or self.phase == 'ended' or self.mode in NICHE_ARMS or p.aboard or self.mode == 'derby':
             return
         t = now()
         if k == 'medkit':
@@ -1485,6 +1603,8 @@ class Room:
         F = self.forklifts.get(fid)
         if not F:
             return
+        if t in ('fkin', 'fkout') and self.mode == 'derby':
+            return       # the Derby seats everyone in their own cart, and nobody gets out
         if t == 'fkin':
             if not p.alive or F['driver'] or p.id in self.drones or p.vehicle is not None:
                 return
@@ -1509,6 +1629,11 @@ class Room:
             pos[1] = max(-8.0, min(30.0, pos[1]))
             if dist3(pos, F['p']) > 5.0:
                 return    # no teleporting the truck about
+            # how fast it is going, smoothed over a few updates: the Derby's crashes need it
+            tn = now()
+            dt = max(0.02, tn - F.get('at', tn))
+            F['v'] = F.get('v', 0.0) * 0.4 + 0.6 * min(30.0, dist2(pos, F['p']) / dt)
+            F['at'] = tn
             F['p'] = pos
             F['y'] = num(m.get('y'))
 
@@ -1519,6 +1644,20 @@ class Room:
         F = self.forklifts.get(p.vehicle)
         q = self.players.get(int(num(m.get('id'))))
         if not F or F['driver'] != p.id or not q or not q.alive or not self.enemies(p, q):
+            return
+        if self.mode == 'derby':
+            # a crash: the cart has to be moving, and the other cart in front of it
+            if dist3(F['p'], q.pos) > DERBY_CRASH_REACH or t_protected(q) or F.get('v', 0.0) < DERBY_CRASH_SPEED:
+                return
+            dx, dz = q.pos[0] - F['p'][0], q.pos[2] - F['p'][2]
+            d = math.hypot(dx, dz)
+            if d > 0.2 and (math.cos(F['y']) * dx - math.sin(F['y']) * dz) / d < 0.25:
+                return    # hit from the side or behind: it is the other one doing the hitting
+            t = now()
+            if t - p.roadkill_at.get(q.id, -9) < 1.0:
+                return
+            p.roadkill_at[q.id] = t
+            self.damage(q, p, 999, 'cart', False)
             return
         if dist3(F['p'], q.pos) > 2.6 or t_protected(q):
             return
@@ -2528,7 +2667,7 @@ class Room:
                 g[it['w']] = it['f']
         if p.cos['g'].get('knife'):
             g['knife'] = p.cos['g']['knife']
-        return {'o': p.cos['o'], 'g': g}
+        return {'o': p.cos['o'], 'g': g, 'c': p.cos.get('c', '')}
 
     def summary(self):
         return {'id': self.id, 'mode': self.mode, 'name': self.name, 'n': self.count(),
@@ -2832,6 +2971,9 @@ class Conn:
             for o in catalog.OUTFITS:
                 if o[0] not in lk['outfits']:
                     lk['outfits'].append(o[0])
+            for c in catalog.CARTS:
+                if c[0] not in lk.setdefault('carts', []):
+                    lk['carts'].append(c[0])
             # and the whole Battle Pass
             lk['pass'] = max(lk.get('pass', 0), catalog.KILLS_PER_TIER * len(catalog.PASS_TIERS))
             catalog.grant_pass(lk, len(catalog.PASS_TIERS))
@@ -2907,7 +3049,7 @@ class Conn:
             if 'cos' in m:
                 p.cos = owned_cos(p, clean_cos(m.get('cos')))
             # an empty room takes the map its first player asks for
-            if m.get('map') in MAP_KINDS and r.count() == 0 and r.map_kind != m['map'] and r.mode != 'royale':
+            if m.get('map') in MAP_KINDS and r.count() == 0 and r.map_kind != m['map'] and r.mode not in ('royale', 'derby'):
                 r.new_map(m['map'])
                 r.prepare_map()
             lobby.discard(self)
@@ -3016,6 +3158,7 @@ class Conn:
                 # the new loadout's perk, but never more uses than you had left
                 p.perk_left = min(p.perk_left, PERK_USES[p.perk])
                 p.nades = min(p.nades, p.nades_for())
+                p.carry = (p.loadout, p.primary, p.secondary, p.perk)
                 p.send({'t': 'ldnow', 'ld': p.loadout})
                 p.send({'t': 'perkleft', 'k': p.perk, 'n': p.perk_left})
         elif t == 'picks':

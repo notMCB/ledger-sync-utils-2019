@@ -17,6 +17,7 @@ export const MODE_INFO = {
   knives: { name: 'Knife Fight', short: 'Knives', desc: 'Knives only. A stab to the head or the back kills. First to 25.' },
   firefight: { name: 'Firefight', short: 'Fire', desc: 'Flamethrowers and molotovs only. First to 25.' },
   oitc: { name: 'One in the Chamber', short: 'OITC', desc: 'A pistol with one round, a knife, three lives. A hit kills and gives you another round; a miss leaves you the knife. Most kills wins.' },
+  derby: { name: 'Derby', short: 'Derby', desc: 'Golf carts round a race track on the Dockyard, up to 12. Crash into people or grenade them: any grenade damage kills. First to 20.' },
   royale: { name: 'Souk Royale', short: 'Royale', desc: 'Battle royale, up to 64, one match at a time. Jump from the plane over Downtown and all four maps, loot the chests, stay out of the gas. Last one standing.' },
 };
 export const TEAM_MODES = ['tdm', 'koth', 'bomb'];
@@ -190,7 +191,7 @@ export class Hud {
   feedKill(ev, myId) {
     const row = document.createElement('div');
     row.className = 'kf' + (ev.k === myId || ev.v === myId ? ' me' : '');
-    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife', gas: 'gas' };
+    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', cart: 'crash', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife', gas: 'gas' };
     const wname = names[ev.w] || (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {

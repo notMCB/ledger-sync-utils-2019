@@ -199,6 +199,19 @@ export class Avatar {
     this.upper = upper;
     part('pants', bx(upper, 0.44, 0.3, 0.25, SHARED.pants, 0, 0.08, 0));
     bx(upper, 0.48, 0.42, 0.28, this.body, 0, 0.4, 0);       // vest in team colour
+    // a jacket over the vest, for the outfits that have one: worn open over a
+    // T-shirt, with a stripe down each front edge
+    this.jacket = new THREE.Group();
+    upper.add(this.jacket);
+    part('shirt', bx(this.jacket, 0.5, 0.44, 0.3, this.body, 0, 0.4, 0));
+    this.tee = bx(this.jacket, 0.13, 0.42, 0.01, lam('#f2d43a'), 0, 0.4, -0.152);
+    this.web = [];
+    for (const sx of [-1, 1]) {
+      this.web.push(bx(this.jacket, 0.012, 0.42, 0.012, lam('#1f6b3a'), sx * 0.083, 0.4, -0.153));
+      this.web.push(bx(this.jacket, 0.012, 0.42, 0.012, lam('#b3201c'), sx * 0.095, 0.4, -0.153));
+      this.web.push(bx(this.jacket, 0.012, 0.42, 0.012, lam('#1f6b3a'), sx * 0.107, 0.4, -0.153));
+    }
+    this.jacket.visible = false;
     bx(upper, 0.1, 0.44, 0.3, SHARED.strap, 0.12, 0.4, 0.001);
     part('shirt', bx(upper, 0.5, 0.1, 0.26, this.body, 0, 0.64, 0)); // collar and shoulders
     const head = new THREE.Group();
@@ -228,6 +241,37 @@ export class Avatar {
     part('wrap', bx(hood, 0.29, 0.3, 0.2, this.wrap, 0, 0.02, 0.06));
     part('wrap', bx(hood, 0.29, 0.07, 0.3, this.wrap, 0, 0.15, 0.0));
     part('wrap', bx(hood, 0.3, 0.1, 0.12, this.wrap, 0, -0.1, 0.07));
+    // Morty's head: big and round, brown hair over the top and the back, the two
+    // wide eyes with their little pupils, a small nose, ears, and the wobbly mouth
+    const morty = hg('morty');
+    const mortySkin = lam('#f7d5b4');
+    const sph = (parent, r, sx, sy, sz, mat, x, y, z, seg = 18) => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.round(seg * 0.75)), mat);
+      m.scale.set(sx, sy, sz);
+      m.position.set(x, y, z);
+      parent.add(m);
+      return m;
+    };
+    sph(morty, 0.2, 1.08, 0.98, 1, mortySkin, 0, 0.05, 0, 22);                    // the head
+    part('wrap', sph(morty, 0.2, 1.1, 0.82, 1.04, this.wrap, 0, 0.13, 0.03, 22));    // the hair, over the top and back
+    sph(morty, 0.045, 0.6, 1, 0.8, mortySkin, -0.215, 0.03, 0.01);                   // ears
+    sph(morty, 0.045, 0.6, 1, 0.8, mortySkin, 0.215, 0.03, 0.01);
+    const eyeW = lam('#ffffff'), eyeB = lam('#111111');
+    sph(morty, 0.07, 1, 1, 0.45, eyeW, -0.068, 0.07, -0.178);                        // the eyes, touching
+    sph(morty, 0.07, 1, 1, 0.45, eyeW, 0.068, 0.07, -0.178);
+    sph(morty, 0.014, 1, 1, 0.6, eyeB, -0.058, 0.074, -0.21, 8);                     // pupils, looking two ways
+    sph(morty, 0.014, 1, 1, 0.6, eyeB, 0.082, 0.064, -0.21, 8);
+    sph(morty, 0.022, 1, 0.8, 0.8, mortySkin, 0, -0.01, -0.2, 10);                  // the nose
+    const lip = lam('#5a2a1a');
+    for (const [x, y, rz] of [[-0.05, -0.075, 0.35], [-0.012, -0.08, -0.3], [0.03, -0.074, 0.3], [0.064, -0.078, -0.2]]) {
+      const m = bx(morty, 0.042, 0.011, 0.01, lip, x, y, -0.184);                       // the wobbly mouth
+      m.rotation.z = rz;
+    }
+    // a gold chain round the neck
+    const chain = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.017, 6, 22), new THREE.MeshLambertMaterial({ color: '#e6bd45', emissive: '#3a2a08' }));
+    chain.rotation.x = Math.PI / 2 - 0.45;
+    chain.position.set(0, -0.2, -0.05);
+    morty.add(chain);
     this.visor = bx(head, 0.21, 0.035, 0.015, new THREE.MeshBasicMaterial({ color: '#27e6ff' }), 0, 0.03, -0.132);
     this.visor.visible = false;
     // arms and gun
@@ -437,6 +481,7 @@ export class Avatar {
     this.visor.visible = !!m.glow;
     if (m.glow) this.visor.material = m.glow;
     const o = OUTFIT[this.outfit];
+    this.jacket.visible = !!(o && o.jacket);
     const shape = (o && o.shape) || '';
     this.logOn = !!shape;              // any of the shaped bodies: the head is inside it
     this.log.visible = shape === 'log';
@@ -605,7 +650,7 @@ export class Avatar {
       const fx = -Math.sin(this.bodyYaw), fz = -Math.cos(this.bodyYaw);
       g.position.set(this.pos.x - fx * PRONE_LEN * pk, this.pos.y + 0.16 * pk, this.pos.z - fz * PRONE_LEN * pk);
     } else g.rotation.set(0, this.yaw, 0);
-    if (this.driving) g.position.y = this.pos.y + 0.55;   // up on the forklift's seat
+    if (this.driving) g.position.y = this.pos.y + (this.seatY ?? 0.55);   // up on the seat: a forklift's, or lower in a golf cart
     // the name and the scope glint ride above the head whichever way the body lies
     this.tag.position.set(0, 2.2 * (1 - pk) + 1.5 * pk, 1.0 * pk * (1 - 2 * bk));
     // walk

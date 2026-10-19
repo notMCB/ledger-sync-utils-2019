@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import * as T from './textures.js';
 import { Physics } from './physics.js';
+import { cartCanvas, CART_SIDE, chromeMaterial } from './skins.js';
 
 const WALL_TINTS = ['#f3e9d6', '#ecd3a6', '#dcb68a', '#e9cdbd', '#d4c7ad', '#e0ab7e'];
 const CAR_TINTS = ['#8e3b2a', '#4e6f8f', '#d9d4c7', '#5d7a4a', '#c9a13b', '#3b3430'];
@@ -446,6 +447,7 @@ export class World {
       asphalt: new THREE.MeshLambertMaterial({ map: tx.asphalt, vertexColors: true }),
       glass: new THREE.MeshLambertMaterial({ map: tx.windows, vertexColors: true }),
       gold: new THREE.MeshPhongMaterial({ map: tx.marble, vertexColors: true, shininess: 70, specular: '#8a6a20' }),
+      barrier: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
     };
     const builders = {};
     const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
@@ -495,6 +497,9 @@ export class World {
         B('asphalt').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 8.0, { roadUV: true, sideColor: colorOf('#55565a') });
       } else if (mat === 'glass') {
         B('glass').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(GLASS_TINTS[tint % 3]), 6.4);
+      } else if (mat === 'barrier') {
+        // the Derby's track barriers, red and white in turn
+        B('barrier').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(tint ? '#f2f0ea' : '#d0352b'), 6.0);
       } else if (mat === 'gold') {
         B('gold').box(cx, cy, cz, hx, hy, hz, yaw, colorOf('#e6bd45'), 2.0);
       } else if (mat === 'rock') {
@@ -808,6 +813,8 @@ export class World {
         root.add(plate);
       } else if (d.k === 'road') {
         this.addRoad(root, d);
+      } else if (d.k === 'checker') {
+        this.addChecker(root, d);
       } else if (d.k === 'ground') {
         // a patch of different ground under a whole quarter of the royale map
         const g = new THREE.PlaneGeometry(d.w, d.d);
@@ -1256,13 +1263,15 @@ export class World {
   }
 
   // a golf cart: a white body on four small wheels, a bench seat, a canopy on four posts
-  addGolfCart(steel, paint, wheels, wheelGeo, d) {
+  addGolfCart(steel, paint, wheels, wheelGeo, d, skin = null) {
     const yaw = d.yaw || 0;
     const c = Math.cos(yaw), s = Math.sin(yaw);
     const W = (lx, lz) => [d.x + c * lx + s * lz, d.z - s * lx + c * lz];
-    const white = colorOf('#f2f2ee');
-    const dark = colorOf('#2b2e32');
-    const green = colorOf('#2f6b4a');
+    // a skin paints the body, the seat, the canopy and the trim
+    const white = colorOf(skin ? skin.body : '#f2f2ee');
+    const dark = colorOf(skin ? skin.trim : '#2b2e32');
+    const green = colorOf(skin ? skin.seat : '#2f6b4a');
+    const top = colorOf(skin ? skin.canopy || skin.body : '#f2f2ee');
     const P = (lx, ly, lz, hx, hy, hz, color, gb = paint) => {
       const [x, z] = W(lx, lz);
       gb.box(x, ly, z, hx, hy, hz, yaw, color, 1);
@@ -1275,7 +1284,7 @@ export class World {
     P(0.55, 0.85, 0, 0.03, 0.12, 0.03, dark, steel);           // the steering column
     P(0.5, 1.0, 0, 0.14, 0.02, 0.14, dark, steel);             // the wheel
     for (const [lx, lz] of [[0.95, -0.5], [0.95, 0.5], [-0.95, -0.5], [-0.95, 0.5]]) P(lx, 1.2, lz, 0.03, 0.65, 0.03, dark, steel);
-    P(0, 1.9, 0, 1.15, 0.03, 0.62, white);                     // the canopy
+    P(0, 1.9, 0, 1.15, 0.03, 0.62, top);                       // the canopy
     for (const [lx, lz] of [[0.75, 0.62], [0.75, -0.62], [-0.75, 0.62], [-0.75, -0.62]]) {
       const [x, z] = W(lx, lz);
       wheels.push({ geo: wheelGeo, matrix: mtx(x, 0.26, z, Math.PI / 2, yaw, 0, 0.75, 0.75, 0.75), color: colorOf('#1d1d1f') });
@@ -1505,6 +1514,28 @@ export class World {
     root.add(mesh);
   }
 
+  // the chequered start line across a race track, d.yaw being the way the track runs
+  addChecker(root, d) {
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 192;
+    const x = c.getContext('2d');
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 12; j++) {
+      x.fillStyle = (i + j) % 2 ? '#141414' : '#f4f4f0';
+      x.fillRect(i * 16, j * 16, 16, 16);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const g = new THREE.PlaneGeometry(1.6, d.w || 10);
+    g.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshLambertMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: -3 });
+    mat.userData.own = true;
+    const m = new THREE.Mesh(g, mat);
+    m.position.set(d.x, 0.04, d.z);
+    m.rotation.y = d.yaw || 0;
+    m.receiveShadow = true;
+    root.add(m);
+  }
+
   // flat things on the ground: paved squares, scorch marks, rugs
   addDecal(root, d) {
     let geo, mat;
@@ -1571,14 +1602,19 @@ export class World {
 
 // a forklift as its own object, for the ones that drive about: the same look as
 // the parked ones, built as a small group at the origin facing -z... (local +x is forward)
-export function makeGolfCartGroup() {
+export function makeGolfCartGroup(skin = null) {
   const tx = textures();
   const steel = new GeoBuilder(), paint = new GeoBuilder();
   const wheels = [];
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
-  World.prototype.addGolfCart.call({}, steel, paint, wheels, wheelGeo, { x: 0, z: 0, yaw: 0 });
+  World.prototype.addGolfCart.call({}, steel, paint, wheels, wheelGeo, { x: 0, z: 0, yaw: 0 }, skin);
   const g = new THREE.Group();
-  for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, new THREE.MeshLambertMaterial({ vertexColors: true })]]) {
+  const shiny = skin && skin.metal;
+  const paintMat = shiny ? new THREE.MeshStandardMaterial({ vertexColors: true, metalness: skin.metal, roughness: skin.rough ?? 0.35 })
+    : new THREE.MeshLambertMaterial({ vertexColors: true });
+  if (shiny) paintMat.envMap = chromeMaterial().envMap || null;
+  if (skin && skin.livery) addCartLivery(g, skin);
+  for (const [gb, mat] of [[steel, new THREE.MeshLambertMaterial({ map: tx.metal, vertexColors: true })], [paint, paintMat]]) {
     if (gb.empty) continue;
     const mesh = new THREE.Mesh(gb.geometry(), mat);
     mesh.castShadow = true;
@@ -1592,6 +1628,35 @@ export function makeGolfCartGroup() {
   }
   wheelGeo.dispose();
   return g;
+}
+
+// the livery on a skinned cart: decals a hair proud of the bonnet, the sides and the roof
+const liveryGeo = {};
+function addCartLivery(g, skin) {
+  const mk = (face) => {
+    const t = new THREE.CanvasTexture(cartCanvas(skin, face));
+    t.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.MeshLambertMaterial({ map: t, transparent: face.startsWith('side'), alphaTest: 0.5, polygonOffset: true, polygonOffsetFactor: -2 });
+    if (skin.glow) { m.emissive = new THREE.Color(skin.glow); m.emissiveMap = t; m.emissiveIntensity = 0.35; }
+    return m;
+  };
+  const S = CART_SIDE;
+  if (!liveryGeo.hood) {
+    liveryGeo.hood = new THREE.PlaneGeometry(0.6, 1.1).rotateX(-Math.PI / 2);
+    liveryGeo.roof = new THREE.PlaneGeometry(2.3, 1.24).rotateX(-Math.PI / 2);
+    liveryGeo.side = new THREE.PlaneGeometry(S.x1 - S.x0, S.y1 - S.y0);
+    for (const k in liveryGeo) liveryGeo[k].userData.shared = true;    // every skinned cart uses these
+  }
+  const hood = new THREE.Mesh(liveryGeo.hood, mk('hood'));
+  hood.position.set(0.85, 0.925, 0);
+  const roof = new THREE.Mesh(liveryGeo.roof, mk('roof'));
+  roof.position.set(0, 1.935, 0);
+  const right = new THREE.Mesh(liveryGeo.side, mk('sideR'));
+  right.position.set((S.x0 + S.x1) / 2, (S.y0 + S.y1) / 2, 0.607);
+  const left = new THREE.Mesh(liveryGeo.side, mk('sideL'));
+  left.position.set((S.x0 + S.x1) / 2, (S.y0 + S.y1) / 2, -0.607);
+  left.rotation.y = Math.PI;
+  for (const m of [hood, roof, right, left]) { m.castShadow = false; m.receiveShadow = true; g.add(m); }
 }
 
 export function makeForkliftGroup() {

@@ -21,6 +21,7 @@ CRATES = {
     'blade': {'name': 'Blade Crate', 'price': 150},
     'camo': {'name': 'Tactical Camouflage Case', 'price': 1000},
     'party': {'name': 'Carnival Case', 'price': 2000},
+    'kart': {'name': 'Pit Lane Crate', 'price': 400},
 }
 # the two new cases have no commons either
 CAMO_WEIGHTS = {'uncommon': 45, 'rare': 32, 'epic': 16, 'legendary': 7}
@@ -78,7 +79,21 @@ OUTFITS = [
     ('royale1', 'legendary', 'royale'),
     # the Battle Pass outfits: granted by tier, never rolled
     ('sahur', 'legendary', 'pass'), ('ballerina', 'legendary', 'pass'), ('tunggod', 'legendary', 'pass'),
+    # given to one account by hand, never rolled: see OWNER_ONLY
+    ('guccimorty', 'legendary', 'owner'),
 ]
+# outfits nobody can wear unless their account was given them
+OWNER_ONLY = {o[0] for o in OUTFITS if o[2] == 'owner'}
+
+# golf cart skins, all from the Pit Lane Crate; keep in step with CARTS in public/js/skins.js
+CARTS = [
+    ('fairway', 'common'), ('clubhouse', 'common'), ('caddie', 'common'), ('sandtrap', 'common'),
+    ('cabbie', 'uncommon'), ('patrol', 'uncommon'), ('woodie', 'uncommon'), ('sundae', 'uncommon'),
+    ('lemans', 'rare'), ('chequered', 'rare'), ('number7', 'rare'), ('redline', 'rare'),
+    ('hotrod', 'epic'), ('petrol', 'epic'), ('neoncart', 'epic'),
+    ('inferno', 'legendary'), ('goldcart', 'legendary'), ('rainbowkart', 'legendary'),
+]
+CART_IDS = {c[0] for c in CARTS}
 
 # -- the Battle Pass: ten tiers of 35 kills; keep in step with public/js/pass.js --
 KILLS_PER_TIER = 35
@@ -176,6 +191,10 @@ def roll(kind, rng=random):
             return {'kind': 'outfit', 'outfit': o[0], 'rarity': r}
         f = rng.choice([f for f in FINISHES if f[1] == r and f[2] == 'camo'])
         return {'kind': 'gun', 'weapon': rng.choice(GUNS), 'finish': f[0], 'rarity': r}
+    if kind == 'kart':
+        r = _pick_rarity(RARITY_WEIGHTS, rng)
+        c = rng.choice([c for c in CARTS if c[1] == r])
+        return {'kind': 'cart', 'cart': c[0], 'rarity': r}
     if kind == 'party':
         r = _pick_rarity(PARTY_WEIGHTS, rng)
         f = rng.choice([f for f in FINISHES if f[1] == r and f[2] == 'party'])
@@ -212,8 +231,8 @@ def blank_stats():
 
 
 def new_locker():
-    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'kills': {}, 'pass': 0, 'muzzles': [], 'stats': blank_stats(),
-            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}, 'muzzle': ''}, 'opened': 0}
+    return {'dinars': STARTING_DINARS, 'guns': [], 'outfits': ['standard'], 'carts': [], 'kills': {}, 'pass': 0, 'muzzles': [], 'stats': blank_stats(),
+            'equip': {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}, 'muzzle': '', 'cart': ''}, 'opened': 0}
 
 
 def clean_locker(d, dinar_cap=None):
@@ -238,6 +257,10 @@ def clean_locker(d, dinar_cap=None):
     for o in outfits:
         if isinstance(o, str) and o in OUTFIT_IDS and o not in out['outfits']:
             out['outfits'].append(o)
+    carts = d.get('carts') if isinstance(d.get('carts'), list) else []
+    for c in carts:
+        if isinstance(c, str) and c in CART_IDS and c not in out['carts']:
+            out['carts'].append(c)
     kills = d.get('kills')
     if isinstance(kills, dict):
         for wpn, n in kills.items():
@@ -269,9 +292,11 @@ def clean_locker(d, dinar_cap=None):
 
 def clean_equip(e, locker):
     """Equipped items, dropping anything the locker doesn't own."""
-    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}, 'muzzle': ''}
+    res = {'outfit': 'standard', 'guns': {}, 'pistol': {}, 'nade': {}, 'attach': {}, 'perk': {}, 'primary': {}, 'secondary': {}, 'muzzle': '', 'cart': ''}
     if not isinstance(e, dict):
         return res
+    if e.get('cart') in locker.get('carts', []):
+        res['cart'] = e['cart']
     if e.get('outfit') in locker['outfits']:
         res['outfit'] = e['outfit']
     if e.get('muzzle') in locker.get('muzzles', []):
@@ -330,6 +355,11 @@ def open_crate(locker, kind, rng=random):
         prize['dup'] = key in locker['guns']
         if not prize['dup']:
             locker['guns'].append(key)
+    elif prize['kind'] == 'cart':
+        carts = locker.setdefault('carts', [])
+        prize['dup'] = prize['cart'] in carts
+        if not prize['dup']:
+            carts.append(prize['cart'])
     else:
         prize['dup'] = prize['outfit'] in locker['outfits']
         if not prize['dup']:

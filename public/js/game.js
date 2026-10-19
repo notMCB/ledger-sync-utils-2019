@@ -14,7 +14,7 @@ import { PASS_TIERS } from './pass.js';
 import { makePlane, makeChute, makeChest, openChest, makeItem, labelItem, makeGas, updateGas, fireworks, itemName, itemColor, rarityColor, RARITY_NAMES, AMMO_NAMES } from './royale.js';
 import * as sfx from './audio.js';
 import { locker } from './locker.js';
-import { tickSkins, OUTFIT, CAMO_OUTFITS } from './skins.js';
+import { tickSkins, OUTFIT, CAMO_OUTFITS, CART } from './skins.js';
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
 
@@ -34,6 +34,7 @@ const EYE_PRONE = 0.45;
 const PRONE_SPEED = 1.5;
 const PRONE_LEN = 1.45;
 const PRONE_R = 0.27;
+const fmtLap = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 const wrapAngle = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 const SEND_HZ = 20;
 // the Medic's cover wall (half sizes) and the Marksman's bomb drone
@@ -49,8 +50,12 @@ const NICHE_RULES = {
   knives: { primary: null, pistol: null, nades: 0, attach: false },
   firefight: { primary: 'flamer', pistol: null, nades: 2, nadeKind: 'molotov', attach: false },
   oitc: { primary: null, pistol: 'pistol', nades: 0, attach: false, rounds: 1 },
+  // the Derby: a golf cart and three frags, nothing else
+  derby: { primary: null, pistol: null, nades: 3, nadeKind: 'frag', attach: false },
 };   // a thrown knife: a level throw from eye height is on the ground by fifteen metres
 const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, forward and back
+// the Derby's carts go twice as fast as golf carts anywhere else, and a crash at this speed or more kills
+const DERBY_MUL = 2.0, DERBY_CRASH = 5.0, DERBY_REACH = 2.7;
 // Souk Royale: the drop
 const FALL_SPEED = 26;      // metres a second, straight down, arms out
 const DIVE_EXTRA = 18;      // more when you look straight down
@@ -385,6 +390,30 @@ export class Game {
     }
   }
 
+  // a golf cart wears the skin of whoever is driving it, in any mode, and goes back
+  // to plain the moment they get out
+  skinCarts() {
+    for (const F of this.forklifts.values()) {
+      if (F.kind !== 'golfcart') continue;
+      const r = F.driver && this.roster.get(F.driver);
+      const want = !F.driver ? '' : F.driver === this.myId ? locker.equippedCart() : (r && r.cs && r.cs.c) || '';
+      if (want === (F.skin || '')) continue;
+      F.skin = want;
+      const old = F.mesh;
+      F.mesh = makeGolfCartGroup(CART[want] || null);
+      F.mesh.position.copy(old.position);
+      F.mesh.rotation.copy(old.rotation);
+      this.scene.remove(old);
+      old.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.material.map && o.material.map.isCanvasTexture) o.material.map.dispose();
+        o.material.dispose();
+        if (!o.geometry.userData.shared) o.geometry.dispose();
+      });
+      this.scene.add(F.mesh);
+    }
+  }
+
   // put the mesh and the collision box where the forklift is
   placeForklift(F) {
     F.mesh.position.copy(F.pos);
@@ -445,7 +474,23 @@ export class Game {
     me.vel.set(0, 0, 0);
     me.pos.copy(F.pos);
     this.placeForklift(F);
+    F.speed = 0;
+    if (this.isDerby()) {
+      // in the seat facing down the track
+      me.yaw = F.yaw - Math.PI / 2;
+      me.pitch = -0.05;
+      this.lastCartYaw = F.yaw;
+      if (!this.derbyHinted) {
+        this.derbyHinted = true;
+        this.hud.center('Derby', `${keyName(settings.binds.forward)} ${keyName(settings.binds.back)} drive · ${keyName(settings.binds.left)} ${keyName(settings.binds.right)} steer · ${keyName(settings.binds.grenade)} to throw a grenade · crash into people`, '', 4, 2);
+      }
+      return;
+    }
     this.hud.center('Driving', `${keyName(settings.binds.forward)} ${keyName(settings.binds.back)} drive · ${keyName(settings.binds.left)} ${keyName(settings.binds.right)} steer · ${keyName(settings.binds.interact)} to get off`, '', 3, 2);
+  }
+
+  isDerby() {
+    return !!(this.room && this.room.mode === 'derby');
   }
 
   stopDriving(sendIt = true) {
@@ -469,18 +514,22 @@ export class Game {
     const me = this.me;
     if (!F) { this.driving = null; return; }
     me.adsK = Math.max(0, me.adsK - dt * 8);
-    if (input.pressed('interact')) { this.stopDriving(); return; }
-    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
-    const r = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    const derby = this.isDerby();
+    if (input.pressed('interact') && !derby) { this.stopDriving(); return; }
+    const frozen = derby && this.g && this.g.ph === 'ended';
+    const f = frozen ? 0 : (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
+    const r = frozen ? 0 : (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    if (derby) this.derbyNade(dt);
     // steer only while rolling, like a real truck
     F.speed = F.speed || 0;
-    const mul = F.kind === 'golfcart' ? CART_MUL : 1;
+    const mul = (F.kind === 'golfcart' ? CART_MUL : 1) * (derby ? DERBY_MUL : 1);
     const want = f > 0 ? FK_SPEED * mul : f < 0 ? -FK_REVERSE * mul : 0;
     F.speed += (want - F.speed) * Math.min(1, dt * 3);
     if (Math.abs(F.speed) > 0.3) F.yaw -= r * FK_TURN * dt * Math.sign(F.speed) * Math.min(1, Math.abs(F.speed) / (2.5 * mul));
     // forward is local +x
     const fx = Math.cos(F.yaw), fz = -Math.sin(F.yaw);
     const body = { pos: F.pos, vel: F.vel || (F.vel = new THREE.Vector3()), grounded: F.grounded !== false, radius: FK_R, height: FK_H, landed: 0 };
+    const speedBefore = Math.abs(F.speed);
     body.vel.x = fx * F.speed;
     body.vel.z = fz * F.speed;
     let rem = dt;
@@ -498,11 +547,19 @@ export class Game {
     F.pos.z = Math.max(-this.map.bounds[1] + 1.2, Math.min(this.map.bounds[1] - 1.2, F.pos.z));
     me.pos.copy(F.pos);
     me.grounded = true;
+    me.vel.set(body.vel.x, 0, body.vel.z);
     F.mesh.position.copy(F.pos);
     F.mesh.rotation.y = F.yaw;
+    if (derby) {
+      // the view turns with the cart, so looking round is on top of where it points
+      me.yaw += wrapAngle(F.yaw - (this.lastCartYaw ?? F.yaw));
+      this.lastCartYaw = F.yaw;
+      this.derbyCrash(F, speedBefore);
+      this.derbyLap(F);
+    }
     // roadkill: anyone the truck runs into goes under it
     const teamMode = this.isTeamMode() && !this.warmup();
-    for (const a of this.avatars.map.values()) {
+    for (const a of (derby ? [] : this.avatars.map.values())) {
       if (!a.alive || (teamMode && a.team === me.team)) continue;
       if (Math.hypot(a.pos.x - F.pos.x, a.pos.z - F.pos.z) < 1.7 && Math.abs(a.pos.y - F.pos.y) < 1.5) {
         F.hitAt = F.hitAt || new Map();
@@ -517,6 +574,94 @@ export class Game {
       F.sendT = 1 / SEND_HZ;
       this.send({ t: 'fk', id: F.id, p: [+F.pos.x.toFixed(3), +F.pos.y.toFixed(3), +F.pos.z.toFixed(3)], y: +F.yaw.toFixed(4) });
     }
+  }
+
+  // -- the Derby --
+
+  // a grenade from the driver's seat: no hands to animate, it just goes
+  derbyNade(dt) {
+    const me = this.me;
+    me.nadeBusy -= dt;
+    if (!input.pressed('grenade') || me.nades <= 0 || me.nadeBusy > 0 || this.frozen()) return;
+    me.nades--;
+    me.nadeBusy = 0.6;
+    setTimeout(() => this.releaseNade(), 120);
+  }
+
+  // a crash: another cart (or anyone) in front of mine while I'm going fast enough
+  derbyCrash(F, speed) {
+    if (speed < DERBY_CRASH || this.offline) return;
+    const fx = Math.cos(F.yaw), fz = -Math.sin(F.yaw);
+    const carts = new Map();
+    for (const G of this.forklifts.values()) if (G.driver && G.id !== F.id) carts.set(G.driver, G);
+    for (const a of this.avatars.map.values()) {
+      if (!a.alive || (a.flags & 128)) continue;     // spawn protection: they can't be hurt yet
+      const at = carts.has(a.id) ? carts.get(a.id).pos : a.pos;
+      const dx = at.x - F.pos.x, dz = at.z - F.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d > DERBY_REACH || Math.abs(at.y - F.pos.y) > 1.5) continue;
+      if (d > 0.2 && (fx * dx + fz * dz) / d < 0.35) continue;   // it hit me, not the other way round
+      F.hitAt = F.hitAt || new Map();
+      if (this.clock - (F.hitAt.get(a.id) || -9) < 1.0) continue;
+      F.hitAt.set(a.id, this.clock);
+      this.send({ t: 'roadkill', id: a.id });
+      this.fx.shake = Math.max(this.fx.shake || 0, 0.6);
+      sfx.hitMarker(false, false);
+    }
+  }
+
+  // laps: how far round the track I am, counted from the start line
+  derbyLap(F) {
+    const T = this.map && this.map.track;
+    if (!T || !T.length) return;
+    const N = T.length;
+    const start = this.map.start || 0;
+    const L = this.lap;
+    // look near where I was last, or everywhere the first time
+    let best = -1, bd = Infinity;
+    const from = L ? L.i - 12 : 0, to = L ? L.i + 12 : N;
+    for (let k = from; k < to; k++) {
+      const i = ((k % N) + N) % N;
+      const d = (T[i][0] - F.pos.x) ** 2 + (T[i][1] - F.pos.z) ** 2;
+      if (d < bd) { bd = d; best = i; }
+    }
+    if (bd > 400 && L) {
+      // a long way off the line I was following (a respawn): find it again
+      this.lap = null;
+      return this.derbyLap(F);
+    }
+    if (!L) {
+      let u = best - start;
+      if (u > N / 2) u -= N;
+      if (u < -N / 2) u += N;
+      this.lap = { i: best, u, laps: Math.floor(u / N), t0: null, best: 0, last: 0 };
+      return;
+    }
+    let du = best - L.i;
+    if (du > N / 2) du -= N;
+    if (du < -N / 2) du += N;
+    L.i = best;
+    L.u += du;
+    const laps = Math.floor(L.u / N);
+    if (laps > L.laps) {
+      // over the line going the right way
+      const t = this.clock;
+      if (L.t0 !== null) {
+        L.last = t - L.t0;
+        if (!L.best || L.last < L.best) L.best = L.last;
+        this.hud.center(`Lap ${laps}`, `${fmtLap(L.last)}${L.best === L.last ? ' · best lap' : ` · best ${fmtLap(L.best)}`}`, '', 2.2, 1);
+        sfx.uiBlip();
+      }
+      L.t0 = t;
+      this.updateTeamLook();
+    }
+    L.laps = laps;
+  }
+
+  derbyLabel() {
+    const L = this.lap;
+    if (!L || L.t0 === null) return 'Derby';
+    return `Derby · lap ${Math.max(1, L.laps + 1)}${L.best ? ` · best ${fmtLap(L.best)}` : ''}`;
   }
 
   // a fixed ladder in every hatch, so you can climb back out of the tunnels
@@ -618,7 +763,7 @@ export class Game {
       if (this.room.mode === 'bomb' && this.g && this.g.att !== undefined) label += this.g.att === t ? ' · attacking' : ' · defending';
       this.hud.setTeamLabel(label, TEAM_COLORS[t]);
     } else {
-      this.hud.setTeamLabel(this.room && !this.isTeamMode() && MODE_INFO[this.room.mode] ? MODE_INFO[this.room.mode].name : '', col);
+      this.hud.setTeamLabel(this.isDerby() ? this.derbyLabel() : this.room && !this.isTeamMode() && MODE_INFO[this.room.mode] ? MODE_INFO[this.room.mode].name : '', col);
     }
   }
 
@@ -786,7 +931,7 @@ export class Game {
 
   onPhase(prev, ph) {
     const g = this.g;
-    if (ph === 'live') { this.liveT = this.clock; this.dmgDealt = 0; }
+    if (ph === 'live') { this.liveT = this.clock; this.dmgDealt = 0; this.lap = null; }
     if (ph === 'waiting') this.hud.center('Warm-up', this.br ? 'The plane leaves in a moment. Bots fill the empty seats' : 'The match starts when a second player joins', '', 3, 1);
     if (ph === 'ended' && this.br) { this.me.aboard = false; this.me.falling = null; this.endMyChute(); }
     if (ph === 'live' && g.mode !== 'bomb') {
@@ -805,6 +950,7 @@ export class Game {
     if (m === 'firefight') return 'Flamethrowers and molotovs only. First to 25 kills wins';
     if (m === 'oitc') return 'One round, three lives. Most kills wins';
     if (m === 'royale') return 'One life. Loot the chests, stay out of the gas. Last one standing wins';
+    if (m === 'derby') return 'Crash into people or grenade them. First to 20 kills wins';
     if (m === 'koth') return 'Hold the hill with nobody from the other team on it';
     return '';
   }
@@ -1485,6 +1631,12 @@ export class Game {
         W.mesh.userData.plate.emissive.setScalar(W.hitT > 0 ? 0.25 : 0);
       }
     }
+    this.skinCarts();
+    for (const F of this.forklifts.values()) {
+      // a golf cart's seat is lower than a forklift's: its driver sits down into it
+      const da = F.driver && this.avatars.get(F.driver);
+      if (da) da.seatY = F.kind === 'golfcart' ? 0.28 : 0.55;
+    }
     for (const F of this.forklifts.values()) {
       if (F.id === this.driving || !F.driver) continue;
       if (F.pos.distanceTo(F.target) > 0.01 || Math.abs(F.yaw - F.tyaw) > 0.001) {
@@ -1639,7 +1791,7 @@ export class Game {
     // switch to spectating a teammate by clicking while dead
     if (!me.alive && this.inRoom && input.pressed('fire')) this.spectateIdx++;
 
-    if (this.inRoom && input.pressed('loadout') && !this.br) this.ui.openLoadout();
+    if (this.inRoom && input.pressed('loadout') && !this.br && !this.isDerby()) this.ui.openLoadout();
     if (this.inRoom && input.pressed('map')) this.mapOpen = !this.mapOpen;
     if (this.range) {
       if (input.pressed('interact')) {
@@ -1674,7 +1826,9 @@ export class Game {
       if (me.sprinting) f |= 32;
       // a scoped optic catches the sun: other players get a chance to spot it
       if (this.vm.scoped || (ws && ws.def.sight === 'scope' && me.adsK > 0.6)) f |= 64;
-      const st = { t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +me.yaw.toFixed(4),
+      // a Derby driver sits facing the way the cart points, whatever the camera is doing
+      const dc = this.driving && this.isDerby() ? this.forklifts.get(this.driving) : null;
+      const st = { t: 'st', p: [+me.pos.x.toFixed(3), +me.pos.y.toFixed(3), +me.pos.z.toFixed(3)], y: +(dc ? wrapAngle(dc.yaw - Math.PI / 2) : me.yaw).toFixed(4),
         pi: +me.pitch.toFixed(4), f, sl: me.slot === 'knife' ? 2 : me.slot === 'pistol' ? 1 : 0, sc: me.sc,
         by: +(me.prone ? me.bodyYaw : me.yaw).toFixed(4) };
       if (this.br && me.weapons && me.weapons.primary && me.weapons.primary.id === 'flamer') st.fu = +me.weapons.primary.mag.toFixed(1);
@@ -2677,7 +2831,12 @@ export class Game {
     // don't start the grenade inside a wall
     const h = this.world.physics.raycast(cam.position, fwd, 0.6);
     if (h) origin.copy(cam.position).addScaledVector(fwd, Math.max(0, h.t - 0.15));
-    const vel = fwd.clone().multiplyScalar(15).add(new THREE.Vector3(0, 3, 0)).addScaledVector(me.vel, 0.5);
+    const cart = this.driving && this.isDerby() ? this.forklifts.get(this.driving) : null;
+    if (cart) {
+      // thrown from the seat, not from the chase camera behind it
+      origin.set(cart.pos.x, cart.pos.y + 1.7, cart.pos.z).addScaledVector(V().set(fwd.x, 0, fwd.z).normalize(), 0.5);
+    }
+    const vel = fwd.clone().multiplyScalar(15).add(new THREE.Vector3(0, 3, 0)).addScaledVector(me.vel, cart ? 1 : 0.5);
     const nid = me.nextNade++;
     const kind = me.nadeKind || 'frag';
     this.fx.throwNade(this.myId, nid, origin, vel, true, (p) => {
@@ -2938,7 +3097,7 @@ export class Game {
     } else if (this.inRoom && me.alive) {
       let eye = EYE_STAND + (EYE_CROUCH - EYE_STAND) * me.crouchK;
       eye += (EYE_PRONE - eye) * me.proneK;
-      if (this.driving) eye = 1.75;   // up on the seat
+      if (this.driving) eye = (this.forklifts.get(this.driving) || {}).kind === 'golfcart' ? 1.5 : 1.75;   // up on the seat
       cam.position.set(me.pos.x, me.pos.y + eye, me.pos.z);
       const sh = this.fx.shake;
       this.slideRoll = (this.slideRoll || 0) + ((me.slide ? 0.06 : 0) - (this.slideRoll || 0)) * Math.min(1, dt * 10);

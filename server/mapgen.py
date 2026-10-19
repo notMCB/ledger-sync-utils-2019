@@ -1371,6 +1371,8 @@ class Town:
 MAP_KINDS = ('town', 'dock', 'alpine', 'manor')
 # the battle royale map is all four of them at once; it is never in the rotation
 ROYALE_KIND = 'royale'
+# the Derby's race track on the Dockyard: only the Derby plays it
+DERBY_KIND = 'derby'
 
 
 def generate(seed, kind='town'):
@@ -1384,6 +1386,9 @@ def generate(seed, kind='town'):
     elif kind == 'manor':
         import map_manor
         t = map_manor.Manor(seed)
+    elif kind == 'derby':
+        import map_derby
+        t = map_derby.DockDerby(seed)
     elif kind == 'royale':
         import map_royale
         t = map_royale.Royale(seed)

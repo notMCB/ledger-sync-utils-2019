@@ -16,6 +16,7 @@ import { auth } from './auth.js';
 import { touch, touchWanted } from './touch.js';
 import { PASS_TIERS, PASS_NAME, KILLS_PER_TIER } from './pass.js';
 import { FINISH, OUTFIT, swatch } from './skins.js';
+import { openGunStats } from './gunstats.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -54,13 +55,15 @@ const ui = {
   showDeath(byHtml, respawnAt, late = false) {
     $('death-by').innerHTML = byHtml;
     const royale = !!game.br;
+    // the Derby has no loadouts to pick from either: it is a cart and three frags
+    const noKit = royale || game.isDerby();
     $('death').classList.toggle('royale', royale);
     $('death').classList.remove('won');
-    $('death-loadouts').hidden = royale;
-    $('death-ld-title').hidden = royale;
+    $('death-loadouts').hidden = noKit;
+    $('death-ld-title').hidden = noKit;
     $('death-stats').hidden = true;
     if (!royale) renderLoadouts($('death-loadouts'), true);
-    $('death-hint').textContent = royale ? `${keyName(settings.binds.fire)} to watch the next player · Esc for the menu` : input.locked ? 'Press 1–4 to pick a loadout, or Esc to use the mouse' : 'Click a loadout';
+    $('death-hint').textContent = royale ? `${keyName(settings.binds.fire)} to watch the next player · Esc for the menu` : noKit ? 'Back on the track in a second' : input.locked ? 'Press 1–4 to pick a loadout, or Esc to use the mouse' : 'Click a loadout';
     $('death').hidden = false;
     clearInterval(deathTimer);
     const tick = () => {
@@ -279,6 +282,17 @@ function renderModes() {
       host.appendChild(b);
       modeButtons[id] = b;
     }
+    // the Derby: one track, so straight in
+    {
+      const info = MODE_INFO.derby;
+      const b = document.createElement('button');
+      b.className = 'mode derby';
+      b.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
+        `<span class="m-meta"><span><span class="m-count">0</span> playing · up to 12</span><span class="m-play">Race →</span></span>`;
+      b.addEventListener('click', () => join({ mode: 'derby' }));
+      host.appendChild(b);
+      modeButtons.derby = b;
+    }
     // the niche modes live in a folder of their own
     const folder = document.createElement('button');
     folder.className = 'mode';
@@ -315,7 +329,7 @@ function renderModes() {
     });
     host.appendChild(r);
   }
-  for (const id of [ROYALE, ...MODE_ORDER, ...NICHE_MODES, 'niche']) {
+  for (const id of [ROYALE, ...MODE_ORDER, 'derby', ...NICHE_MODES, 'niche']) {
     const b = modeButtons[id];
     const n = rooms.filter((r) => (id === 'niche' ? NICHE_MODES.includes(r.mode) : r.mode === id)).reduce((a, r) => a + r.n, 0);
     const c = b.querySelector('.m-count');
@@ -421,7 +435,7 @@ function showMenu() {
 }
 
 function hideAll() {
-  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass', 'results', 'stats']) $(id).hidden = true;
+  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass', 'results', 'stats', 'gunstats']) $(id).hidden = true;
 }
 
 // -- the battle pass ---------------------------------------------------------------
@@ -494,6 +508,22 @@ function openStats() {
   input.unlock();
 }
 $('btn-stats').addEventListener('click', () => { uiBlip(); openStats(); });
+// the gun stats page: from the menu or the pause menu, with the gun in hand picked
+function openGuns() {
+  $('pause').hidden = true;
+  input.unlock();
+  const ws = game.inRoom && game.me && game.me.weapons && game.me.weapons[game.me.slot];
+  openGunStats(ws ? ws.id : locker.primaryFor(settings.lastLoadout || 0), {
+    // like the Locker: what you fit here is on your guns from your next life
+    changed: () => {},
+    closed: () => { game.refreshCosmetics(); if (game.inRoom) resume(); },
+  });
+}
+$('btn-gunstats').addEventListener('click', () => { uiBlip(); openGuns(); });
+// for checking a build on this machine: ?open=gunstats or ?open=carts opens that page
+if (LOCAL && params.get('open') === 'gunstats') setTimeout(() => { $('notes').hidden = true; openGuns(); }, 800);
+if (LOCAL && params.get('open') === 'carts') setTimeout(() => { $('notes').hidden = true; locker.grant(0, 0, true); openLocker(() => {}, () => {}); document.querySelector('.lk-tab[data-tab="carts"]').click(); }, 800);
+$('btn-pause-gunstats').addEventListener('click', () => { uiBlip(); openGuns(); });
 $('btn-pause-stats').addEventListener('click', () => { uiBlip(); openStats(); });
 $('stats-close').addEventListener('click', () => { $('stats').hidden = true; if (game.inRoom) resume(); });
 $('pass-close').addEventListener('click', () => {
@@ -568,7 +598,7 @@ $('btn-pause-loadout').addEventListener('click', () => {
 $('btn-pause-settings').addEventListener('click', () => openSettings());
 $('btn-pause-notes').addEventListener('click', () => openNotes());
 canvas.addEventListener('click', () => {
-  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden && $('results').hidden && $('stats').hidden) input.lock();
+  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden && $('results').hidden && $('stats').hidden && $('gunstats').hidden) input.lock();
 });
 $('death').addEventListener('click', (e) => {
   if (e.target.closest('.ld')) return;
@@ -1056,7 +1086,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22', 'views'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1110,6 +1140,8 @@ if (AUTOTEST) {
     })();
   }
   if (params.get('script') === 'attach') runAttach();
+  if (params.get('script') === 'derby') runDerby();
+  if (params.get('script') === 'looks') runLooks();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
     const [w, f] = params.get('equip').split(':');
@@ -1150,6 +1182,88 @@ async function takeViews(log) {
     if (key) input.tap('KeyM');
     i++;
   }
+}
+
+// -- the Derby run: seated on the grid, a lap's worth of driving, a grenade, pictures --
+async function runDerby() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[derby] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  if (params.get('cart')) { locker.grant(0, 0, true); locker.equipCart(params.get('cart')); game.refreshCosmetics(); }
+  while (!game.driving) await sleep(200);
+  const F = () => game.forklifts.get(game.driving);
+  log(`seated: cart ${game.driving} at ${F().pos.toArray().map((v) => v.toFixed(1))} yaw ${F().yaw.toFixed(2)} cam ${game.camera.position.toArray().map((v) => v.toFixed(1))} skin ${F().skin || 'factory'}`);
+  await sleep(800);
+  log('CAPTURE derby-grid');
+  await sleep(Number(params.get('wait') || 0) * 1000);
+  input.hold('KeyW', true);
+  await sleep(2500);
+  log(`after 2.5 s: speed ${F().speed.toFixed(1)} at ${F().pos.toArray().map((v) => v.toFixed(1))} lap ${JSON.stringify(game.lap && { u: game.lap.u, laps: game.lap.laps })}`);
+  log('CAPTURE derby-straight');
+  // steer round the track: aim at a point a little way along the centre line
+  const T = game.map.track;
+  const t0 = performance.now();
+  let shots = 0;
+  while (performance.now() - t0 < 40000) {
+    const c = F();
+    if (!c) break;
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < T.length; i++) { const d = (T[i][0] - c.pos.x) ** 2 + (T[i][1] - c.pos.z) ** 2; if (d < bd) { bd = d; bi = i; } }
+    const tgt = T[(bi + 6) % T.length];
+    const want = Math.atan2(-(tgt[1] - c.pos.z), tgt[0] - c.pos.x);
+    let dy = want - c.yaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    input.hold('KeyA', dy > 0.06);
+    input.hold('KeyD', dy < -0.06);
+    const el = (performance.now() - t0) / 1000;
+    if (shots === 0 && el > 6) { shots++; log('CAPTURE derby-corner'); }
+    if (shots === 1 && el > 12) { shots++; input.tap('KeyG'); log(`grenade: ${me.nades} left`); }
+    if (shots === 2 && el > 12.6) { shots++; log('CAPTURE derby-grenade'); }
+    await sleep(30);
+  }
+  input.hold('KeyW', false); input.hold('KeyA', false); input.hold('KeyD', false);
+  log(`after the drive: at ${F() && F().pos.toArray().map((v) => v.toFixed(1))} lap ${JSON.stringify(game.lap && { u: game.lap.u, laps: game.lap.laps, best: game.lap.best })} label ${game.derbyLabel()} alive ${me.alive}`);
+  log('CAPTURE derby-end');
+  log('derby done');
+}
+
+// -- pictures of the new things: every cart skin, and an outfit ------------------------
+async function runLooks() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[looks] ' + s));
+  while (!game.map) await sleep(200);
+  const { openLocker: open } = await import('./lockerui.js');
+  open(() => {}, () => {});
+  await sleep(500);
+  const { CARTS } = await import('./skins.js');
+  const ui = await import('./lockerui.js');
+  for (const id of (params.get('carts') || CARTS.map((c) => c.id).join(',')).split(',')) {
+    ui.previewCart(id, Number(params.get('turn') || 2.3));
+    await sleep(350);
+    ui.previewShot('cart-' + id);
+    await sleep(150);
+  }
+  for (const id of (params.get('outfits') || 'guccimorty').split(',')) {
+    previewOutfit(id, Math.PI);
+    await sleep(500);
+    previewShot('outfit-' + id);
+    previewOutfit(id, Math.PI * 1.25);
+    await sleep(400);
+    previewShot('outfit-' + id + '-side');
+    previewOutfit(id, Math.PI, true);
+    await sleep(400);
+    previewShot('outfit-' + id + '-face');
+    previewOutfit(id, Math.PI * 1.3, true);
+    await sleep(400);
+    previewShot('outfit-' + id + '-face34');
+  }
+  log('looks done');
 }
 
 // -- the royale run: the plane, the drop, a chest, what fell out, a vest ------------

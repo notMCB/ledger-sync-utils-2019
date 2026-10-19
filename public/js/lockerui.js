@@ -2,7 +2,8 @@
 
 import * as THREE from 'three';
 import { locker, CRATES, roll } from './locker.js';
-import { FINISHES, FINISH, OUTFITS, OUTFIT, RARITY, swatch, tickSkins } from './skins.js';
+import { FINISHES, FINISH, OUTFITS, OUTFIT, RARITY, swatch, tickSkins, CARTS, CART, CART_FACTORY, cartSwatch } from './skins.js';
+import { makeGolfCartGroup } from './world.js';
 import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, SECONDARIES, nadesFor } from './weapons.js';
 import { buildPreviewGun } from './viewmodel.js';
 import { Avatar } from './avatars.js';
@@ -10,6 +11,7 @@ import { settings, saveSettings, keyName } from './settings.js';
 import { ATTACHMENTS, slotsFor, slotList, nextUnlock } from './attachments.js';
 import { beep, uiBlip, unlockAudio } from './audio.js';
 import { esc } from './hud.js';
+import { gunStats, openGunStats } from './gunstats.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -54,7 +56,17 @@ function showModel(sel) {
     p.model = null;
   }
   if (!sel) return;
-  if (sel.kind === 'gun') {
+  if (sel.kind === 'cart') {
+    // a golf cart, three-quarters on, turning on the spot
+    const g = makeGolfCartGroup(CART[sel.cart] || null);
+    const wrap = new THREE.Group();
+    g.position.set(0, -0.95, 0);
+    wrap.add(g);
+    wrap.scale.setScalar(0.95);
+    p.model = wrap;
+    p.camera.position.set(0, 0.9, 5.6);
+    p.camera.lookAt(0, -0.1, 0);
+  } else if (sel.kind === 'gun') {
     const g = buildPreviewGun(sel.weapon, sel.finish, locker.attachFor(sel.weapon));
     const box = new THREE.Box3().setFromObject(g.group);
     g.group.position.sub(box.getCenter(new THREE.Vector3()));
@@ -86,9 +98,22 @@ function showModel(sel) {
 
 // for checking a build on this machine: show an outfit in the preview, turned to
 // face the camera, and post the picture to the local server
-export function previewOutfit(id, turn = Math.PI) {
+export function previewOutfit(id, turn = Math.PI, close = false) {
   showModel({ kind: 'outfit', outfit: id });
   const p = preview;
+  p.t = turn / 0.6;
+  if (close) {
+    p.camera.position.set(0, 0.75, 1.9);
+    p.camera.lookAt(0, 0.62, 0);
+  } else {
+    p.camera.position.set(0, 0.35, 5.2);
+    p.camera.lookAt(0, 0.05, 0);
+  }
+}
+export function previewCart(id, turn = 2.3) {
+  const p = setupPreview();
+  p.key = '';
+  showModel({ kind: 'cart', cart: id });
   p.t = turn / 0.6;
 }
 export function previewGun(weapon, finish, fitted, turn = Math.PI / 2) {
@@ -137,6 +162,10 @@ function previewLoop() {
 // -- tiles --------------------------------------------------------------------------
 
 function itemInfo(sel) {
+  if (sel.kind === 'cart') {
+    const c = CART[sel.cart] || CART_FACTORY;
+    return { name: c.name, sub: 'Golf cart', rarity: RARITY[c.rarity], bg: cartSwatch(c) };
+  }
   if (sel.kind === 'gun') {
     const f = FINISH[sel.finish];
     return { name: f.name, sub: WEAPONS[sel.weapon].short, rarity: RARITY[f.rarity], bg: swatch(f) };
@@ -355,6 +384,19 @@ function attachSection(detail, weapon, note) {
     : `${kills} kills · everything unlocked`;
   const at = section(`Attachments · ${WEAPONS[weapon].short}`, note ? `${line} · ${note}` : line);
   const fitted = locker.attachFor(weapon);
+  // the gun's numbers as fitted, and the way to the full page
+  const st = gunStats(weapon, fitted);
+  const by = Object.fromEntries(st.rows.map((r) => [r.k, r.text]));
+  const sum = document.createElement('div');
+  sum.className = 'lk-gunline';
+  sum.innerHTML = `<span>Damage <b>${esc(by.dmg)}</b></span><span>Fire rate <b>${esc(by.rpm)}</b></span><span>Hip <b>${esc(by.hip || '—')}</b></span>` +
+    `<span>Aimed <b>${esc(by.ads || '—')}</b></span><span>Reload <b>${esc(by.reload || '—')}</b></span>`;
+  const more = document.createElement('button');
+  more.className = 'btn small ghost';
+  more.textContent = 'All gun stats';
+  more.addEventListener('click', () => { uiBlip(); openGunStats(weapon, { changed: () => {}, closed: () => render() }); });
+  sum.appendChild(more);
+  at.appendChild(sum);
   for (const slot of slotsFor(weapon)) {
     const row = document.createElement('div');
     row.className = 'at-row';
@@ -414,7 +456,35 @@ function renderOutfits(host) {
   host.appendChild(grid);
   const c = document.createElement('div');
   c.className = 'lk-count';
-  c.textContent = `${owned.length} of ${OUTFITS.length} outfits collected`;
+  c.textContent = `${owned.length} of ${locker.outfitTotal()} outfits collected`;
+  host.appendChild(c);
+}
+
+// golf cart skins: the cart you drive in the Derby, and anywhere else you take a cart
+function renderCarts(host) {
+  const grid = document.createElement('div');
+  grid.className = 'lk-grid';
+  const ord = CARTS.map((c) => c.id);
+  const owned = locker.carts().sort((a, b) => ord.indexOf(a) - ord.indexOf(b));
+  const eq = locker.equippedCart();
+  for (const id of ['', ...owned]) {
+    const b = document.createElement('button');
+    b.className = 'sk' + (id === eq ? ' equipped' : '');
+    b.innerHTML = tileHTML({ kind: 'cart', cart: id }, id === eq ? '<div class="sk-eq">Equipped</div>' : '');
+    b.addEventListener('click', () => {
+      locker.equipCart(id);
+      selected = { kind: 'cart', cart: id };
+      showModel(selected);
+      uiBlip();
+      render();
+    });
+    b.addEventListener('mouseenter', () => hoverPreview({ kind: 'cart', cart: id }));
+    grid.appendChild(b);
+  }
+  host.appendChild(grid);
+  const c = document.createElement('div');
+  c.className = 'lk-count';
+  c.textContent = owned.length ? `${owned.length} of ${CARTS.length} cart skins collected` : `Open Pit Lane Crates to find cart skins · ${CARTS.length} to collect`;
   host.appendChild(c);
 }
 
@@ -464,9 +534,10 @@ function render() {
   host.innerHTML = '';
   host.className = 'lk-content ' + tab;
   if (tab === 'loadouts') renderLoadouts(host);
+  else if (tab === 'carts') renderCarts(host);
   else renderOutfits(host);
   const all = ['smg', 'lmg', 'shotgun', 'sniper', 'pistol', 'knife'].reduce((a, w) => a + locker.gunSkins(w).length, 0);
-  $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${OUTFITS.length} outfits`;
+  $('lk-total').textContent = `${all} of ${locker.totalGunSkins()} gun skins · ${locker.outfits().length} of ${locker.outfitTotal()} outfits · ${locker.carts().length} of ${CARTS.length} carts`;
   const accountsOn = !$('account-strip').classList.contains('no-accounts');
   $('lk-account').textContent = locker.signedIn ? 'Saved to your account' : accountsOn ? 'Saved in this browser — sign in to keep it everywhere' : 'Saved in this browser';
   restoreScroll(keep);
@@ -542,15 +613,20 @@ function reveal(prize, kind) {
   $('crate-prize').innerHTML = `<div class="sk big">${tileHTML(prize)}</div>`;
   $('crate-note').textContent = prize.dup ? `You already had this one — ${prize.refund} dinars back.` : 'New! Added to your locker.';
   const eq = $('crate-equip');
-  eq.textContent = prize.kind === 'gun' ? (prize.weapon === 'pistol' ? `Equip on ${LOADOUTS[ldSel].title}` : 'Equip') : 'Wear it';
+  eq.textContent = prize.kind === 'gun' ? (prize.weapon === 'pistol' ? `Equip on ${LOADOUTS[ldSel].title}` : 'Equip') : prize.kind === 'cart' ? 'Drive it' : 'Wear it';
   eq.onclick = () => {
     if (prize.kind === 'gun') {
       tab = 'loadouts';
       if (prize.weapon === 'pistol') locker.equipPistol(ldSel, prize.finish);
       else {
         locker.equipGun(prize.weapon, prize.finish);
-        ldSel = LOADOUTS.findIndex((L) => L.weapon === prize.weapon);
+        // the loadout that carries this gun, if one does (the knife and sidearms go with any)
+        const at = LOADOUTS.findIndex((L) => L.weapons.includes(prize.weapon));
+        if (at >= 0) ldSel = at;
       }
+    } else if (prize.kind === 'cart') {
+      tab = 'carts';
+      locker.equipCart(prize.cart);
     } else {
       tab = 'outfits';
       locker.equipOutfit(prize.outfit);
@@ -562,7 +638,7 @@ function reveal(prize, kind) {
   again.disabled = locker.dinars < CRATES[kind].price;
   again.textContent = `Open another · ${CRATES[kind].price}`;
   again.onclick = () => openCrate(kind);
-  showModel(prize.kind === 'gun' ? { kind: 'gun', weapon: prize.weapon, finish: prize.finish } : { kind: 'outfit', outfit: prize.outfit });
+  showModel(prize.kind === 'gun' ? { kind: 'gun', weapon: prize.weapon, finish: prize.finish } : prize.kind === 'cart' ? { kind: 'cart', cart: prize.cart } : { kind: 'outfit', outfit: prize.outfit });
 }
 
 // -- open / close ---------------------------------------------------------------------
@@ -575,7 +651,7 @@ function wire() {
     tab = t.dataset.tab;
     const L = LOADOUTS[ldSel];
     const w = locker.primaryFor(ldSel);
-    selected = tab === 'loadouts' ? { kind: 'gun', weapon: w, finish: locker.equippedGun(w) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
+    selected = tab === 'loadouts' ? { kind: 'gun', weapon: w, finish: locker.equippedGun(w) } : tab === 'carts' ? { kind: 'cart', cart: locker.equippedCart() } : { kind: 'outfit', outfit: locker.equippedOutfit() };
     showModel(selected);
     render();
   }));
@@ -598,7 +674,7 @@ export function openLocker(closeCb, loadoutCb) {
   ldSel = settings.lastLoadout || 0;
   $('locker').hidden = false;
   const L = LOADOUTS[ldSel];
-  selected = tab === 'loadouts' ? { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) } : { kind: 'outfit', outfit: locker.equippedOutfit() };
+  selected = tab === 'loadouts' ? { kind: 'gun', weapon: L.weapon, finish: locker.equippedGun(L.weapon) } : tab === 'carts' ? { kind: 'cart', cart: locker.equippedCart() } : { kind: 'outfit', outfit: locker.equippedOutfit() };
   setupPreview();
   preview.key = '';
   showModel(selected);

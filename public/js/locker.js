@@ -5,7 +5,7 @@
 //  - signed in, on the server — the server rolls crates and keeps dinars,
 //    and this module just mirrors what it sends.
 
-import { RARITIES, FINISHES, OUTFITS, GUN_IDS, FINISH, OUTFIT } from './skins.js';
+import { RARITIES, FINISHES, OUTFITS, GUN_IDS, FINISH, OUTFIT, CARTS, CART } from './skins.js';
 import { clean as cleanAttach, HAS_ATTACHMENTS } from './attachments.js';
 import { LOADOUTS, PERKS, SECONDARIES } from './weapons.js';
 import { PASS_TIERS, tierOf, grantPass } from './pass.js';
@@ -17,6 +17,7 @@ export const CRATES = {
   blade: { id: 'blade', name: 'Blade Crate', price: 150, blurb: 'Finishes for your knife, and nothing else.' },
   camo: { id: 'camo', name: 'Tactical Camouflage Case', price: 1000, blurb: 'Real camouflage: outfits that beacons miss and aim help ignores, and matching finishes for any gun or the knife. No commons.' },
   party: { id: 'party', name: 'Carnival Case', price: 2000, blurb: 'Rainbows, stripes that move, polka dots and lit-up finishes for any gun or the knife. Only you see the lights. No commons.' },
+  kart: { id: 'kart', name: 'Pit Lane Crate', price: 400, blurb: 'Golf cart skins: racing stripes, flames, chequered flags, race numbers and more. Everyone sees the cart you drive.' },
 };
 const CAMO_WEIGHTS = { uncommon: 45, rare: 32, epic: 16, legendary: 7 };
 export const CRATE_COST = CRATES.gun.price;
@@ -34,8 +35,8 @@ export const STAT_KEYS = ['matches', 'wins', 'royales', 'best', 'kills', 'deaths
 const blankStats = () => Object.fromEntries(STAT_KEYS.map((k) => [k, 0]));
 
 function blank() {
-  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], kills: {}, pass: 0, muzzles: [], stats: blankStats(),
-    equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {}, perk: {}, muzzle: '' }, opened: 0 };
+  return { dinars: STARTING_DINARS, guns: [], outfits: ['standard'], carts: [], kills: {}, pass: 0, muzzles: [], stats: blankStats(),
+    equip: { outfit: 'standard', guns: {}, pistol: {}, nade: {}, attach: {}, perk: {}, muzzle: '', cart: '' }, opened: 0 };
 }
 
 function normalise(s) {
@@ -43,6 +44,7 @@ function normalise(s) {
   s.guns = Array.isArray(s.guns) ? s.guns : [];
   s.outfits = Array.isArray(s.outfits) ? s.outfits : ['standard'];
   if (!s.outfits.includes('standard')) s.outfits.unshift('standard');
+  s.carts = Array.isArray(s.carts) ? s.carts.filter((c) => CART[c]) : [];
   s.equip = s.equip && typeof s.equip === 'object' ? s.equip : {};
   s.equip.outfit = s.equip.outfit || 'standard';
   s.equip.guns = s.equip.guns || {};
@@ -56,6 +58,7 @@ function normalise(s) {
   s.pass = Math.max(0, Math.floor(Number(s.pass) || 0));
   s.muzzles = Array.isArray(s.muzzles) ? s.muzzles : [];
   s.equip.muzzle = s.equip.muzzle || '';
+  s.equip.cart = CART[s.equip.cart] && s.carts.includes(s.equip.cart) ? s.equip.cart : '';
   s.stats = { ...blankStats(), ...(s.stats && typeof s.stats === 'object' ? s.stats : {}) };
   for (const k of STAT_KEYS) s.stats[k] = Math.max(0, Math.floor(Number(s.stats[k]) || 0));
   grantPass(s, tierOf(s.pass), GUN_IDS);
@@ -132,6 +135,10 @@ export function roll(kind) {
     const rarity = pickRarity(CAMO_WEIGHTS);
     if (Math.random() < 0.5) return { kind: 'outfit', outfit: pick(OUTFITS.filter((x) => x.rarity === rarity && x.crate === 'camo')).id, rarity };
     return { kind: 'gun', weapon: pick(GUN_IDS), finish: pick(FINISHES.filter((x) => x.rarity === rarity && x.crate === 'camo')).id, rarity };
+  }
+  if (kind === 'kart') {
+    const rarity = pickRarity();
+    return { kind: 'cart', cart: pick(CARTS.filter((x) => x.rarity === rarity)).id, rarity };
   }
   if (kind === 'party') {
     const rarity = pickRarity(BAZAAR_WEIGHTS);
@@ -236,6 +243,26 @@ export const locker = {
     return state().outfits.filter((o) => OUTFIT[o]);
   },
 
+  // how many outfits there are to collect: the ones only given by hand don't count unless you have them
+  outfitTotal() {
+    return OUTFITS.filter((o) => o.crate !== 'owner' || this.ownsOutfit(o.id)).length;
+  },
+
+  carts() {
+    return state().carts.filter((c) => CART[c]);
+  },
+
+  equippedCart() {
+    const c = state().equip.cart;
+    return CART[c] && state().carts.includes(c) ? c : '';
+  },
+
+  equipCart(id) {
+    if (id && !state().carts.includes(id)) return;
+    state().equip.cart = id || '';
+    this.saved();
+  },
+
   totalGunSkins() {
     // knife finishes only go on the knife, and gun finishes never do
     const blades = FINISHES.filter((f) => f.crate === 'blade' || f.shape).length;
@@ -305,6 +332,9 @@ export const locker = {
       const key = `${prize.weapon}:${prize.finish}`;
       prize.dup = s.guns.includes(key);
       if (!prize.dup) s.guns.push(key);
+    } else if (prize.kind === 'cart') {
+      prize.dup = s.carts.includes(prize.cart);
+      if (!prize.dup) s.carts.push(prize.cart);
     } else {
       prize.dup = s.outfits.includes(prize.outfit);
       if (!prize.dup) s.outfits.push(prize.outfit);
@@ -366,7 +396,8 @@ export const locker = {
     s.dinars = Math.max(s.dinars, dinars);
     if (everything) {
       for (const w of GUN_IDS) for (const f of FINISHES) if (!s.guns.includes(`${w}:${f.id}`)) s.guns.push(`${w}:${f.id}`);
-      for (const o of OUTFITS) if (!s.outfits.includes(o.id)) s.outfits.push(o.id);
+      for (const o of OUTFITS) if (!s.outfits.includes(o.id) && o.crate !== 'owner') s.outfits.push(o.id);
+      for (const c of CARTS) if (!s.carts.includes(c.id)) s.carts.push(c.id);
     }
     this.saved();
   },
@@ -514,6 +545,6 @@ export const locker = {
     }
     const k = this.equippedGun('knife');
     if (k) g.knife = k;
-    return { o: this.equippedOutfit(), g, ms: this.muzzleStyle() };
+    return { o: this.equippedOutfit(), g, ms: this.muzzleStyle(), c: this.equippedCart() };
   },
 };

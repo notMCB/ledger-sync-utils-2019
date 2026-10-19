@@ -38,8 +38,18 @@ for label, js, py in (('finishes', items('FINISHES', 'armory'), {f[0]: (f[1], f[
                 print('  %-14s game=%s server=%s' % (k, js.get(k), py.get(k)))
     else:
         print('ok  %d %s match' % (len(js), label))
+js_carts = {}
+for line in block('CARTS').splitlines():
+    m = re.search(r"\{ id: '(\w+)', name: '([^']+)', rarity: '(\w+)'", line)
+    if m:
+        js_carts[m.group(1)] = m.group(3)
+if js_carts != dict(catalog.CARTS):
+    ok = False
+    print('MISMATCH in cart skins: game=%r server=%r' % (js_carts, dict(catalog.CARTS)))
+else:
+    print('ok  %d cart skins match' % len(js_carts))
 # every crate must be able to give something of every rarity it can roll
-for kind in ('gun', 'outfit', 'bazaar', 'blade', 'camo', 'party'):
+for kind in ('gun', 'outfit', 'bazaar', 'blade', 'camo', 'party', 'kart'):
     for _ in range(3000):
         catalog.roll(kind)
 print('ok  crates roll without errors')
