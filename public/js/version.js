@@ -7,7 +7,7 @@ export const VERSION = '3.4.0';
 export const PATCH_NOTES = [
   {
     version: '3.4.0',
-    date: '20 October 2026',
+    date: '21 October 2026',
     title: 'Scorestreaks',
     notes: [
       'Scorestreaks, in Free for All, Team Deathmatch and King of the Hill: string kills together in one life and you earn a reward to call in. Your kills this life and what they have earned you are shown under your perk, and a reward keeps until you use it, even if you die first. Use them with 4, 5 and 6 (you can rebind them in Settings).',
