@@ -1726,12 +1726,13 @@ function policeWord() {
 // a six-barrelled Gatling gun on a turret at the back of the roof. It turns on
 // its base (yaw), tips up and down on its cradle (pitch), and the barrels spin.
 // Its parts are left in g.userData.turret for the game to aim; local +x is forward.
-export const TURRET_AT = { x: -0.55, y: 1.95, pivot: 0.62 };   // the barrels clear the light bar
-function addGatling(g) {
+export const TURRET_AT = { x: -0.55, y: 1.95, z: 0, pivot: 0.62 };   // the barrels clear the light bar
+// (the helicopter's door gun is the same piece, on a pintle in its doorway: see streaks.js)
+export function addGatling(g, at = TURRET_AT) {
   const dark = new THREE.MeshStandardMaterial({ color: '#2a2d33', metalness: 0.7, roughness: 0.4 });
   const steel = chromeMaterial();
   const yaw = new THREE.Group();
-  yaw.position.set(TURRET_AT.x, TURRET_AT.y, 0);
+  yaw.position.set(at.x, at.y, at.z || 0);
   g.add(yaw);
   const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.12, 20), dark);
   ring.position.y = 0.06;
@@ -1742,7 +1743,7 @@ function addGatling(g) {
     yaw.add(cheek);
   }
   const pitch = new THREE.Group();
-  pitch.position.y = TURRET_AT.pivot;
+  pitch.position.y = at.pivot;
   yaw.add(pitch);
   const housing = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.3, 0.42), dark);
   housing.position.x = -0.05;

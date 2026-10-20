@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Checks the 2.0 server features: accounts, crates and equipping, chat,
-perks (ammo, medkit, ladder, beacon), flash grenades and dinar payouts.
+perks (launcher, medkit, ladder, beacon), flash grenades and dinar payouts.
 
 Starts its own server on port 8766 with a throwaway database, so it never
 touches real data:
@@ -245,21 +245,12 @@ async def test_perks():
     b.send({'t': 'perk', 'k': 'ammo', 'p': [b.pos[0], 0, b.pos[2]]})
     await asyncio.sleep(0.3)
     check(not b.last('perkok'), 'you can only use your own loadout’s perk')
+    # since 3.4.0 the Assault's perk is the grenade launcher: a gun, nothing to drop or use up
     a.send({'t': 'perk', 'k': 'ammo', 'p': [a.pos[0], 0, a.pos[2]]})
-    m = await a.reply('perkok', 'ammo')
-    check(m and m['k'] == 'ammo', 'standing at your ammo crate restocks you')
-    await asyncio.sleep(0.5)
-    check(len([x for x in a.msgs if x['t'] == 'perkok']) == 1, 'each crate restocks you only once')
-    far = [a.pos[0] + 30, 0, a.pos[2]]
-    a.send({'t': 'perk', 'k': 'ammo', 'p': far})
-    await asyncio.sleep(0.3)
-    m = await a.reply('supply', 'crate 2', timeout=0.4, pred=lambda x: not x.get('off'))
-    check(m is None, 'a crate must be dropped near you')
-    a.send({'t': 'perk', 'k': 'ammo', 'p': [a.pos[0] + 1, 0, a.pos[2]]})
-    await a.reply('perkleft', 'ammo 2')
-    a.send({'t': 'perk', 'k': 'ammo', 'p': [a.pos[0] + 1, 0, a.pos[2]]})
-    m = await a.reply('supply', 'ammo 3', timeout=0.6, pred=lambda x: not x.get('off'))
-    check(m is None, 'two crates per life')
+    a.send({'t': 'perk', 'k': 'launcher', 'p': [a.pos[0], 0, a.pos[2]]})
+    await asyncio.sleep(0.4)
+    m = await a.reply('supply', 'no crate', timeout=0.4, pred=lambda x: not x.get('off'))
+    check(m is None and not a.last('perkok') and not a.last('perkleft'), 'the Assault has no ammo crate any more: the launcher fires grenades instead')
     # kill pays 50 dinars
     for _ in range(6):
         a.send({'t': 'shot', 'w': 'smg', 'o': [a.pos[0], 1.5, a.pos[2]], 'e': [b.pos], 'h': [[b.id, 'h']]})
@@ -333,7 +324,7 @@ async def main():
     proc = subprocess.Popen([sys.executable, os.path.join(ROOT, 'server', 'server.py'), str(PORT)], env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
-        for _ in range(60):
+        for _ in range(400):      # the server builds ten towns before it listens
             await asyncio.sleep(0.1)
             try:
                 w = await WS.connect(URL)

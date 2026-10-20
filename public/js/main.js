@@ -20,6 +20,7 @@ import { openGunStats } from './gunstats.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
+const THREE_V = () => new (game.camera.position.constructor)();
 input.attach(canvas);
 
 // ?autotest=<mode> joins straight away and drives the controls, for checking a build
@@ -147,6 +148,7 @@ setInterval(() => {
 const net = new Net(onMessage, onStatus);
 game.net = net;
 const chat = new Chat(net);
+chat.local = (text) => game.adminLocal(text);
 chat.canTeam = () => game.isTeamMode() && !game.warmup();
 game.chat = chat;
 setInterval(() => chat.update(), 500);
@@ -262,7 +264,7 @@ function sayHello() {
 }
 
 function currentName() {
-  return ($('name').value || '').trim() || settings.name || 'Player';
+  return ($('name').value || '').trim() || settings.name || (AUTOTEST ? 'Tester' : 'Player');
 }
 
 // -- menu -----------------------------------------------------------------
@@ -432,6 +434,16 @@ function join(target) {
   unlockAudio();
   uiBlip();
   const name = currentName();
+  // nobody plays as "Player": give a name, or sign in
+  if (!auth.user && (!name || name.toLowerCase() === 'player')) {
+    toast('Enter your name first, or sign in');
+    const f = $('name-field');
+    f.classList.remove('nudge');
+    void f.offsetWidth;
+    f.classList.add('nudge');
+    $('name').focus();
+    return;
+  }
   settings.name = name;
   saveSettings();
   sayHello();
@@ -872,6 +884,7 @@ function showAccount(user) {
   sayHello();
 }
 auth.onChange(showAccount);
+auth.onChange((user) => game.setAdmin(!!user && String(user.username || '').toLowerCase() === 'mcb'));
 $('btn-signin').addEventListener('click', () => auth.open('login'));
 $('btn-signup').addEventListener('click', () => auth.open('signup'));
 $('btn-signout').addEventListener('click', () => {
@@ -1116,7 +1129,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1172,6 +1185,9 @@ if (AUTOTEST) {
   if (params.get('script') === 'attach') runAttach();
   if (params.get('script') === 'derby') runDerby();
   if (params.get('script') === 'turret') runTurret();
+  if (params.get('script') === 'streaks') runStreaks();
+  if (params.get('script') === 'skywatch') runSkywatch();
+  if (params.get('script') === 'launcher') runLauncher();
   if (params.get('script') === 'looks') runLooks();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
@@ -1312,6 +1328,161 @@ async function runTurret() {
   await sleep(400);
   log('CAPTURE armour-seat');
   log('turret done');
+}
+
+// -- scorestreaks: on a server started with SOUK_STREAK_FREE=1, call each one in and look --
+async function runStreaks() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[streaks] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  while (!game.me.alive || !game.map) await sleep(200);
+  while (!game.g || game.g.ph !== 'live') await sleep(200);
+  await sleep(1200);
+  log(`have ${JSON.stringify(me.streaks)} streak ${me.streak} panel hidden ${document.getElementById('streaks').hidden}`);
+  log('CAPTURE streaks-panel');
+  input.tap('Digit4');
+  await sleep(800);
+  log(`scan: have ${JSON.stringify(me.streaks)}`);
+  input.tap('Digit5');
+  await sleep(1500);
+  log(`heli: gunner ${!!game.gunner} helis ${game.helis.size} pos ${me.pos.toArray().map((v) => v.toFixed(1))} cam ${game.camera.position.toArray().map((v) => v.toFixed(1))} overlay hidden ${document.getElementById('turretcam').hidden}`);
+  log('CAPTURE heli-seat');
+  me.pitch = -0.55;
+  await sleep(300);
+  log('CAPTURE heli-look-down');
+  input.hold('Mouse0', true);
+  await sleep(1200);
+  log('CAPTURE heli-firing');
+  await sleep(6500);
+  log(`heat ${game.gunner && game.gunner.heat.toFixed(2)} hot ${game.gunner && game.gunner.hot}`);
+  log('CAPTURE heli-hot');
+  input.hold('Mouse0', false);
+  me.yaw += 1.2;
+  await sleep(500);
+  log(`swing clamped: yaw ${me.yaw.toFixed(2)}`);
+  log('CAPTURE heli-swung');
+  while (game.gunner) await sleep(200);
+  await sleep(400);
+  log(`down: pos ${me.pos.toArray().map((v) => v.toFixed(1))} alive ${me.alive} overlay hidden ${document.getElementById('turretcam').hidden}`);
+  log('CAPTURE heli-back-down');
+  input.tap('Digit6');
+  await sleep(800);
+  log(`strike pick ${!!game.strikePick} overlay hidden ${document.getElementById('strikecam').hidden} cam ${game.camera.position.toArray().map((v) => v.toFixed(1))}`);
+  log('CAPTURE strike-cam');
+  input.look(260, 120);
+  await sleep(500);
+  log(`reticle at ${game.strikePick && [game.strikePick.x.toFixed(1), game.strikePick.y.toFixed(1), game.strikePick.z.toFixed(1)]}`);
+  log('CAPTURE strike-cam-moved');
+  const target = game.strikePick && { x: game.strikePick.x, y: game.strikePick.y, z: game.strikePick.z };
+  input.tap('Mouse0');
+  await sleep(600);
+  log(`called: pick ${!!game.strikePick} strikes ${game.strikes.size}`);
+  // look at the smoke
+  const lookAt = (x, y, z) => {
+    const dx = x - me.pos.x, dy = y - (me.pos.y + 1.6), dz = z - me.pos.z;
+    me.yaw = Math.atan2(-dx, -dz);
+    me.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+  };
+  if (target) lookAt(target.x, target.y + 2, target.z);
+  await sleep(1500);
+  log('CAPTURE strike-smoke');
+  // the bombers: look up at the lead as they come over
+  const S = [...game.strikes.values()][0];
+  for (let i = 0; i < 3; i++) {
+    await sleep(1500);
+    if (S) { const L = S.show.leadAt(game.clock - S.t0, THREE_V()); lookAt(L.x, L.y, L.z); await sleep(100); log(`bombers at ${L.toArray().map((v) => v.toFixed(0))} visible ${S.show.planes[0].m.visible}`); log(`CAPTURE strike-bombers-${i}`); }
+  }
+  if (target) lookAt(target.x, target.y + 1, target.z);
+  const until = S ? S.t0 + 10.3 : game.clock + 3;
+  while (game.clock < until) await sleep(50);
+  log('CAPTURE strike-boom');
+  await sleep(700);
+  log('CAPTURE strike-boom-2');
+  log('streaks done');
+}
+
+// -- the grenade launcher: bring it up, aim it, fire it, and look at the round going off --
+async function runLauncher() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[launcher] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  while (!game.me.alive || !game.map) await sleep(200);
+  while (!game.g || game.g.ph !== 'live') await sleep(200);
+  await sleep(1000);
+  log(`loadout ${me.loadout} perk ${locker.perkFor(me.loadout)} launcher ${!!(me.weapons && me.weapons.launcher)} nades ${me.nades}`);
+  while (game.vm.busySwitching) await sleep(100);
+  input.tap('KeyX');
+  for (let i = 0; i < 40 && game.vm.curId !== 'launcher'; i++) await sleep(100);
+  while (game.vm.busySwitching) await sleep(100);
+  log(`slot ${me.slot} vm ${game.vm.curId} mag ${game.weapon() && game.weapon().mag}`);
+  me.pitch = -0.08;
+  log('CAPTURE launcher-hip');
+  input.tap('Mouse2');
+  await sleep(700);
+  log(`aim ${me.adsK.toFixed(2)}`);
+  log('CAPTURE launcher-ads');
+  input.tap('Mouse0');
+  await sleep(250);
+  log(`fired: nades ${me.nades} in flight ${game.fx.nades.length}`);
+  log('CAPTURE launcher-shot');
+  await sleep(1200);
+  log(`after: nades ${me.nades} in flight ${game.fx.nades.length}`);
+  log('CAPTURE launcher-boom');
+  input.tap('Mouse2');
+  input.tap('KeyX');
+  await sleep(900);
+  log(`put away: slot ${me.slot} vm ${game.vm.curId}`);
+  log('launcher done');
+}
+
+// -- from the ground: a second player who watches the sky and takes pictures of what goes over --
+async function runSkywatch() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[skywatch] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  const lookAt = (x, y, z) => {
+    const dx = x - me.pos.x, dy = y - (me.pos.y + 1.6), dz = z - me.pos.z;
+    me.yaw = Math.atan2(-dx, -dz);
+    me.pitch = Math.max(-1.5, Math.min(1.5, Math.atan2(dy, Math.hypot(dx, dz))));
+  };
+  while (!game.me.alive || !game.map) await sleep(200);
+  let heliShots = 0, strikeShots = 0, boomShot = false;
+  const t0 = performance.now();
+  while (performance.now() - t0 < 150000) {
+    await sleep(100);
+    const H = [...game.helis.values()][0];
+    if (H && heliShots < 3) {
+      lookAt(H.mesh.position.x, H.mesh.position.y, H.mesh.position.z);
+      await sleep(150);
+      heliShots++;
+      log(`heli seen at ${H.mesh.position.toArray().map((v) => v.toFixed(0))} dist ${H.mesh.position.distanceTo(me.pos).toFixed(0)}`);
+      log(`CAPTURE ground-heli-${heliShots}`);
+      await sleep(2500);
+    }
+    const S = [...game.strikes.values()][0];
+    if (S) {
+      const t = game.clock - S.t0;
+      if (t > 1 && strikeShots === 0) { strikeShots++; lookAt(S.p.x, S.p.y + 1, S.p.z); await sleep(150); log('CAPTURE ground-strike-marker'); }
+      if (t > 5.5 && t < 8 && strikeShots === 1) { strikeShots++; const L = S.show.leadAt(t, THREE_V()); lookAt(L.x, L.y, L.z); await sleep(150); log(`CAPTURE ground-bombers`); }
+      if (t > 10.2 && !boomShot) { boomShot = true; lookAt(S.p.x, S.p.y + 1, S.p.z); await sleep(200); log('CAPTURE ground-boom'); }
+    }
+  }
+  log('skywatch done');
 }
 
 // -- pictures of the new things: every cart skin, and an outfit ------------------------

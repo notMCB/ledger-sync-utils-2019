@@ -121,6 +121,66 @@ export class Hud {
     $('perk').classList.toggle('spent', left <= 0);
   }
 
+  // the scorestreaks under the perk: each with its key, how far along it is, or READY
+  setStreaks(rows) {
+    const el = $('streaks');
+    if (!rows) {
+      if (!el.hidden) { el.hidden = true; this.lastStreaks = ''; }
+      return;
+    }
+    const key = rows.map((r) => `${r.key}|${r.name}|${r.n}|${r.have}|${r.ready}|${r.used}`).join(';');
+    if (key === this.lastStreaks) return;
+    this.lastStreaks = key;
+    el.hidden = false;
+    el.innerHTML = rows.map((r) => {
+      const state = r.ready ? 'READY' : r.used ? 'used' : `${Math.min(r.have, r.n)}/${r.n}`;
+      return `<div class="sk${r.ready ? ' ready' : r.used ? ' spent' : ''}"><span class="sk-key">${esc(r.key)}</span><span class="sk-name">${esc(r.name)}</span><b>${state}</b></div>`;
+    }).join('');
+  }
+
+  // the gun camera: on the Interceptor's turret or in the helicopter's door, with the
+  // gun's heat when it has any
+  gunCam(on, name = '', left = '', right = '', heat = null, hot = false) {
+    const el = $('turretcam');
+    if (el.hidden !== !on) el.hidden = !on;
+    document.body.classList.toggle('turretcam', on);
+    if (!on) return;
+    const k = `${name}|${left}|${right}`;
+    if (this.lastGunCam !== k) {
+      this.lastGunCam = k;
+      $('tc-name').textContent = name;
+      $('tc-bottom-left').textContent = left;
+      $('tc-bottom-right').textContent = right;
+    }
+    const bar = $('tc-heat');
+    bar.hidden = heat === null;
+    if (heat !== null) {
+      $('tc-heat-bar').style.width = `${Math.round(Math.max(0, Math.min(1, heat)) * 100)}%`;
+      bar.classList.toggle('hot', hot);
+    }
+  }
+
+  // the owner's command list, down the left of the screen
+  adminPanel(on, lines = []) {
+    const el = $('adminpanel');
+    if (el.hidden !== !on) el.hidden = !on;
+    if (!on) return;
+    const k = lines.map((l) => l.join('|')).join(';');
+    if (this.lastAdmin === k) return;
+    this.lastAdmin = k;
+    el.innerHTML = '<div class="ap-title">Owner</div>' + lines.map(([c, w]) => `<div><b>${esc(c)}</b><span>${esc(w)}</span></div>`).join('');
+  }
+
+  // picking where the airstrike lands: the overhead view, the reticle where the mouse has put it
+  strikeCam(on, px = 0, py = 0, hint = '') {
+    const el = $('strikecam');
+    if (el.hidden !== !on) el.hidden = !on;
+    document.body.classList.toggle('strikecam', on);
+    if (!on) return;
+    $('sc-reticle').style.transform = `translate(${px}px, ${py}px)`;
+    if (this.lastStrikeHint !== hint) { this.lastStrikeHint = hint; $('sc-bottom-left').textContent = hint; }
+  }
+
   // flying the bomb drone: a battery bar and the controls
   droneOverlay(on, frac = 1, controls = []) {
     const el = $('drone');
@@ -191,7 +251,7 @@ export class Hud {
   feedKill(ev, myId) {
     const row = document.createElement('div');
     row.className = 'kf' + (ev.k === myId || ev.v === myId ? ' me' : '');
-    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', cart: 'crash', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife', gas: 'gas' };
+    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', cart: 'crash', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife', gas: 'gas', strike: 'airstrike' };
     const wname = names[ev.w] || (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {
@@ -199,7 +259,7 @@ export class Hud {
       const reach = ev.d && WEAPONS[ev.w] && ev.w !== 'knife' ? `<span class="dist">${ev.d} m</span>` : '';
       row.innerHTML = `<span style="color:${kc}">${esc(ev.kn)}</span>${helpers}<span class="w">${esc(wname)}</span>${ev.hs ? '<span class="hs">HEAD</span>' : ''}${reach}<span style="color:${vc}">${esc(ev.vn)}</span>`;
     } else {
-      row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : ev.w === 'gas' ? 'the gas' : 'self')}</span>`;
+      row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : ev.w === 'gas' ? 'the gas' : ev.w === 'strike' ? 'airstrike' : 'self')}</span>`;
     }
     this.feedAdd(row);
   }

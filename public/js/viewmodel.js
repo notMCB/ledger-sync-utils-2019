@@ -706,6 +706,49 @@ function buildPistol(sleeve) {
   return attachable(gun, sets, { optic: 'irons', muzzle: 'none', mag: 'normal', trigger: 'semi', barrel: 'normal' });
 }
 
+// the Qanas 40mm: a break-action grenade launcher. A fat short barrel on a receiver,
+// a wooden stock and fore-end, a leaf sight folded up over the breech. It fires
+// whatever grenade the class carries, so there is nothing to attach to it.
+function buildLauncher(sleeve) {
+  const g = new THREE.Group();
+  const S = 0.085;
+  // the barrel: thick, short, with a flared muzzle
+  cyl(g, 0.026, 0.3, MAT.dark, 0, 0.03, -0.15, 14);
+  cyl(g, 0.03, 0.03, MAT.steel, 0, 0.03, -0.3, 14);
+  cyl(g, 0.019, 0.02, MAT.sightDot ? MAT.dark : MAT.dark, 0, 0.03, -0.312, 12);
+  // the receiver and the hinge the barrel breaks on
+  box(g, 0.05, 0.062, 0.1, MAT.steel, 0, 0.022, 0.01);
+  cyl(g, 0.012, 0.056, MAT.dark, 0, 0.0, -0.035, 10).rotation.z = Math.PI / 2;
+  box(g, 0.012, 0.03, 0.03, MAT.steel, 0, -0.012, 0.045);           // the latch lever
+  // the stock: a wooden butt running back and down, and a wooden fore-end under the barrel
+  box(g, 0.042, 0.055, 0.2, MAT.wood, 0, -0.025, 0.16, -0.12);
+  box(g, 0.045, 0.085, 0.03, MAT.wood, 0, -0.06, 0.26, -0.12);
+  box(g, 0.044, 0.03, 0.12, MAT.wood, 0, -0.005, -0.1);
+  // the pistol grip and the trigger guard
+  box(g, 0.03, 0.09, 0.04, MAT.wood, 0, -0.06, 0.055, -0.25);
+  box(g, 0.004, 0.014, 0.04, MAT.dark, 0, -0.012, 0.02);
+  // the leaf sight: a tall ladder over the breech, and a bead on a blade at the muzzle
+  const leaf = new THREE.Group();
+  leaf.position.set(0, 0.052, 0.0);
+  g.add(leaf);
+  box(leaf, 0.004, S - 0.052, 0.006, MAT.steel, -0.011, (S - 0.052) / 2, 0);
+  box(leaf, 0.004, S - 0.052, 0.006, MAT.steel, 0.011, (S - 0.052) / 2, 0);
+  box(leaf, 0.026, 0.004, 0.006, MAT.steel, 0, S - 0.052 + 0.004, 0);
+  box(leaf, 0.026, 0.004, 0.006, MAT.steel, 0, (S - 0.052) * 0.5, 0);
+  box(g, 0.004, S - 0.056, 0.006, MAT.steel, 0, 0.056 + (S - 0.056) / 2, -0.29);
+  const tip = new THREE.Mesh(new THREE.CircleGeometry(0.0018, 8), MAT.sightDot);
+  tip.position.set(0, S - 0.002, -0.286);
+  g.add(tip);
+  const h = hands(g, new THREE.Vector3(0.002, -0.075, 0.07), new THREE.Vector3(-0.012, -0.03, -0.12), sleeve);
+  h.left.rotation.set(0, 0.25, 0.2);
+  const gun = {
+    group: g, sight: S, muzzle: new THREE.Vector3(0, 0.03, -0.32), hands: h,
+    hip: new THREE.Vector3(0.15, -0.16, -0.42), ads: new THREE.Vector3(0, -S, -0.36), kind: 'launcher',
+    parts: {}, setAttach: () => {},
+  };
+  return gun;
+}
+
 // a tactical fighting knife: straight clip-point blade, textured grip
 // the Kabir .50: a long, heavy anti-materiel rifle with a big brake and a folded bipod
 function buildHeavy(sleeve) {
@@ -1100,7 +1143,7 @@ function buildNadeHand(sleeve) {
   return g;
 }
 
-export const GUN_BUILDERS = { smg: buildSMG, lmg: buildLMG, shotgun: buildShotgun, sniper: buildSniper, pistol: buildPistol, knife: buildKnife, heavy: buildHeavy, revolver: buildRevolver, flamer: buildFlamer, pdw: buildPDW, carbine: buildCarbine };
+export const GUN_BUILDERS = { smg: buildSMG, lmg: buildLMG, shotgun: buildShotgun, sniper: buildSniper, pistol: buildPistol, knife: buildKnife, heavy: buildHeavy, revolver: buildRevolver, flamer: buildFlamer, pdw: buildPDW, carbine: buildCarbine, launcher: buildLauncher };
 
 // a gun on its own, for the locker preview
 export function buildPreviewGun(id, finishId, fitted) {
@@ -1138,7 +1181,7 @@ export class ViewModel {
       smg: buildSMG(this.sleeve), lmg: buildLMG(this.sleeve), shotgun: buildShotgun(this.sleeve),
       sniper: buildSniper(this.sleeve), pistol: buildPistol(this.sleeve), knife: buildKnife(this.sleeve),
       heavy: buildHeavy(this.sleeve), revolver: buildRevolver(this.sleeve), flamer: buildFlamer(this.sleeve),
-      pdw: buildPDW(this.sleeve), carbine: buildCarbine(this.sleeve),
+      pdw: buildPDW(this.sleeve), carbine: buildCarbine(this.sleeve), launcher: buildLauncher(this.sleeve),
     };
     this.root = new THREE.Group();
     this.scene.add(this.root);

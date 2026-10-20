@@ -606,7 +606,8 @@ export class Avatar {
     }
     // flying a drone: the body stands where it was, head down over the controller
     this.piloting = !!(this.flags & 2048);
-    this.driving = !!(this.flags & 16384);
+    this.inHeli = !!(this.flags & 2097152);     // in a helicopter's door: sat down, like a driver
+    this.driving = !!(this.flags & 16384) || this.inHeli;
     this.burning = !!(this.flags & 32768);
     this.aboard = !!(this.flags & 262144);
     this.falling = !!(this.flags & 65536);
@@ -650,7 +651,7 @@ export class Avatar {
       const fx = -Math.sin(this.bodyYaw), fz = -Math.cos(this.bodyYaw);
       g.position.set(this.pos.x - fx * PRONE_LEN * pk, this.pos.y + 0.16 * pk, this.pos.z - fz * PRONE_LEN * pk);
     } else g.rotation.set(0, this.yaw, 0);
-    if (this.driving) g.position.y = this.pos.y + (this.seatY ?? 0.55);   // up on the seat: a forklift's, or lower in a golf cart
+    if (this.driving) g.position.y = this.pos.y + (this.inHeli ? 0.2 : (this.seatY ?? 0.55));   // up on the seat: a forklift's, or lower in a golf cart
     // the name and the scope glint ride above the head whichever way the body lies
     this.tag.position.set(0, 2.2 * (1 - pk) + 1.5 * pk, 1.0 * pk * (1 - 2 * bk));
     // walk
@@ -806,6 +807,20 @@ export class Avatars {
   clear() {
     for (const a of this.map.values()) a.dispose();
     this.map.clear();
+  }
+
+  // the owner's wall-hack: every figure drawn over the town, whatever is in the way
+  xray(on) {
+    for (const a of this.map.values()) {
+      if (a._xray === on) continue;
+      a._xray = on;
+      a.group.traverse((o) => {
+        if (!o.isMesh) return;
+        o.renderOrder = on ? 999 : 0;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const mt of mats) { mt.depthTest = !on; mt.needsUpdate = true; }
+      });
+    }
   }
 
   get(id) {

@@ -134,6 +134,7 @@ const GUN = {
   pistol:   { crack: [3100, 850, 0.07, 0.7], body: [165, 72, 0.07, 0.42], tail: 0.2, ring: 0, mech: [4400, 0.1], range: 95 },
   revolver: { crack: [2600, 560, 0.14, 0.95], body: [115, 42, 0.14, 0.8], tail: 0.5, ring: 2100, mech: [3800, 0.12], range: 150 },
   flamer:   { crack: [900, 300, 0.1, 0.3], body: [120, 60, 0.1, 0.3], tail: 0.2, ring: 0, mech: [2000, 0.05], range: 60 },
+  launcher: { crack: [700, 160, 0.16, 0.7], body: [90, 40, 0.22, 1.0], tail: 0.5, ring: 0, mech: [1800, 0.12], range: 120 },
 };
 
 // a soft ring after the crack, the way a rifle's report hangs in the air
@@ -302,16 +303,21 @@ export function footstep(pos, loud = 1) {
   if (!pos || sp.d < 6) click(sp.input, t + 0.005, 1800 + Math.random() * 600, 0.08, 0.015);
 }
 
-export function explosion(pos) {
+export function explosion(pos, size = 1) {
   if (!ensure()) return;
-  const sp = spatial(pos, 200);
+  const sp = spatial(pos, 200 * size);
   if (!sp) return;
   sp.input.gain.value = sp.gain;
   sp.output.connect(out('world'));
   const t = ctx.currentTime;
-  noiseBurst(sp.input, t, 1.4, 1200, 60, 0.3, 1.0, 'lowpass');
-  thump(sp.input, t, 90, 25, 0.9, 1.0);
+  noiseBurst(sp.input, t, 1.4 * size, 1200, 60, 0.3, 1.0, 'lowpass');
+  thump(sp.input, t, 90, 25, 0.9 * size, 1.0);
   noiseBurst(sp.input, t + 0.02, 0.2, 3000, 800, 0.5, 0.5);
+  if (size > 1) {
+    // a bomb: a deeper, longer rumble under it
+    thump(sp.input, t + 0.05, 48, 18, 1.6, 1.0);
+    noiseBurst(sp.input, t + 0.1, 2.6, 400, 40, 0.4, 0.8, 'lowpass');
+  }
 }
 
 export function hitMarker(kill, head) {
@@ -550,6 +556,144 @@ export function planeHum(on, pos) {
     plane.o3.frequency.setTargetAtTime(31 * k, now, 0.2);
     plane.lastD = d; plane.lastT = now;
   } else if (plane.lastD === null) { plane.lastD = d; plane.lastT = now; }
+}
+
+// a sound that follows something about the sky, heard from the ground; call it every
+// frame with where the thing is, and once with on = false when it has gone
+function flyer(state, on, pos, make, vol0, range) {
+  if (!on && !state.cur) return null;
+  const c = ensure();
+  if (!c) return null;
+  if (!on) {
+    if (state.cur) { const s = state.cur; s.g.gain.setTargetAtTime(0.0001, c.currentTime, 0.3); setTimeout(() => { try { s.stop(); } catch (e) { /* done */ } }, 900); state.cur = null; }
+    return null;
+  }
+  if (!state.cur) state.cur = make(c);
+  const s = state.cur;
+  const dx = pos.x - listener.x, dy = pos.y - listener.y, dz = pos.z - listener.z;
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const vol = vol0 / (1 + (d / range) ** 1.5);
+  s.g.gain.setTargetAtTime(Math.max(0.0001, vol), c.currentTime, 0.1);
+  s.d = d;
+  return s;
+}
+
+// the helicopter: the rotor's slap, four and a bit beats a second, over a turbine whine
+const heli = { cur: null };
+export function heliBeat(on, pos) {
+  const s = flyer(heli, on, pos, (c) => {
+    const src = c.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 220;
+    const chop = c.createGain();
+    chop.gain.value = 0.3;
+    const lfo = c.createOscillator();
+    lfo.type = 'square';
+    lfo.frequency.value = 4.3;
+    const lfoG = c.createGain();
+    lfoG.gain.value = 0.7;
+    lfo.connect(lfoG); lfoG.connect(chop.gain);
+    const whine = c.createOscillator();
+    whine.type = 'sawtooth';
+    whine.frequency.value = 340;
+    const wf = c.createBiquadFilter();
+    wf.type = 'bandpass';
+    wf.frequency.value = 900;
+    wf.Q.value = 2;
+    const wg = c.createGain();
+    wg.gain.value = 0.08;
+    const g = c.createGain();
+    g.gain.value = 0.0001;
+    src.connect(f); f.connect(chop); chop.connect(g);
+    whine.connect(wf); wf.connect(wg); wg.connect(g);
+    g.connect(out('world'));
+    src.start(); lfo.start(); whine.start();
+    return { g, f, stop() { src.stop(); lfo.stop(); whine.stop(); } };
+  }, 0.9, 120);
+  if (s) s.f.frequency.setTargetAtTime(140 + 400 / (1 + s.d / 60), ctx.currentTime, 0.1);
+}
+
+// the bombers: a jet roar that only really arrives once they are close to overhead
+const jets = { cur: null };
+export function jetRoar(on, pos) {
+  const s = flyer(jets, on, pos, (c) => {
+    const src = c.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 500;
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = 55;
+    const og = c.createGain();
+    og.gain.value = 0.25;
+    const g = c.createGain();
+    g.gain.value = 0.0001;
+    src.connect(f); f.connect(g); o.connect(og); og.connect(f);
+    g.connect(out('world'));
+    src.start(); o.start();
+    return { g, f, stop() { src.stop(); o.stop(); } };
+  }, 1.4, 500);
+  if (s) s.f.frequency.setTargetAtTime(200 + 1400 / (1 + s.d / 400), ctx.currentTime, 0.2);
+}
+
+// a bomb coming down: the whistle rises as it falls, from where it will land
+export function bombWhistle(pos, secs = 2) {
+  if (!ensure()) return;
+  const sp = spatial(pos, 400);
+  if (!sp) return;
+  sp.input.gain.value = sp.gain;
+  sp.output.connect(out('world'));
+  const t = ctx.currentTime;
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(900, t);
+  o.frequency.exponentialRampToValueAtTime(2600, t + secs);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.35, t + secs * 0.7);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + secs + 0.05);
+  o.connect(g); g.connect(sp.input);
+  o.start(t); o.stop(t + secs + 0.1);
+}
+
+// the scan's sweep: a soft radar chirp in your head
+export function radarPing() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(1400, t);
+  o.frequency.exponentialRampToValueAtTime(700, t + 0.35);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.14, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  o.connect(g); g.connect(out('voice'));
+  o.start(t); o.stop(t + 0.45);
+}
+
+// a scorestreak earned: a rising three-note call
+export function streakReady() {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  [660, 880, 1320].forEach((f, i) => {
+    const o = c.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t + i * 0.12);
+    g.gain.exponentialRampToValueAtTime(0.18, t + i * 0.12 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.12 + 0.3);
+    o.connect(g); g.connect(out('voice'));
+    o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.35);
+  });
 }
 
 // a firework going up and bursting

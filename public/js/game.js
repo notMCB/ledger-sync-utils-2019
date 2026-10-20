@@ -17,6 +17,7 @@ import { locker } from './locker.js';
 import { tickSkins, OUTFIT, CAMO_OUTFITS, CART, sirenMaterials, chromeMaterial } from './skins.js';
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
+import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
 
 const GRAVITY = 18;
 const JUMP_V = 6.6;
@@ -62,6 +63,10 @@ const TURRET_KEY = 'KeyT', TURRET_FLAG = 524288;
 const ARMOUR_KEY = 'KeyU', ARMOUR_FLAG = 1048576;     // keep in step with ARMOUR_FLAG in server/server.py
 const TURRET_DOWN = -0.32, TURRET_UP = 1.3;      // it can't point straight down at the cart
 const TURRET_SPREAD = 0.35;                       // degrees: a tight cone, no recoil at all
+// the helicopter's door gun: the gunner can swing it through most of a half circle out of
+// the door, and tip it well down at the town; the eye sits this high over the seat
+const GUNNER_SWING = 1.5, GUNNER_DOWN = -1.3, GUNNER_UP = 0.35, GUNNER_EYE = 1.2;
+const STREAK_MODES = ['ffa', 'tdm', 'koth'];
 // Souk Royale: the drop
 const FALL_SPEED = 26;      // metres a second, straight down, arms out
 const DIVE_EXTRA = 18;      // more when you look straight down
@@ -127,7 +132,19 @@ export class Game {
       boltPending: 0, pumpPending: 0,
       slide: null, slideReady: 0, vault: null, climbing: false, perkLeft: 0, nadeKind: 'frag',
       aboard: false, falling: null, applying: 0,
+      streak: 0, streaks: [],      // scorestreaks: kills this life, rewards earned and not yet used
     };
+    this.helis = new Map();     // owner id -> their helicopter in the sky
+    this.gunner = null;         // me, in a helicopter's door
+    this.strikes = new Map();   // strike id -> the show in the sky
+    this.strikePick = null;     // me, picking where an airstrike lands
+    this.strikeRing = null;
+    this.circuit = null;        // the helicopters' circuit round this map
+    // the owner's tools: flying, seeing through walls, the command list on screen
+    this.admin = false;
+    this.fly = false;
+    this.wall = false;
+    this.panel = true;
     this.ladders = new Map();   // player id -> ladder
     this.beacons = new Map();   // player id -> beacon
     this.crates = new Map();    // crate id -> ammo / medic crate
@@ -356,6 +373,9 @@ export class Game {
       case 'throw': if (m.id !== this.myId) this.spawnKnife(new THREE.Vector3(...m.o), new THREE.Vector3(...m.v), false, m.id); return;
       case 'beacon': return this.onBeacon(m);
       case 'ping': return this.onPing(m);
+      case 'streak': return this.onStreak(m);
+      case 'heli': return this.onHeli(m);
+      case 'strike': return this.onStrike(m);
       case 'chat':
         if (this.chat) this.chat.add(m, this.myId);
         return;
@@ -381,6 +401,8 @@ export class Game {
     this.addHatchLadders(map);
     this.addForklifts(map);
     this.addChests(map);
+    this.circuit = heliPath(map.bounds[0], map.bounds[1]);
+    this.clearStreaks();
     this.hasMap = true;
     if (this.inRoom && map.name) this.hud.center(map.name, 'Next map', '', 3, 2);
   }
@@ -619,8 +641,7 @@ export class Game {
     if (!!this.turret === on) return;
     this.turret = on;
     this.turretHeat = 0;
-    document.getElementById('turretcam').hidden = !on;
-    document.body.classList.toggle('turretcam', on);
+    this.hud.gunCam(on, 'GUN CAM 01', 'GATLING · ∞', 'T · BACK TO THE WHEEL');
     if (on) {
       this.me.pitch = Math.max(TURRET_DOWN, Math.min(TURRET_UP, this.me.pitch));
       this.hud.center('Gatling', `Mouse to aim · ${keyName(settings.binds.fire)} to fire · T to drive`, '', 2.4, 1);
@@ -677,6 +698,7 @@ export class Game {
       this.fx.impact(wh.point, wh.normal, wh.box && wh.box.mat);
     } else end = origin.clone().addScaledVector(dir, d.range);
     const T = F.mesh.userData.turret;
+    F.mesh.updateMatrixWorld(true);
     const muzzle = T.muzzle.getWorldPosition(V());
     this.fx.tracer(muzzle, end, d.tracer, 1);
     if (i === 0) {
@@ -737,6 +759,349 @@ export class Game {
       F.spinRate = (F.spinRate || 0) + (spinning * 40 - (F.spinRate || 0)) * Math.min(1, dt * 4);
       T.spin.rotation.x += F.spinRate * dt;
     }
+  }
+
+  // -- the owner's tools: on the owner's account only, and only on their own screen ----
+
+  setAdmin(on) {
+    this.admin = !!on;
+    if (!this.admin) { this.fly = false; this.wall = false; this.avatars.xray(false); }
+    this.hud.adminPanel(this.admin && this.panel, this.adminLines());
+  }
+
+  adminLines() {
+    return [
+      ['/kill', 'yourself · /kill all · /kill name'],
+      ['/ban name', 'and /unban name, /bans'],
+      ['/bots N', 'practice dummies (test server)'],
+      ['/fly', `${this.fly ? 'ON' : 'off'} · move keys, ${keyName(settings.binds.jump)} up, ${keyName(settings.binds.crouch)} down`],
+      ['/wall', `${this.wall ? 'ON' : 'off'} · everyone through walls`],
+      ['4 5 6', 'scan · helicopter · airstrike, always'],
+      ['/panel', 'hide this'],
+    ];
+  }
+
+  // a command the owner typed that only their own screen needs to act on
+  adminLocal(text) {
+    if (!this.admin) return false;
+    const cmd = text.trim().toLowerCase();
+    if (cmd === '/fly') {
+      this.fly = !this.fly;
+      if (this.fly) { this.me.vel.set(0, 0, 0); this.me.falling = null; this.getUpIfProne(); }
+      this.hud.center(this.fly ? 'Flying' : 'Walking', this.fly ? `Move keys to fly where you look · ${keyName(settings.binds.jump)} up · ${keyName(settings.binds.crouch)} down` : '', '', 2, 2);
+    } else if (cmd === '/wall') {
+      this.wall = !this.wall;
+      this.avatars.xray(this.wall);
+      this.hud.center(this.wall ? 'Walls are glass' : 'Walls are walls', '', '', 1.6, 2);
+    } else if (cmd === '/panel') {
+      this.panel = !this.panel;
+    } else return false;
+    this.hud.adminPanel(this.admin && this.panel, this.adminLines());
+    return true;
+  }
+
+  getUpIfProne() {
+    const me = this.me;
+    if (me.prone) { me.prone = false; me.proneK = 0; me.onBack = false; }
+    me.crouch = false;
+    me.slide = null;
+  }
+
+  // flying: no gravity, no walls, the move keys along where you look
+  updateFly(dt) {
+    const me = this.me;
+    const spd = (input.down('sprint') ? 26 : 12);
+    const f = (input.down('forward') ? 1 : 0) - (input.down('back') ? 1 : 0);
+    const s = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
+    const u = (input.down('jump') ? 1 : 0) - (input.down('crouch') ? 1 : 0);
+    const cp = Math.cos(me.pitch);
+    const want = new THREE.Vector3(-Math.sin(me.yaw) * cp * f + Math.cos(me.yaw) * s, Math.sin(me.pitch) * f + u, -Math.cos(me.yaw) * cp * f - Math.sin(me.yaw) * s);
+    if (want.lengthSq() > 0) want.normalize().multiplyScalar(spd);
+    me.vel.lerp(want, Math.min(1, dt * 8));
+    me.pos.addScaledVector(me.vel, dt);
+    const [bxn, bzn] = this.map.bounds;
+    me.pos.x = Math.max(-bxn, Math.min(bxn, me.pos.x));
+    me.pos.z = Math.max(-bzn, Math.min(bzn, me.pos.z));
+    me.pos.y = Math.max(-8, Math.min(88, me.pos.y));
+    me.grounded = true;
+    me.sprinting = false;
+    me.adsK = Math.max(0, me.adsK - dt * 8);
+    this.updateWeapons(dt);
+  }
+
+  // -- scorestreaks ------------------------------------------------------------
+
+  streakMode() {
+    return !!this.room && (STREAK_MODES.includes(this.room.mode) || (this.admin && !['royale', 'derby'].includes(this.room.mode))) && !this.range;
+  }
+
+  // the keys that call a reward in
+  streakKeys() {
+    if (!this.streakMode() || !this.me.alive) return;
+    for (const s of STREAKS) {
+      if (!input.pressed(s.bind)) continue;
+      if (s.k === 'strike' && this.strikePick) { this.cancelStrikePick(); return; }
+      if (!this.me.streaks.includes(s.k) && !this.admin) {
+        this.hud.center(`${s.name}: ${Math.min(this.me.streak, s.n)} of ${s.n} kills`, s.what, '', 1.4, 1);
+        return;
+      }
+      if (s.k === 'scan') this.useStreak('scan');
+      else if (s.k === 'heli') {
+        if (this.driving || this.drone || this.strikePick || me_busy(this)) return;
+        this.useStreak('heli');
+      } else if (s.k === 'strike') {
+        if (this.driving || this.drone || this.gunner || me_busy(this)) return;
+        this.startStrikePick();
+      }
+      return;
+    }
+  }
+
+  useStreak(k, extra = {}) {
+    if (this.offline) return;
+    this.send({ t: 'streak', k, ...extra });
+  }
+
+  onStreak(m) {
+    const me = this.me;
+    me.streaks = m.have || [];
+    if (m.k) {
+      const S = STREAKS.find((s) => s.k === m.k);
+      if (S) {
+        sfx.streakReady();
+        this.hud.center(`${S.name} ready`, `${S.n} kills · ${keyName(settings.binds[S.bind])} to call it in`, 'gold', 4, 3);
+      }
+    }
+  }
+
+  clearStreaks() {
+    this.endGunner();
+    this.cancelStrikePick();
+    for (const H of this.helis.values()) this.scene.remove(H.mesh);
+    this.helis.clear();
+    for (const S of this.strikes.values()) S.show.end();
+    this.strikes.clear();
+    this.scanLeft = 0;
+    sfx.heliBeat(false);
+    sfx.jetRoar(false);
+  }
+
+  // -- the helicopter gunner --
+
+  onHeli(m) {
+    if (m.off) {
+      const H = this.helis.get(m.id);
+      if (H) { this.scene.remove(H.mesh); this.helis.delete(m.id); }
+      if (m.id === this.myId && this.gunner) {
+        this.endGunner();
+        if (this.me.alive && m.back) {
+          this.me.pos.set(m.back[0], m.back[1], m.back[2]);
+          this.me.vel.set(0, 0, 0);
+          this.hud.center('Back on the ground', m.why === 'time' ? 'Your 45 seconds are up' : '', '', 2, 1);
+        }
+      }
+      return;
+    }
+    if (!this.circuit) return;
+    let H = this.helis.get(m.id);
+    if (!H) {
+      const mesh = makeHeli(m.tm);
+      this.scene.add(mesh);
+      H = { mesh, owner: m.id, tm: m.tm, s0: m.s0, t0: this.clock - (m.el || 0), life: m.life || 45, spinUntil: 0, spinRate: 0 };
+      this.helis.set(m.id, H);
+    } else { H.s0 = m.s0; H.t0 = this.clock - (m.el || 0); }
+    this.poseHeliNow(H, 0);
+    if (m.id === this.myId) this.startGunner(H);
+  }
+
+  heliS(H) {
+    return H.s0 + (this.clock - H.t0) * HELI_SPEED;
+  }
+
+  poseHeliNow(H, dt) {
+    poseHeli(H.mesh, this.circuit, this.heliS(H), dt, this.clock);
+  }
+
+  startGunner(H) {
+    const me = this.me;
+    this.endDrone('');
+    if (this.driving) this.stopDriving(true);
+    this.cancelStrikePick();
+    this.gunner = { H, heat: 0, hot: false, spin: 0, acc: 0, ws: makeWeaponState('minigun'), snd: 0 };
+    me.adsK = 0;
+    me.aimToggled = false;
+    me.vel.set(0, 0, 0);
+    me.pitch = -0.35;
+    const h = heliAt(this.circuit, this.heliS(H));
+    me.yaw = h.yaw;     // facing out of the door, at the town
+    heliSeat(this.circuit, this.heliS(H), me.pos);
+    this.hud.center('Helicopter gunner', `Mouse to aim · ${keyName(settings.binds.fire)} to fire · 45 seconds · don’t let it overheat`, 'gold', 4, 3);
+  }
+
+  endGunner() {
+    if (!this.gunner) return;
+    this.gunner = null;
+    this.hud.gunCam(false);
+  }
+
+  updateGunner(dt) {
+    const G = this.gunner, me = this.me;
+    const H = this.helis.get(G.H.owner);
+    if (!H) { this.endGunner(); return; }
+    me.adsK = 0;
+    const s = this.heliS(H);
+    this.poseHeliNow(H, dt);
+    H.posedAt = this.clock;
+    H.mesh.updateMatrixWorld(true);
+    me.pos.copy(H.mesh.userData.seat).applyMatrix4(H.mesh.matrixWorld);
+    me.grounded = true;
+    me.vel.set(0, 0, 0);
+    // the gun swings through a half circle out of the door, and tips down at the town
+    const h = heliAt(this.circuit, s);
+    me.yaw = h.yaw + Math.max(-GUNNER_SWING, Math.min(GUNNER_SWING, wrapAngle(me.yaw - h.yaw)));
+    me.pitch = Math.max(GUNNER_DOWN, Math.min(GUNNER_UP, me.pitch));
+    // heat: seven seconds of fire and it locks until it has cooled right down
+    const want = input.down('fire') && !this.frozen() && !this.paused && !G.hot;
+    G.spin = Math.min(1, Math.max(0, G.spin + (want ? dt * 4 : -dt * 1.5)));
+    const firing = want && G.spin >= 0.35;
+    if (firing) {
+      G.heat = Math.min(1, G.heat + dt / HELI_HEAT);
+      if (G.heat >= 1) { G.hot = true; sfx.slide(); this.hud.center('Overheated', 'Let the gun cool', 'warn', 1.5, 1); }
+    } else {
+      G.heat = Math.max(0, G.heat - dt / HELI_COOL);
+      if (G.hot && G.heat <= 0.02) G.hot = false;
+    }
+    if (firing) {
+      const gap = 60 / G.ws.def.rpm;
+      G.acc += dt;
+      let n = 0;
+      while (G.acc >= gap && n < 6) {
+        G.acc -= gap;
+        this.turretShot(H, G.ws, n);
+        n++;
+      }
+      if (G.acc > gap) G.acc = 0;
+    } else G.acc = 0;
+    const left = Math.max(0, H.t0 + H.life - this.clock);
+    this.hud.gunCam(true, 'DOOR GUN · HELO 1', `GATLING · ${Math.ceil(left)} S`, 'LEFT DOOR · HOLD FIRE TO COOL', G.heat, G.hot);
+  }
+
+  // the gunner's eye: in the left door, over the gun
+  gunnerCamera(cam) {
+    const me = this.me;
+    const H = this.gunner && this.helis.get(this.gunner.H.owner);
+    if (H) {
+      H.mesh.updateMatrixWorld(true);
+      cam.position.copy(H.mesh.userData.eye).applyMatrix4(H.mesh.matrixWorld);
+    } else cam.position.set(me.pos.x, me.pos.y + GUNNER_EYE, me.pos.z);
+    cam.rotation.set(me.pitch, me.yaw, Math.sin(this.clock * 9) * 0.004, 'YXZ');
+  }
+
+  // every helicopter: where it is now, its gun aimed where its gunner looks, its sound
+  updateStreakVisuals(dt) {
+    let nearest = null, nd = 1e9;
+    for (const H of this.helis.values()) {
+      if (!this.circuit) continue;
+      if (H.posedAt !== this.clock) this.poseHeliNow(H, dt);
+      // the gunner rides in the door: their figure sits where the helicopter is now, not
+      // where the server last said (that trails it by a few metres at this speed)
+      const a = H.owner !== this.myId ? this.avatars.get(H.owner) : null;
+      if (a && a.alive && (a.flags & HELI_FLAG)) {
+        H.mesh.updateMatrixWorld(true);
+        a.pos.copy(H.mesh.userData.seat).applyMatrix4(H.mesh.matrixWorld);
+        a.group.position.copy(a.pos);
+        a.group.position.y += 0.2;
+      }
+      const T = H.mesh.userData.turret;
+      let on = false, yaw = 0, pitch = 0;
+      if (H.owner === this.myId && this.gunner) { on = true; yaw = this.me.yaw; pitch = this.me.pitch; }
+      else {
+        const a = this.avatars.get(H.owner);
+        if (a && a.alive) { on = true; yaw = a.yaw; pitch = a.pitch; }
+      }
+      const h = heliAt(this.circuit, this.heliS(H));
+      const wantYaw = on ? Math.PI / 2 + Math.max(-GUNNER_SWING, Math.min(GUNNER_SWING, wrapAngle(yaw - h.yaw))) : Math.PI / 2;
+      const wantPitch = on ? Math.max(GUNNER_DOWN, Math.min(GUNNER_UP, pitch)) : -0.2;
+      const k = on && H.owner === this.myId ? 1 : Math.min(1, dt * 12);
+      T.yaw.rotation.y += wrapAngle(wantYaw - T.yaw.rotation.y) * k;
+      T.pitch.rotation.z += (wantPitch - T.pitch.rotation.z) * k;
+      const spinning = H.owner === this.myId && this.gunner ? this.gunner.spin : (H.spinUntil > this.clock ? 1 : 0);
+      H.spinRate += (spinning * 40 - H.spinRate) * Math.min(1, dt * 4);
+      T.spin.rotation.x += H.spinRate * dt;
+      const d = H.mesh.position.distanceTo(this.camera.position);
+      if (d < nd) { nd = d; nearest = H; }
+    }
+    sfx.heliBeat(!!nearest, nearest ? nearest.mesh.position : null);
+    for (const [id, S] of this.strikes) {
+      S.show.update(dt, this.clock, sfx, (p, r) => this.shakeFrom(p, r));
+      if (S.show.done) this.strikes.delete(id);
+    }
+    if (!this.strikes.size) sfx.jetRoar(false);
+    if (this.strikeRing && this.strikePick) {
+      this.strikeRing.visible = true;
+      this.strikeRing.position.set(this.strikePick.x, this.strikePick.y + 0.08, this.strikePick.z);
+    } else if (this.strikeRing) this.strikeRing.visible = false;
+  }
+
+  // -- the airstrike --
+
+  startStrikePick() {
+    if (this.strikePick) return;
+    const me = this.me;
+    this.strikePick = { px: 0, py: 0, x: me.pos.x, y: me.pos.y, z: me.pos.z };
+    me.adsK = 0;
+    me.aimToggled = false;
+    me.vel.set(0, 0, 0);
+    if (!this.strikeRing) { this.strikeRing = makeStrikeRing(); this.scene.add(this.strikeRing); }
+    this.hud.center('Airstrike', 'Pick the target from above. Your body stays here and can be shot', 'gold', 3, 3);
+  }
+
+  cancelStrikePick() {
+    if (!this.strikePick) return;
+    this.strikePick = null;
+    this.hud.strikeCam(false);
+  }
+
+  // straight down over the middle of the town, high enough to see all of it
+  strikeCamera(cam) {
+    const [bxn, bzn] = this.map.bounds;
+    const vf = THREE.MathUtils.degToRad(cam.fov) / 2;
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    const Hh = Math.max(bzn / Math.tan(vf), bxn / (Math.tan(vf) * aspect)) * 1.08 + 8;
+    cam.position.set(0, Hh, 0);
+    cam.rotation.set(-Math.PI / 2, 0, 0, 'YXZ');
+    this.strikePick.camH = Hh;
+  }
+
+  updateStrikePick(dt) {
+    const sp = this.strikePick, me = this.me;
+    me.adsK = 0;
+    const cam = this.camera;
+    const vf = THREE.MathUtils.degToRad(cam.fov) / 2;
+    const Hh = sp.camH || 100;
+    // the reticle's spot on the screen, down onto the town
+    const nx = sp.px / (window.innerWidth / 2), ny = -sp.py / (window.innerHeight / 2);
+    const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+    const wx = nx * Hh * Math.tan(vf) * aspect, wz = -ny * Hh * Math.tan(vf);
+    const [bxn, bzn] = this.map.bounds;
+    sp.x = Math.max(-bxn + 1, Math.min(bxn - 1, wx));
+    sp.z = Math.max(-bzn + 1, Math.min(bzn - 1, wz));
+    const hit = this.world.physics.raycast(tmpA.set(sp.x, Hh - 1, sp.z), DOWN, Hh + 10);
+    sp.y = hit ? hit.point.y : 0;
+    this.hud.strikeCam(true, sp.px, sp.py, `CLICK TO CALL IT IN · ${keyName(settings.binds.streak3)} TO CANCEL`);
+    if (input.pressed('fire')) {
+      this.useStreak('strike', { p: [+sp.x.toFixed(2), +sp.y.toFixed(2), +sp.z.toFixed(2)] });
+      this.cancelStrikePick();
+      this.hud.center('Airstrike called in', 'Bombs on target in ten seconds', 'gold', 2.5, 2);
+    } else if (input.pressed('perk') || input.pressed('interact')) this.cancelStrikePick();
+  }
+
+  onStrike(m) {
+    const old = this.strikes.get(m.id);
+    if (old) old.show.end();
+    const t0 = this.clock - (10 - (m.in !== undefined ? m.in : 10));
+    const show = new StrikeShow(this.scene, this.fx, new THREE.Vector3(m.p[0], m.p[1], m.p[2]), t0, m.h || 0, m.by === this.myId);
+    this.strikes.set(m.id, { id: m.id, p: show.p, t0, show, by: m.by, tm: m.tm });
   }
 
   // -- the Derby --
@@ -877,6 +1242,10 @@ export class Game {
     this.bombMesh.visible = false;
     this.hill.visible = false;
     this.clearRoyale();
+    this.clearStreaks();
+    this.me.streaks = [];
+    this.me.streak = 0;
+    this.hud.setStreaks(null);
     this.br = null;
     this.me.aboard = false;
     this.me.falling = null;
@@ -984,6 +1353,8 @@ export class Game {
       primary: primary ? makeWeaponState(primary, fitted) : null,
       pistol: secondary ? makeWeaponState(secondary, pistolFit) : null,
       knife: makeWeaponState('knife'),
+      // the grenade launcher, where the loadout's perk is one: brought up with the perk key
+      launcher: !rules && locker.perkFor(ld) === 'launcher' ? makeWeaponState('launcher') : null,
     };
     if (rules && rules.rounds !== undefined && me.weapons.pistol) {
       // one in the chamber: a single round and no spares
@@ -1033,6 +1404,9 @@ export class Game {
     me.aboard = !!m.aboard;
     me.falling = null;
     me.applying = 0;
+    me.streak = 0;
+    this.endGunner();
+    this.cancelStrikePick();
     if (this.br) { this.br.shield = 0; this.br.vests = 0; this.br.healT = 0; }
     this.applyLoadout(m.ld);
     if (me.aboard) {
@@ -1052,6 +1426,8 @@ export class Game {
     const me = this.me;
     me.alive = false;
     this.endDrone('');
+    this.endGunner();
+    this.cancelStrikePick();
     if (this.driving) this.stopDriving(false);
     me.deathPos.copy(me.pos);
     me.killerId = m.by;
@@ -1154,6 +1530,7 @@ export class Game {
           }
         }
         if (m.v === this.myId && !this.warmup()) locker.stat('deaths');
+        if (m.k === this.myId && m.v !== this.myId && typeof m.ks === 'number') this.me.streak = m.ks;
         m.kc = this.colorOf(m.k);
         m.vc = this.colorOf(m.v);
         this.hud.feedKill(m, this.myId);
@@ -1242,6 +1619,17 @@ export class Game {
         }
         break;
       case 'healing': this.hud.center('Medkit', '50 health over five seconds', '', 1.6, 1); break;
+      case 'streak': {
+        const S = STREAKS.find((s) => s.k === m.k);
+        const what = m.k === 'scan' ? 'a scan beacon' : m.k === 'heli' ? 'a helicopter' : 'an airstrike';
+        this.hud.feedText(`${m.n} called in ${what}`);
+        if (m.id !== this.myId && this.isEnemy(m.tm) && S) {
+          if (m.k === 'heli') this.hud.center('Enemy helicopter inbound', 'A gunner is coming over the town', 'warn', 3, 2);
+          else if (m.k === 'strike') this.hud.center('Enemy airstrike called in', 'Red smoke marks where the bombs land', 'warn', 3, 2);
+          else this.hud.center('Enemy scan', 'You are marked for 30 seconds', 'warn', 2.5, 2);
+        }
+        break;
+      }
       default:
     }
   }
@@ -1256,9 +1644,11 @@ export class Game {
     const w = WEAPONS[m.w] || WEAPONS.smg;
     let from = a && a.alive ? a.muzzle(V()) : new THREE.Vector3(m.o[0], m.o[1] - 0.2, m.o[2]);
     if (m.w === 'minigun') {
-      // from the barrels of the turret on their cart
+      // from the barrels of the turret on their cart, or the gun in their helicopter's door
       const F = [...this.forklifts.values()].find((G) => G.driver === m.id && G.mesh.userData.turret);
+      const Hm = this.helis.get(m.id);
       if (F) { F.mesh.updateMatrixWorld(true); from = F.mesh.userData.turret.muzzle.getWorldPosition(V()); F.spinUntil = this.clock + 0.25; }
+      else if (Hm) { Hm.mesh.updateMatrixWorld(true); from = Hm.mesh.userData.turret.muzzle.getWorldPosition(V()); Hm.spinUntil = this.clock + 0.25; }
       const e = (m.e || [])[0];
       if (e) this.fx.tracer(from, new THREE.Vector3(e[0], e[1], e[2]), w.tracer, 1);
       this.minigunSnd = ((this.minigunSnd || 0) + 1) % 3;
@@ -1298,7 +1688,13 @@ export class Game {
   }
 
   onRemoteNade(m) {
-    this.fx.throwNade(m.id, m.n, new THREE.Vector3(...m.o), new THREE.Vector3(...m.v), false, null, m.k || 'frag');
+    const o = new THREE.Vector3(...m.o);
+    this.fx.throwNade(m.id, m.n, o, new THREE.Vector3(...m.v), false, null, m.k || 'frag', !!m.l);
+    if (m.l) {
+      sfx.gunshot('launcher', o, false, false);
+      const a = this.avatars.get(m.id);
+      if (a) a.revealT = Math.max(a.revealT, 2);
+    }
   }
 
   onRemoteBoom(m) {
@@ -1359,6 +1755,7 @@ export class Game {
     const me = this.me;
     let perk = locker.perkFor(me.loadout);
     if (this.modeRules()) return;          // no perks in the niche modes
+    if (!this.br && perk === 'launcher' && me.weapons && me.weapons.launcher) return this.toggleLauncher();
     if (this.br) {
       perk = this.br.perk;
       if (!perk) return this.hud.center('No perk', 'Perks and medkits are in chests', '', 1.4, 1);
@@ -1777,6 +2174,17 @@ export class Game {
   }
 
   onPing(m) {
+    if (m.scan) {
+      // the scan beacon: a sweep of the whole map every couple of seconds, for 30 seconds
+      if (m.off) { this.scanLeft = 0; return; }
+      this.scanLeft = m.left || 0;
+      sfx.radarPing();
+      for (const [id, x, y, z] of m.pts) {
+        const a = this.avatars.get(id);
+        if (a) { a.revealT = 3.4; a.pingT = 3.0; }
+      }
+      return;
+    }
     sfx.beep(1100, 0.12, 0.25, new THREE.Vector3(...m.p));
     for (const [id, x, y, z] of m.pts) {
       const a = this.avatars.get(id);
@@ -1932,7 +2340,12 @@ export class Game {
     const ws = this.weapon();
 
     // look
-    if (input.locked && !this.paused) {
+    if (input.locked && !this.paused && this.strikePick) {
+      // picking the airstrike: the mouse moves the reticle over the town, not your head
+      const sp = this.strikePick;
+      sp.px = Math.max(-window.innerWidth / 2 + 20, Math.min(window.innerWidth / 2 - 20, sp.px + mx * 0.9 * settings.sens));
+      sp.py = Math.max(-window.innerHeight / 2 + 20, Math.min(window.innerHeight / 2 - 20, sp.py + my * 0.9 * settings.sens * (settings.invertY ? -1 : 1)));
+    } else if (input.locked && !this.paused) {
       const zoom = ws && !this.drone ? ws.def.zoom : 1;
       const adsMul = 1 + (settings.adsSens / Math.max(1, zoom * 0.9) - 1) * me.adsK;
       // aim help: slow the turn a little while the crosshair is over an enemy
@@ -1951,10 +2364,16 @@ export class Game {
     } else if (me.falling && this.inRoom && me.alive && this.g && this.g.ph !== 'ended') {
       // paused or not, you keep falling: nobody waits it out in the air
       this.updateFalling(dt, act);
+    } else if (act && this.gunner) {
+      this.updateGunner(dt);
+    } else if (act && this.strikePick) {
+      this.updateStrikePick(dt);
     } else if (act && this.drone) {
       this.updateDrone(dt);
     } else if (act && this.driving) {
       this.updateDriving(dt);
+    } else if (act && this.fly && this.admin) {
+      this.updateFly(dt);
     } else if (act) {
       this.updateMovement(dt);
       this.updateWeapons(dt);
@@ -1965,6 +2384,7 @@ export class Game {
     }
     // switch to spectating a teammate by clicking while dead
     if (!me.alive && this.inRoom && input.pressed('fire')) this.spectateIdx++;
+    if (act) this.streakKeys();
 
     if (this.inRoom && input.pressed('loadout') && !this.br && !this.isDerby()) this.ui.openLoadout();
     if (this.inRoom && input.pressed('map')) this.mapOpen = !this.mapOpen;
@@ -1993,6 +2413,7 @@ export class Game {
       if (me.onBack) f |= 1024;
       if (this.driving) f |= 16384;
       if (this.turret) f |= TURRET_FLAG;     // on the Gatling: others see it follow my aim
+      if (this.gunner) f |= HELI_FLAG;
       if (this.armour && this.canTurret()) f |= ARMOUR_FLAG;   // the walls are up: bullets can't reach me
       // a laser on the gun in hand: everyone sees the beam
       if (ws && ws.def.laser === 'red') f |= 4096;
@@ -2826,10 +3247,17 @@ export class Game {
     }
     if (want && want !== me.slot && me.nadeBusy <= 0 && me.weapons[want]) {
       ws.reloading = false;
+      if (me.slot === 'launcher') me.lastSlot = null;
       me.slot = want;
       vm.switchTo(me.weapons[want].id);
       me.adsK = Math.min(me.adsK, 0.3);
       return;
+    }
+    if (d.launcher) {
+      // the launcher's rounds are your grenades
+      ws.mag = me.nades;
+      ws.reserve = 0;
+      ws.reloading = false;
     }
     // Souk Royale: a vest goes on with its own key, and nothing else happens while it does
     if (this.br && input.pressed('shield') && !this.frozen()) this.applyVest();
@@ -2864,7 +3292,7 @@ export class Game {
 
     // grenade
     me.nadeBusy -= dt;
-    if (input.pressed('grenade') && me.nades > 0 && me.nadeBusy <= 0 && !vm.busySwitching && !this.frozen()) {
+    if (input.pressed('grenade') && me.nades > 0 && me.nadeBusy <= 0 && !vm.busySwitching && !this.frozen() && !d.launcher) {
       me.nades--;
       me.nadeBusy = 0.6;
       ws.reloading = false;
@@ -3072,6 +3500,7 @@ export class Game {
     const cam = this.camera;
     cam.updateMatrixWorld();
     if (d.flame) return this.fireFlame(ws);
+    if (d.launcher) return this.fireLauncher(ws);
     ws.mag--;
     ws.lastShot = this.clock;
     me.lastFire = this.clock;
@@ -3154,6 +3583,62 @@ export class Game {
     if (pr.length) msg.pr = pr;
     if (droneHits.length) msg.dh = droneHits;
     this.send(msg);
+  }
+
+  // -- the grenade launcher --
+
+  toggleLauncher() {
+    const me = this.me, vm = this.vm;
+    if (me.nadeBusy > 0 || vm.busySwitching || this.driving || this.drone) return;
+    const ws = this.weapon();
+    if (ws) ws.reloading = false;
+    vm.cancelReload();
+    if (me.slot === 'launcher') {
+      const back = me.lastSlot && me.weapons[me.lastSlot] ? me.lastSlot : me.weapons.primary ? 'primary' : me.weapons.pistol ? 'pistol' : 'knife';
+      me.lastSlot = null;
+      me.slot = back;
+    } else {
+      me.lastSlot = me.slot;
+      me.slot = 'launcher';
+      if (me.nades <= 0) this.hud.center('No grenades left', 'The launcher fires your grenades', '', 1.4, 1);
+    }
+    vm.switchTo(me.weapons[me.slot].id);
+    me.adsK = Math.min(me.adsK, 0.3);
+    this.hud.lastAmmo = '';
+  }
+
+  // a grenade out of the launcher: flat, fast, and it goes off where it lands
+  fireLauncher(ws) {
+    const me = this.me;
+    const d = ws.def;
+    if (me.nades <= 0 || !me.alive || (!this.inRoom && !this.offline)) { sfx.dryFire(); return; }
+    me.nades--;
+    ws.mag = me.nades;
+    ws.lastShot = this.clock;
+    me.lastFire = this.clock;
+    const cam = this.camera;
+    const fwd = V().set(0, 0, -1).applyQuaternion(cam.quaternion);
+    const muzzle = this.vm.muzzleWorld(cam, V());
+    const origin = cam.position.clone().addScaledVector(fwd, 0.5);
+    const h = this.world.physics.raycast(cam.position, fwd, 0.7);
+    if (h) origin.copy(cam.position).addScaledVector(fwd, Math.max(0.05, h.t - 0.15));
+    // a little lob: it drops over distance, but nothing like a thrown one
+    const vel = fwd.clone().multiplyScalar(34).add(new THREE.Vector3(0, 1.5, 0)).addScaledVector(me.vel, 0.5);
+    const nid = me.nextNade++;
+    const kind = me.nadeKind || 'frag';
+    this.fx.throwNade(this.myId, nid, origin, vel, true, (p) => {
+      this.send({ t: 'boom', n: nid, p: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] });
+      this.detonate(p, kind);
+    }, kind, true);
+    this.send({ t: 'nade', n: nid, k: kind, l: 1, o: [origin.x, origin.y, origin.z].map((v) => +v.toFixed(3)), v: [vel.x, vel.y, vel.z].map((v) => +v.toFixed(3)) });
+    this.fx.light(muzzle, 5);
+    this.vm.fire(d.kick * (me.adsK > 0.5 ? 0.7 : 1), false);
+    sfx.gunshot('launcher', null, true, false);
+    const upK = d.recoilUp * (1 - 0.25 * me.adsK);
+    me.pitch = Math.min(1.52, me.pitch + upK);
+    me.recoilDebt += upK;
+    me.punch += upK * 0.5;
+    this.hud.lastAmmo = '';
   }
 
   // the flamethrower's fire, drawn every frame the trigger is held: the jet
@@ -3259,7 +3744,11 @@ export class Game {
     const me = this.me;
     const ws = this.weapon();
     let fov = settings.fov;
-    if (this.inRoom && me.alive && this.drone) {
+    if (this.inRoom && me.alive && this.gunner) {
+      this.gunnerCamera(cam);
+    } else if (this.inRoom && me.alive && this.strikePick) {
+      this.strikeCamera(cam);
+    } else if (this.inRoom && me.alive && this.drone) {
       const dr = this.drone;
       cam.position.copy(dr.pos);
       cam.rotation.set(dr.pitch, dr.yaw, Math.sin(this.clock * 9) * 0.004, 'YXZ');
@@ -3445,6 +3934,14 @@ export class Game {
       const ours = D.owner === this.myId || (teamMode && D.tm === this.me.team);
       mmObj.push({ x: D.pos.x, z: D.pos.z, dot: true, color: ours ? '#7fc8ff' : '#ff4a33' });
     }
+    // airstrikes on their way: everyone sees where the bombs will land
+    for (const S of this.strikes.values()) {
+      const left = Math.max(0, S.t0 + 10 - this.clock);
+      if (left <= 0) continue;
+      const [sx, sy] = project(S.p.x, S.p.y + 2.5, S.p.z);
+      markers.push({ key: 'strike' + S.id, x: sx, y: sy, cls: 'strike', label: `${Math.ceil(left)}`, dist: dist(S.p.x, S.p.z) });
+      mmObj.push({ x: S.p.x, z: S.p.z, r: STRIKE_R, color: '#ff3a2a', fill: 'rgba(255, 58, 42, 0.35)' });
+    }
     // crates your side can use
     for (const C of this.crates.values()) {
       const ours = C.owner === this.myId || (teamMode && C.tm === this.me.team) || C.owner === -1;
@@ -3473,7 +3970,10 @@ export class Game {
     } else {
       if (ws) hud.setAmmo(ws, me.nades, this.maxNades(), keyName(settings.binds.reload));
       const perk = PERKS[locker.perkFor(me.loadout)];
-      hud.setPerk(perk.name, me.perkLeft, keyName(settings.binds.perk), (NADE_INFO[me.nadeKind] || NADE_INFO.frag).name);
+      // the launcher's count is your grenades
+      hud.setPerk(perk.name, perk.id === 'launcher' ? me.nades : me.perkLeft, keyName(settings.binds.perk), (NADE_INFO[me.nadeKind] || NADE_INFO.frag).name);
+      hud.setStreaks(this.streakMode() ? STREAKS.map((s) => ({ key: keyName(settings.binds[s.bind]), name: s.name, n: s.n, have: me.streak,
+        ready: this.admin || me.streaks.includes(s.k), used: !this.admin && !me.streaks.includes(s.k) && me.streak >= s.n })) : null);
     }
     hud.setHP(me.alive ? me.hp : 0);
     if (this.range) hud.rangeTop(this.range.stats);
@@ -3483,7 +3983,7 @@ export class Game {
       const spread = THREE.MathUtils.degToRad(ws.def.pelletSpread ? ws.def.pelletSpread * (1 + (0.72 - 1) * me.adsK) + ws.bloom * 0.3 : this.spreadDeg(ws));
       const px = (Math.tan(spread) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) * (window.innerHeight / 2);
       const onEnemy = this.aimTarget();
-      hud.crosshair(px, me.adsK < 0.5 && !this.vm.scoped && !this.drone, onEnemy, ws.def.crosshair || 'lines');
+      hud.crosshair(px, me.adsK < 0.5 && !this.vm.scoped && !this.drone && !this.gunner && !this.strikePick, onEnemy, ws.def.crosshair || 'lines');
     } else hud.crosshair(0, false, false);
     // held messages
     if (g) {
@@ -3586,6 +4086,8 @@ export class Game {
       this.updateDevices(dt);
       this.updateRoyale(dt);
       this.updateLaser();
+      this.updateStreakVisuals(dt);
+      if (this.wall && this.admin) this.avatars.xray(true);
       if (this.range) this.range.update(dt);
       const me = this.me;
       if (this.inRoom && me.alive) {
@@ -3594,7 +4096,7 @@ export class Game {
           this.indoorT = 0.25;
           this.indoor = this.world.physics.covered(this.camera.position);
         }
-        this.vm.visible = !this.drone && !this.driving && !me.aboard && !me.falling;
+        this.vm.visible = !this.drone && !this.driving && !me.aboard && !me.falling && !this.gunner && !this.strikePick;
         this.vm.update(dt, {
           ads: me.adsK, speed: Math.hypot(me.vel.x, me.vel.z), grounded: me.grounded, sprint: me.sprinting,
           crouch: me.crouch, look: this.lookDelta || [0, 0], landed: me.landed, indoor: this.indoor,
@@ -3619,6 +4121,12 @@ export class Game {
     }
     input.endFrame();
   }
+}
+
+// things you can't call a helicopter or an airstrike from: the plane, a fall, mid-plant, a chat
+function me_busy(game) {
+  const me = game.me;
+  return !!(me.aboard || me.falling || me.interacting || game.frozen() || (game.gunner && true));
 }
 
 function escapeHtml(s) {

@@ -100,7 +100,7 @@ export class Effects {
   // Sprites and their materials are pooled: a flamethrower makes a hundred
   // particles a second, and building and throwing away a material for each
   // was the garbage collector's biggest customer. Two pools, one per blend.
-  particle(tex, pos, vel, size, grow, life, gravity = 0, opacity = 1, additive = false, hold = 0) {
+  particle(tex, pos, vel, size, grow, life, gravity = 0, opacity = 1, additive = false, hold = 0, color = 0xffffff) {
     const pool = additive ? this.poolAdd : this.poolNorm;
     let s = pool.pop();
     if (!s) {
@@ -111,6 +111,7 @@ export class Effects {
       s.material.map = tex;
       s.material.needsUpdate = true;
     }
+    s.material.color.setHex(color);
     s.material.opacity = opacity;
     s.position.copy(pos);
     s.scale.set(size, size, 1);
@@ -233,6 +234,30 @@ export class Effects {
     }
   }
 
+  // a marker flare: a puff of coloured smoke drifting up from a spot (called every frame or so)
+  flare(pos, color = 0xff3a2a) {
+    const v = new THREE.Vector3((Math.random() - 0.5) * 0.6, 1.6 + Math.random() * 0.8, (Math.random() - 0.5) * 0.6);
+    this.particle(this.smokeTex, pos.clone().add(new THREE.Vector3(0, 0.2, 0)), v, 1.3, 3.5, 3.0 + Math.random() * 1.5, -0.1, 0.7, false, 0.3, color);
+    if (Math.random() < 0.5) this.particle(this.fireTex, pos.clone().add(new THREE.Vector3(0, 0.15, 0)), v.clone().multiplyScalar(0.3), 0.8, 0.8, 0.3, 0, 0.9, true, 0, color);
+  }
+
+  // the dust and smoke a bomb throws up: slow, wide, and it hangs about
+  bigSmoke(pos) {
+    this.light(pos.clone().add(new THREE.Vector3(0, 1.5, 0)), 90, 0xffa050, 0.5);
+    for (let i = 0; i < 10; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9 + 0.3, Math.random() - 0.5).multiplyScalar(14);
+      this.particle(this.fireTex, pos.clone().add(new THREE.Vector3(0, 0.5, 0)), v, 2.2, 7, 0.45 + Math.random() * 0.3, -2, 1, true);
+    }
+    for (let i = 0; i < 24; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.7 + 0.25, Math.random() - 0.5).multiplyScalar(7);
+      this.particle(this.smokeTex, pos.clone().add(new THREE.Vector3(0, 0.8, 0)), v, 2.5, 6.5, 3.5 + Math.random() * 2.5, -0.3, 0.8, false, 0.3, 0x9a8a78);
+    }
+    for (let i = 0; i < 24; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 1.0, Math.random() - 0.5).multiplyScalar(26);
+      this.particle(this.sparkTex, pos.clone().add(new THREE.Vector3(0, 0.3, 0)), v, 0.1, 0, 0.7 + Math.random() * 0.5, 14, 1, true);
+    }
+  }
+
   // a flashbang going off: a white burst and a few sparks, no smoke or fire
   flashPop(pos) {
     this.light(pos.clone().add(new THREE.Vector3(0, 0.4, 0)), 60, 0xffffff, 0.25);
@@ -249,7 +274,7 @@ export class Effects {
 
   // grenades are simulated the same way on every screen from the thrower's
   // starting point and velocity; the thrower's copy decides where it goes off
-  throwNade(owner, nid, origin, vel, local, onBoom, kind = 'frag') {
+  throwNade(owner, nid, origin, vel, local, onBoom, kind = 'frag', impact = false) {
     let mesh;
     if (kind === 'molotov') {
       // a bottle with a burning rag
@@ -269,7 +294,7 @@ export class Effects {
     mesh.position.copy(origin);
     mesh.castShadow = false;
     this.group.add(mesh);
-    this.nades.push({ owner, nid, mesh, pos: origin.clone(), vel: vel.clone(), t: 0, local, onBoom, rest: false });
+    this.nades.push({ owner, nid, mesh, pos: origin.clone(), vel: vel.clone(), t: 0, local, onBoom, rest: false, impact });
   }
 
   removeNade(owner, nid) {
@@ -368,6 +393,14 @@ export class Effects {
           if (step > 1e-5) {
             d.copy(n.vel).normalize();
             const hit = physics.raycast(n.pos, d, step + 0.06);
+            if (hit && n.impact) {
+              // from the launcher: it goes off on whatever it touches (the thrower's copy says so)
+              n.pos.copy(hit.point).addScaledVector(hit.normal, 0.1);
+              n.rest = true;
+              n.vel.set(0, 0, 0);
+              if (n.local) n.t = 1e6;
+              break;
+            }
             if (hit) {
               n.pos.copy(hit.point).addScaledVector(hit.normal, 0.065);
               const vn = n.vel.dot(hit.normal);

@@ -37,6 +37,16 @@ export const WEAPONS = {
     recoilUp: 0.06, recoilSide: 0.01, kick: 0.14,
     tracer: 0xfff2c0, sound: 'sniper',
   },
+  // the Assault's (and Breacher's) grenade launcher: it fires your grenades, flat and fast,
+  // and they go off where they land. Not a bullet: see fireLauncher in game.js
+  launcher: {
+    id: 'launcher', name: 'Qanas 40mm', short: 'Launcher', auto: false, rpm: 50, mag: 3, reserve: 0,
+    reload: 0, pellets: 1, dmg: 125, range: 150, launcher: true, blurb: 'Fires whichever grenade you carry. Goes off on landing.',
+    base: 0.6, bloomShot: 0, bloomMax: 0, recover: 9, move: 0.8, air: 3,
+    adsMul: 0.5, sight: 'irons', zoom: 1.15, adsTime: 0.22, moveMul: 0.96,
+    recoilUp: 0.05, recoilSide: 0.01, kick: 0.14,
+    tracer: 0xffffff, sound: 'launcher',
+  },
   knife: {
     id: 'knife', name: 'Jambiya', short: 'Knife', melee: true, auto: false, rpm: 110, mag: 0, reserve: 0,
     reload: 0, pellets: 1, dmg: 55, range: 2.4, blurb: 'A kill to the head or from behind; two stabs from the front.',
@@ -133,6 +143,7 @@ export const DAMAGE = {
 
 // Each loadout's perk. Uses are per life.
 export const PERKS = {
+  launcher: { id: 'launcher', name: 'Grenade Launcher', uses: 0, blurb: 'A break-action 40 mm launcher that fires whichever grenade your class carries: frag, molotov or flash. Press the perk key to bring it up and put it away, aim down its leaf sight, and the round goes off where it lands. It uses your grenades.' },
   ammo: { id: 'ammo', name: 'Ammo Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to restock spare ammo. Stand on it again 15 seconds later and it restocks you again. (Grenades don’t come back.)' },
   med: { id: 'med', name: 'Medic Crate', uses: 2, blurb: 'Drop a crate: you and your team walk up to it to heal to full. Come back 15 seconds later and it heals you again.' },
   ladder: { id: 'ladder', name: 'Breaching Ladder', uses: 1, blurb: 'Stand it against a wall to climb in through high windows. Anyone can use it.' },
@@ -143,9 +154,9 @@ export const PERKS = {
 };
 
 export const LOADOUTS = [
-  { id: 0, weapon: 'smg', weapons: ['smg', 'pdw', 'carbine'], perk: 'ammo', perks: ['ammo'], nadeKinds: ['frag', 'molotov'], nades: 3, title: 'Assault', blurb: 'SMG, the Barq PDW or the Rimah Carbine, with three grenades or two molotovs. Quick to aim, strong up close. Kills with it unlock attachments.' },
+  { id: 0, weapon: 'smg', weapons: ['smg', 'pdw', 'carbine'], perk: 'launcher', perks: ['launcher'], nadeKinds: ['frag', 'molotov'], nades: 3, title: 'Assault', blurb: 'SMG, the Barq PDW or the Rimah Carbine, with three grenades or two molotovs and a launcher to fire them from. Quick to aim, strong up close. Kills with it unlock attachments.' },
   { id: 1, weapon: 'lmg', weapons: ['lmg', 'carbine'], perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG, or the Rimah Carbine. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
-  { id: 2, weapon: 'shotgun', weapons: ['shotgun', 'flamer'], perk: 'ladder', perks: ['ladder'], nadeKinds: ['frag', 'flash', 'molotov'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun or a flamethrower, devastating in rooms and doorways. Frag, flash or molotov.' },
+  { id: 2, weapon: 'shotgun', weapons: ['shotgun', 'flamer'], perk: 'ladder', perks: ['ladder', 'launcher'], nadeKinds: ['frag', 'flash', 'molotov'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun or a flamethrower, devastating in rooms and doorways. Frag, flash or molotov, thrown or from a launcher; or a breaching ladder.' },
   { id: 3, weapon: 'sniper', weapons: ['sniper', 'heavy'], perk: 'beacon', perks: ['beacon', 'drone', 'knives'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope, or the one-shot .50. Drops a recon beacon, flies a bomb drone, or carries three throwing knives.' },
 ];
 

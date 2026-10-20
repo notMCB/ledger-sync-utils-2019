@@ -62,6 +62,7 @@
     <div class="nades" id="nades"></div>
     <div class="reload-hint" id="reload-hint" hidden>Press <b id="reload-key">R</b> to reload</div>
     <div class="perk" id="perk"></div>
+    <div class="streaks" id="streaks" hidden></div>
   </div>
   <div id="chat">
     <div id="chat-log"></div>
@@ -70,6 +71,7 @@
   <div id="bombcarry" hidden>You have the bomb</div>
   <div id="drone" hidden><div class="dr-title">Bomb drone</div><div class="dr-bat"><i id="drone-bat"></i></div><div class="dr-hint" id="drone-hint"></div></div>
   <div id="earns"></div>
+  <div id="adminpanel" hidden></div>
   <div id="fps" hidden></div>
   <div id="scoreboard" hidden></div>
   <div id="spectate" hidden></div>
@@ -118,7 +120,7 @@
     <div class="account-strip" id="account-strip">
       <label class="field" id="name-field">
         <span>Your name</span>
-        <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Player">
+        <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Type a name to play">
       </label>
       <div class="signed-in" id="signed-in" hidden>
         <span class="si-label">Signed in as</span>
@@ -179,8 +181,15 @@
 <div id="turretcam" hidden>
   <i class="tc-corner tl"></i><i class="tc-corner tr"></i><i class="tc-corner bl"></i><i class="tc-corner br"></i>
   <div class="tc-reticle"><i></i><i></i><i></i><i></i><b></b></div>
-  <div class="tc-top"><span class="tc-rec">REC</span><span>GUN CAM 01</span></div>
-  <div class="tc-bottom"><span>GATLING · ∞</span><span>T · BACK TO THE WHEEL</span></div>
+  <div class="tc-top"><span class="tc-rec">REC</span><span id="tc-name">GUN CAM 01</span></div>
+  <div class="tc-heat" id="tc-heat" hidden><span>HEAT</span><div class="bar"><i id="tc-heat-bar"></i></div></div>
+  <div class="tc-bottom"><span id="tc-bottom-left">GATLING · ∞</span><span id="tc-bottom-right">T · BACK TO THE WHEEL</span></div>
+</div>
+<div id="strikecam" hidden>
+  <i class="tc-corner tl"></i><i class="tc-corner tr"></i><i class="tc-corner bl"></i><i class="tc-corner br"></i>
+  <div class="sc-reticle" id="sc-reticle"><i></i><i></i><i></i><i></i><b></b><span>15 m</span></div>
+  <div class="tc-top"><span class="tc-rec">LIVE</span><span>STRIKE CAM · PICK THE TARGET</span></div>
+  <div class="tc-bottom"><span id="sc-bottom-left"></span><span>3 × B-1 · ON STATION</span></div>
 </div>
 
 <!-- ============ pause ============ -->

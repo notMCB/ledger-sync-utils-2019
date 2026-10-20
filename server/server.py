@@ -36,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.3.2'
+VERSION = '3.4.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -145,11 +145,13 @@ FIRE_R = 2.25           # about four and a half metres across: twice the area it
 SLUG = {'dmg': 85, 'head': 1.5, 'near': 30, 'far': 90, 'min': 0.55, 'rpm': 70, 'pellets': 1, 'range': 200}
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 # each loadout's perk and how many uses it has per life
-PERKS = ['ammo', 'med', 'ladder', 'beacon']
+PERKS = ['launcher', 'med', 'ladder', 'beacon']
 # the perks a loadout may pick from (first is the default), and the grenades
-PERK_OPTIONS = [('ammo',), ('med', 'wall'), ('ladder',), ('beacon', 'drone', 'knives')]
+# the Assault's grenade launcher took the ammo crate's place; the Breacher may carry one too
+PERK_OPTIONS = [('launcher',), ('med', 'wall'), ('ladder', 'launcher'), ('beacon', 'drone', 'knives')]
 NADE_OPTIONS = [('frag', 'molotov'), ('frag', 'smoke'), ('frag', 'flash', 'molotov'), ('frag',)]
-PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1, 'knives': 3}
+PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1, 'knives': 3, 'launcher': 0}
+LAUNCH_REACH = 150.0    # a launched grenade may go off this far from the gun (a thrown one, 60)
 KNIFE_AIR = 3.5         # a thrown knife may land this long after it leaves the hand
 WALL_HP = 900
 WALL_LIFE = 90.0
@@ -183,6 +185,36 @@ HILL_MOVE = 75.0
 COUNTDOWN = 10.0
 ADMIN_KILL = 'struck down'
 ARMOUR_FLAG = 1048576           # the Interceptor's bulletproof walls are up (a movement flag)      # the owner's /kill: what the kill feed calls it; it counts for nothing
+
+# -- scorestreaks: kills in one life, in Free for All, Team Deathmatch and King of the Hill --
+# Five kills: a scan that marks every enemy on the map. Ten: the door gun of a
+# helicopter circling the town. Fifteen: an airstrike on a spot you pick from above.
+STREAK_MODES = ('ffa', 'tdm', 'koth')
+STREAKS = ((5, 'scan'), (10, 'heli'), (15, 'strike'))
+HELI_FLAG = 2097152         # in the helicopter's door (the server sets it, like the plane's flag)
+SCAN_LIFE = 30.0            # the scan: every enemy marked, this long
+SCAN_EVERY = 2.5
+HELI_LIFE = 45.0            # seconds in the gunner's seat
+HELI_ALT = 30.0             # about a hundred feet up
+HELI_MARGIN = 12.0          # its circuit runs this far outside the town walls
+HELI_CORNER = 22.0          # rounded corners of that circuit
+HELI_SPEED = 22.0           # metres a second round it
+HELI_SEAT = (1.05, -1.0, 0.2)   # the gunner's feet: left of the hub, below it, a little behind it
+STRIKE_DELAY = 10.0         # seconds from the call to the bombs landing
+STRIKE_R = 7.5              # the circle the bombs cover: fifteen metres across
+STRIKE_KILL_R = 5.0         # the middle ten metres: anyone in the open dies
+STRIKE_DMG = 50             # the rest of the circle, and anyone under a roof inside it
+# SOUK_STREAK=0.2 makes the scan, the helicopter and the strike's wait five times quicker, for the tests
+_streak_scale = float(os.environ.get('SOUK_STREAK') or 1.0)
+STREAK_FREE = os.environ.get('SOUK_STREAK_FREE') == '1'     # every life starts with all three, for looking at them
+# -- practice dummies, for a test server only (SOUK_DUMMIES=3): stand-still bots that follow you
+# into whatever room you join, so there is something to shoot at. /bots N in chat changes the number.
+DUMMIES = int(os.environ.get('SOUK_DUMMIES') or 0)
+DUMMY_NAMES = ['Dummy Adil', 'Dummy Basma', 'Dummy Cem', 'Dummy Dina', 'Dummy Emir', 'Dummy Farah', 'Dummy Ghali', 'Dummy Hind',
+               'Dummy Ilyas', 'Dummy Jana', 'Dummy Kadir', 'Dummy Lina']
+SCAN_LIFE *= _streak_scale
+HELI_LIFE *= _streak_scale
+STRIKE_DELAY *= _streak_scale
 POSTMATCH = 12.0
 PROTECT = 1.5
 # players who neither move nor act for this long are taken out of their match
@@ -339,6 +371,57 @@ def vec3(v, default=(0.0, 0.0, 0.0)):
 # players and rooms
 # --------------------------------------------------------------------------
 
+def heli_path(bx, bz):
+    """The helicopter's circuit: the town's walls pushed out by HELI_MARGIN, with rounded
+    corners. Nine legs, flown in order; the same sums run on every screen (streaks.js)."""
+    X, Z = bx + HELI_MARGIN, bz + HELI_MARGIN
+    C = min(HELI_CORNER, X - 1.0, Z - 1.0)
+    segs = []
+
+    def line(a, b):
+        segs.append(('line', a, b, math.hypot(b[0] - a[0], b[1] - a[1])))
+
+    def arc(c, th0):
+        segs.append(('arc', c, th0, math.pi / 2 * C))
+    line((X, 0.0), (X, -Z + C))
+    arc((X - C, -Z + C), 0.0)
+    line((X - C, -Z), (-X + C, -Z))
+    arc((-X + C, -Z + C), -math.pi / 2)
+    line((-X, -Z + C), (-X, Z - C))
+    arc((-X + C, Z - C), math.pi)
+    line((-X + C, Z), (X - C, Z))
+    arc((X - C, Z - C), math.pi / 2)
+    line((X, Z - C), (X, 0.0))
+    return {'segs': segs, 'len': sum(s[3] for s in segs), 'C': C}
+
+
+def heli_at(path, s):
+    """Where the helicopter is s metres round its circuit: x, z and its heading (a cart's
+    yaw: it flies along +x at zero, and the gunner's door is on its left)."""
+    s %= path['len']
+    C = path['C']
+    for kind, a, b, L in path['segs']:
+        if s > L:
+            s -= L
+            continue
+        if kind == 'line':
+            k = s / L if L else 0.0
+            dx, dz = b[0] - a[0], b[1] - a[1]
+            return a[0] + dx * k, a[1] + dz * k, math.atan2(-dz, dx)
+        th = b - s / C
+        return a[0] + C * math.cos(th), a[1] + C * math.sin(th), math.pi / 2 - th
+    return path['segs'][0][1][0], path['segs'][0][1][1], math.pi / 2
+
+
+def heli_seat(path, s):
+    """Where the gunner's feet are: in the left door, under the rotor."""
+    x, z, a = heli_at(path, s)
+    lx, lz = -math.sin(a), -math.cos(a)      # left of the heading
+    bx_, bz_ = -math.cos(a), math.sin(a)     # behind it
+    L, D, B = HELI_SEAT
+    return [x + lx * L + bx_ * B, HELI_ALT + D, z + lz * L + bz_ * B]
+
+
 class Player:
     def __init__(self, conn, name):
         self.id = next_ids['p']
@@ -420,6 +503,11 @@ class Player:
         self.fall_force = False  # the server is bringing them down, because their client stopped
         self.fall_lock = 0.0     # stale positions from that client are ignored until then
         self.surv = 0            # seconds they lasted this match
+        # scorestreaks: kills this life, the rewards earned and not yet used, the helicopter seat
+        self.streak = 0
+        self.streaks = []
+        self.heli = None
+        self.dummy = False       # a practice target on a test server: it stands there and takes it
 
     def send(self, obj):
         self.conn.send(obj)
@@ -455,6 +543,8 @@ class Player:
         self.dmg = 0.0
         self.chests = 0
         self.late = False
+        self.streak = 0
+        self.streaks = []
 
     def reset_kit(self):
         """A battle royale life starts with nothing but the knife."""
@@ -515,6 +605,12 @@ class Room:
         self.drones = {}
         self.fires = {}
         self.fire_seq = 0
+        # scorestreaks in the air: scans running, helicopters up, strikes on their way
+        self.scans = {}
+        self.helis = {}
+        self.strikes = []
+        self.strike_seq = 0
+        self.dummy_want = DUMMIES
         # the battle royale
         self.plane = None
         self.gas = None
@@ -578,6 +674,7 @@ class Room:
                 self.forklifts[int(d['id'])] = {'p': [d['x'], d.get('y', 0.0), d['z']], 'y': d.get('yaw', 0.0), 'driver': None, 'k': d['k'],
                                                 'v': 0.0, 'at': now(), 'home': (d['x'], d.get('y', 0.0), d['z'], d.get('yaw', 0.0))}
         self.track = self.map.get('track') or []
+        self.circuit = heli_path(*self.map['bounds'])
         self.map_msg = json.dumps({'t': 'map', 'map': self.map}, separators=(',', ':'))
         self.map_frames = {False: frame(self.map_msg, False), True: frame(self.map_msg, True)}
         self.ladders = {}
@@ -636,6 +733,11 @@ class Room:
             p.send(self.fk_msg(fid))
         for fid, F in self.fires.items():
             p.send({'t': 'fire', 'id': fid, 'p': F['p'], 'life': round(F['until'] - now(), 1)})
+        for oid in self.helis:
+            p.send(self.heli_msg(oid, now()))
+        for S in self.strikes:
+            p.send({'t': 'strike', 'id': S['id'], 'p': S['p'], 'in': round(max(0.0, S['at'] - now()), 2), 'h': S['h'], 'by': S['owner'],
+                    'byn': self.players[S['owner']].name if S['owner'] in self.players else '', 'tm': S['tm']})
         if self.mode == 'royale':
             p.reset_kit()
             for cid, C in self.chests.items():
@@ -656,6 +758,27 @@ class Room:
         elif self.mode != 'bomb':
             p.respawn_at = now() + 1.0
         # bomb mode: joins as a spectator until the next round
+        if not p.bot:
+            self.add_dummies()
+
+    def add_dummies(self):
+        """On a test server: the practice dummies come into any room a person is in."""
+        if not self.dummy_want or self.mode == 'royale' or not any(not q.bot for q in self.players.values()):
+            return
+        have = [q for q in self.players.values() if q.dummy]
+        want = min(self.dummy_want - len(have), self.max - self.count())
+        for b in have[self.dummy_want:]:
+            self.remove(b)
+        names = [n for n in DUMMY_NAMES if n not in {q.name for q in self.players.values()}]
+        for name in names[:max(0, want)]:
+            b = Player(BotConn(), name)
+            b.conn.player = b
+            b.bot = True
+            b.dummy = True
+            b.pick({'ld': len(have) % 4})
+            b.cos = owned_cos(b, clean_cos(None))
+            have.append(b)
+            self.add(b)
 
     def remove(self, p):
         self.leave_vehicle(p)
@@ -681,8 +804,14 @@ class Room:
             self.broadcast({'t': 'ladder', 'id': p.id, 'off': 1})
         if self.beacons.pop(p.id, None):
             self.broadcast({'t': 'beacon', 'id': p.id, 'off': 1})
+        self.scans.pop(p.id, None)
+        self.heli_off(p, 'left')
         self.roster_dirty = True
         self.event({'e': 'leave', 'id': p.id, 'n': p.name})
+        if not p.bot and not any(not q.bot for q in self.players.values()):
+            # the last person has gone: the dummies have nobody to stand there for
+            for b in [q for q in self.players.values() if q.dummy]:
+                self.remove(b)
         if not self.players:
             self.empty_since = now()
 
@@ -808,11 +937,15 @@ class Room:
         p.last_active = now()      # a fresh life starts the idle clock again
         # outside the royale nobody can be hurt until they have done something: a player
         # left standing in another tab is not a free kill
-        p.afk_guard = self.mode != 'royale'
+        p.afk_guard = self.mode != 'royale' and not p.bot
         p.fall_y = None
         p.fall_force = False
         p.surv = 0
         p.in_round = True
+        p.streak = 0
+        if STREAK_FREE and self.mode in STREAK_MODES:
+            p.streaks = [k for _, k in STREAKS]
+            p.send({'t': 'streak', 'have': list(p.streaks)})
         p.send({'t': 'spawn', 'p': [x, y, z], 'y': yaw, 'sc': p.sc, 'ld': p.loadout, 'tm': p.team, 'lv': p.lives, 'guard': 1 if p.afk_guard else 0})
         if self.mode == 'royale':
             p.send(self.inv_msg(p))
@@ -1134,7 +1267,8 @@ class Room:
         if w not in WEAPONS:
             return
         if w == 'minigun':
-            if not self.turret_ok(p):
+            # the Gatling: from the Interceptor's turret, or the helicopter's door
+            if not (self.turret_ok(p) or p.heli):
                 return
         elif w == 'tknife':
             # a thrown knife landing: only as many as have been thrown and are still in the air
@@ -1175,7 +1309,8 @@ class Room:
         if not ok:
             self.reject_shot(p, 'rate')
             return
-        if dist3(o, [p.pos[0], p.pos[1] + 1.5, p.pos[2]]) > 6.0:
+        # (the helicopter moves at twenty-odd metres a second: a lagging client's gun is further off)
+        if dist3(o, [p.pos[0], p.pos[1] + 1.5, p.pos[2]]) > (14.0 if p.heli else 6.0):
             self.reject_shot(p, 'origin')
             return
         hits = m.get('h') if isinstance(m.get('h'), list) else []
@@ -1291,11 +1426,13 @@ class Room:
             q.derby_at = list(q.pos)     # back on the track here, a second from now
         q.alive = False
         q.hp = 0
+        q.streak = 0
         if w != ADMIN_KILL:
             q.deaths += 1
         if q.id in self.drones:
             self.drone_off(q.id, 'pilot')
         self.leave_vehicle(q)
+        self.heli_off(q, 'dead')
         if self.bomb:
             if self.bomb.get('carrier') == q.id:
                 self.drop_bomb(q)
@@ -1329,6 +1466,13 @@ class Room:
                 attacker.send({'t': 'doused'})
             attacker.kills += 1
             attacker.score += 100
+            if counting and self.mode in STREAK_MODES:
+                # one more towards a scorestreak; at five, ten and fifteen it is theirs to call in
+                attacker.streak += 1
+                for n, k in STREAKS:
+                    if attacker.streak == n:
+                        attacker.streaks.append(k)
+                        attacker.send({'t': 'streak', 'k': k, 'n': n, 'have': list(attacker.streaks)})
             if counting:
                 self.earn(attacker, 'kill', EARN['kill'] + (EARN['headshot'] if head else 0))
                 self.pass_kill(attacker, w)
@@ -1365,7 +1509,7 @@ class Room:
             delay = 1.5 if self.phase in ('waiting', 'countdown') and self.mode != 'derby' else self.cfg['respawn']
             q.respawn_at = now() + delay
         self.event({'e': 'kill', 'k': attacker.id if attacker else 0, 'v': q.id, 'w': w, 'hs': head,
-                    'kn': attacker.name if attacker else '', 'vn': q.name, 'as': assisted,
+                    'kn': attacker.name if attacker else '', 'vn': q.name, 'as': assisted, 'ks': attacker.streak if attacker else 0,
                     'p': [round(v, 2) for v in q.pos], 'd': int(dist3(attacker.pos, q.pos)) if attacker and attacker is not q else 0})
         q.send({'t': 'dead', 'by': attacker.id if attacker else 0, 'byn': attacker.name if attacker else '',
                 'w': w, 'rs': max(0.0, q.respawn_at - now()) if q.respawn_at and (self.mode != 'bomb' or self.phase in ('waiting', 'countdown')) else -1,
@@ -1413,8 +1557,14 @@ class Room:
             if not kinds:
                 return
             kind = kinds[0]
-        p.nade_ids[nid] = (now(), kind)
-        self.broadcast({'t': 'nade', 'id': p.id, 'n': nid, 'k': kind, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}, skip=p)
+        # from the grenade launcher: it flies flat and fast, and goes off where it lands
+        perk = p.carry[3] if p.carry and self.mode != 'royale' else p.perk
+        launched = bool(m.get('l')) and perk == 'launcher' and self.mode not in ('royale', 'derby')
+        p.nade_ids[nid] = (now(), kind, launched)
+        out = {'t': 'nade', 'id': p.id, 'n': nid, 'k': kind, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}
+        if launched:
+            out['l'] = 1
+        self.broadcast(out, skip=p)
 
     def handle_boom(self, p, m):
         nid = int(num(m.get('n')))
@@ -1423,7 +1573,7 @@ class Room:
             return
         kind = rec[1]
         pos = vec3(m.get('p'))
-        if dist3(pos, p.pos) > 60:
+        if dist3(pos, p.pos) > (LAUNCH_REACH if len(rec) > 2 and rec[2] else 60):
             return
         self.broadcast({'t': 'boom', 'id': p.id, 'n': nid, 'p': pos, 'k': kind}, skip=p)
         if kind in ('flash', 'smoke'):
@@ -1491,6 +1641,119 @@ class Room:
                 dmg = 999      # the Derby: any grenade damage at all is a kill, your own included
             self.damage(q, p, int(dmg), w, False)
 
+    # -- scorestreaks --
+
+    def handle_streak(self, p, m):
+        """Calling in a reward you have earned: the scan, the helicopter's gun, the airstrike."""
+        k = m.get('k')
+        owner = is_owner(p) and k in [x for _, x in STREAKS] and self.mode not in ('royale', 'derby') and self.phase != 'ended'
+        if not owner and (self.mode not in STREAK_MODES or self.phase != 'live' or not p.alive or k not in p.streaks):
+            return
+        if not p.alive:
+            return
+        t = now()
+        if k == 'scan':
+            self.scans[p.id] = {'until': t + SCAN_LIFE, 'next': t}
+        elif k == 'heli':
+            if p.heli or p.vehicle is not None or p.id in self.drones:
+                return
+            s0 = random.uniform(0.0, self.circuit['len'])
+            H = {'t0': t, 'until': t + HELI_LIFE, 's0': s0, 'back': [round(v, 3) for v in p.pos]}
+            p.heli = H
+            self.helis[p.id] = H
+            p.pos = heli_seat(self.circuit, s0)
+            self.broadcast({'t': 'heli', 'id': p.id, 'tm': p.team, 's0': round(s0, 2), 'el': 0, 'life': HELI_LIFE})
+        elif k == 'strike':
+            if p.heli:
+                return
+            pos = vec3(m.get('p'))
+            bx, bz = self.map['bounds']
+            x = max(-bx + 1.0, min(bx - 1.0, pos[0]))
+            z = max(-bz + 1.0, min(bz - 1.0, pos[2]))
+            y = self.land_height(x, z, 60.0)       # the bombs land on whatever is highest there: a roof, or the street
+            self.strike_seq += 1
+            S = {'id': self.strike_seq, 'owner': p.id, 'tm': p.team, 'p': [round(x, 2), round(y, 2), round(z, 2)],
+                 'at': t + STRIKE_DELAY, 'h': round(random.uniform(0.0, math.tau), 3)}
+            self.strikes.append(S)
+            self.broadcast({'t': 'strike', 'id': S['id'], 'p': S['p'], 'in': STRIKE_DELAY, 'h': S['h'], 'by': p.id, 'byn': p.name, 'tm': p.team})
+        if k in p.streaks:
+            p.streaks.remove(k)      # (the owner's never run out)
+        p.send({'t': 'streak', 'used': k, 'have': list(p.streaks)})
+        self.event({'e': 'streak', 'id': p.id, 'n': p.name, 'k': k, 'tm': p.team})
+
+    def heli_msg(self, oid, t):
+        H = self.helis[oid]
+        owner = self.players.get(oid)
+        return {'t': 'heli', 'id': oid, 'tm': owner.team if owner else -1, 's0': round(H['s0'], 2), 'el': round(t - H['t0'], 2), 'life': HELI_LIFE}
+
+    def heli_off(self, p, why, oid=None):
+        """The helicopter leaves: its gunner is put back where they were picked up from."""
+        oid = p.id if p else oid
+        H = self.helis.pop(oid, None)
+        if not H:
+            return
+        if p:
+            p.heli = None
+            if p.alive:
+                p.pos = list(H['back'])
+                p.fall_lock = now() + 1.5      # positions still in flight from the seat are ignored
+        self.broadcast({'t': 'heli', 'id': oid, 'off': 1, 'why': why, 'back': H['back']})
+
+    def update_streaks(self, t):
+        live = self.phase == 'live'
+        for oid, S in list(self.scans.items()):
+            owner = self.players.get(oid)
+            if not owner or t >= S['until'] or not live:
+                del self.scans[oid]
+                if owner:
+                    owner.send({'t': 'ping', 'id': oid, 'scan': 1, 'off': 1})
+                continue
+            if t < S['next']:
+                continue
+            S['next'] = t + SCAN_EVERY
+            pts = []
+            for q in self.players.values():
+                if q.cos.get('o') in catalog.CAMO_OUTFITS:
+                    continue      # camouflage: the scan doesn't pick them up either
+                if q.alive and self.enemies(owner, q):
+                    pts.append([q.id, round(q.pos[0], 2), round(q.pos[1], 2), round(q.pos[2], 2)])
+            msg = {'t': 'ping', 'id': oid, 'p': [round(v, 2) for v in owner.pos], 'pts': pts, 'scan': 1, 'left': round(S['until'] - t, 1)}
+            for q in self.players.values():
+                if self.friendly(owner, q):
+                    q.send(msg)
+        for oid, H in list(self.helis.items()):
+            owner = self.players.get(oid)
+            if not owner or not owner.alive or t >= H['until'] or not live:
+                self.heli_off(owner, 'time' if owner and t >= H['until'] else 'over', oid)
+                continue
+            owner.pos = heli_seat(self.circuit, H['s0'] + (t - H['t0']) * HELI_SPEED)
+        for S in list(self.strikes):
+            if t < S['at']:
+                continue
+            self.strikes.remove(S)
+            if live:
+                self.strike_land(S)
+
+    def strike_land(self, S):
+        """The bombs land. In the open: dead in the middle ten metres, fifty off the rest of the
+        circle. Under a roof anywhere in the circle, fifty. Never your own side."""
+        owner = self.players.get(S['owner'])
+        p = S['p']
+        team_mode = self.mode in TEAM_MODES
+        for wid, W in list(self.walls.items()):
+            if dist2(W['p'], p) < STRIKE_R:
+                self.hurt_wall(wid, WALL_HP)
+        for q in list(self.players.values()):
+            if not q.alive or q.id == S['owner'] or (team_mode and q.team == S['tm']) or t_protected(q):
+                continue
+            d = dist2(q.pos, p)
+            if d > STRIKE_R:
+                continue
+            chest = [q.pos[0], q.pos[1] + 1.0, q.pos[2]]
+            covered = q.pos[1] < p[1] - 2.5 or self.solid.blocked(chest, [chest[0], chest[1] + 40.0, chest[2]])
+            dmg = STRIKE_DMG if (covered or d > STRIKE_KILL_R) else 999
+            self.damage(q, owner, dmg, 'strike', False)
+
     # -- perks --
 
     def behind(self, p, q):
@@ -1508,6 +1771,8 @@ class Room:
             p_perk = p.perk
         if not p.alive or k != p_perk or p.perk_left <= 0 or self.phase == 'ended' or self.mode in NICHE_ARMS or p.aboard or self.mode == 'derby':
             return
+        if k == 'launcher':
+            return      # the launcher fires grenades (see handle_nade): nothing to use up here
         t = now()
         if k == 'medkit':
             # fifty health, ten a second, and you may walk away while it works
@@ -2075,7 +2340,7 @@ class Room:
         if self.phase != 'live':
             return
         for b in self.players.values():
-            if not b.bot or not b.alive:
+            if not b.bot or not b.alive or b.dummy:
                 continue
             b.last_active = t
             ai = b.ai
@@ -2434,6 +2699,17 @@ class Room:
         if not text:
             return
         p.last_chat = t
+        if text.startswith('/bots') and DUMMIES:
+            try:
+                n = int(text.split()[1])
+            except (IndexError, ValueError):
+                n = DUMMIES
+            self.dummy_want = max(0, min(len(DUMMY_NAMES), n))
+            self.add_dummies()
+            if not self.dummy_want:
+                for b in [q for q in self.players.values() if q.dummy]:
+                    self.remove(b)
+            return p.send({'t': 'chat', 'sys': 1, 'm': '%d practice dummies' % self.dummy_want})
         if text.startswith('/'):
             return admin_command(p, text)
         team_only = bool(m.get('team')) and self.mode in TEAM_MODES and p.team in (0, 1)
@@ -2450,10 +2726,11 @@ class Room:
             self.clear_bots()      # the last human has gone: the bots do not play on alone
         n = self.count()
         self.update_devices(t)
+        self.update_streaks(t)
         self.update_fires(t)
         # idlers go back to the menu so they don't hold a slot or a team place
         for p in list(self.players.values()):
-            if self.mode == 'royale' and (not p.alive or p.aboard):
+            if p.bot or (self.mode == 'royale' and (not p.alive or p.aboard)):
                 continue      # the dead watch, the ones still aboard are carried
             if t - p.last_active > IDLE_KICK:
                 p.send({'t': 'kicked', 'why': 'idle'})
@@ -2672,6 +2949,8 @@ class Room:
                 f |= 32768  # on fire
             if p.aboard:
                 f |= 262144  # in the plane: nothing to see
+            if p.heli:
+                f |= HELI_FLAG   # in the helicopter's door
             pl.append([p.id, round(p.pos[0], 2), round(p.pos[1], 2), round(p.pos[2], 2),
                        round(p.yaw, 3), round(p.pitch, 3), f, p.loadout, p.slot, max(0, p.hp), round(p.byaw, 3), p.shield])
         snap = {'t': 'snap', 'g': self.game_state(t), 'p': pl}
@@ -2777,7 +3056,7 @@ def admin_command(p, text):
         if not targets:
             return say('Nobody alive by that name.' if arg and arg.lower() != 'all' else 'Nobody to kill.')
         return say('Killed %s.' % ', '.join(q.name for q in targets))
-    return say('Commands: /ban name, /unban name, /bans, /kill [name | all]')
+    return say('Commands: /ban name, /unban name, /bans, /kill [name | all]. On your own screen: /fly, /wall, /panel. Scorestreaks 4 5 6 are always yours.')
 
 
 def room_list():
@@ -3089,6 +3368,8 @@ class Conn:
         elif t == 'join':
             if self.banned():
                 return
+            if not p.account and (p.name or '').strip().lower() in ('', 'player'):
+                return self.send({'t': 'err', 'm': 'Enter a name before you join, or sign in.'})
             self.leave()
             if m.get('room'):
                 r = rooms.get(int(num(m.get('room'))))
@@ -3177,6 +3458,13 @@ class Conn:
             old_pos = list(p.pos)
             if p.fall_force or (now() < p.fall_lock and num(vec3(m.get('p'))[1]) > p.pos[1] + 1.0):
                 return       # their client stopped mid-air: the server has them, and what it says goes
+            if p.heli:
+                # the helicopter says where you are; only where you look comes from you
+                p.yaw = num(m.get('y'))
+                p.pitch = num(m.get('pi'), -1.6, 1.6)
+                p.flags = int(num(m.get('f'), 0, (1 << 22) - 1))
+                p.acted()
+                return
             if r.mode == 'bomb' and r.phase == 'freeze':
                 pos = vec3(m.get('p'))
                 if dist2(pos, p.pos) < 0.5:
@@ -3188,7 +3476,7 @@ class Conn:
             bx, bz = r.map['bounds']
             p.pos[0] = max(-bx, min(bx, p.pos[0]))
             p.pos[2] = max(-bz, min(bz, p.pos[2]))
-            p.pos[1] = max(-8.0, min(PLANE_ALT + 10 if r.mode == 'royale' else 30.0, p.pos[1]))   # the tunnels run below the town
+            p.pos[1] = max(-8.0, min(PLANE_ALT + 10 if r.mode == 'royale' else 90.0 if is_owner(p) else 30.0, p.pos[1]))   # the tunnels run below the town (the owner may fly)
             if 'fu' in m:
                 p.fuel = num(m.get('fu'), 0, 100, p.fuel)
             if dist3(p.pos, old_pos) > 0.3 or abs(num(m.get('y')) - p.yaw) > 0.05:
@@ -3245,6 +3533,9 @@ class Conn:
             p.room.handle_chat(p, m)
         elif t == 'perk':
             p.room.handle_perk(p, m)
+        elif t == 'streak':
+            p.acted()
+            p.room.handle_streak(p, m)
         elif t == 'plant':
             p.room.handle_plant(p, bool(m.get('on')))
         elif t == 'reload':

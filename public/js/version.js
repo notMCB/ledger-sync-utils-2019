@@ -2,9 +2,23 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.3.2';
+export const VERSION = '3.4.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.4.0',
+    date: '20 October 2026',
+    title: 'Scorestreaks',
+    notes: [
+      'Scorestreaks, in Free for All, Team Deathmatch and King of the Hill: string kills together in one life and you earn a reward to call in. Your kills this life and what they have earned you are shown under your perk, and a reward keeps until you use it, even if you die first. Use them with 4, 5 and 6 (you can rebind them in Settings).',
+      'Five kills: a scan beacon. For 30 seconds every enemy on the map is marked for you and your team, on the minimap and through the walls, with a fresh sweep every couple of seconds. Camouflage still hides from it.',
+      'Ten kills: helicopter gunner. A Blackhawk comes in at a hundred feet and circles just outside the town walls, and you are in its left door on a Gatling, the same gun as the Interceptor\u2019s turret, for 45 seconds. Hold fire for seven seconds and it overheats, then you wait for it to cool. You can be shot in the door, so keep moving the gun. When the time is up you are put back down where you were picked up from.',
+      'Fifteen kills: an airstrike. You get an overhead view of the whole town and a crosshair to pick the spot; click to call it in, or press the key again to think better of it. Ten seconds later three B-1s cross the town at two thousand feet and the bombs land on a circle fifteen metres across, marked with red smoke from the moment it is called. In the open, anyone in the middle ten metres dies and anyone in the rest of the circle takes 50. Under a roof anywhere in the circle, 50. Your own side is never hurt.',
+      'Everyone sees who called in what in the kill feed, and the helicopter and the bombers are there in the sky for all to see and hear.',
+      'You need a name to play now: type one on the menu, or sign in. Nobody joins as "Player" any more.',
+      'The Assault class carries a grenade launcher instead of the ammo crate, and the Breacher can pick one instead of the ladder. Press your perk key to bring it up and again to put it away. It fires whichever grenade you carry, frag, molotov or flash, flat and fast, and the round goes off where it lands. Aim it down its leaf sight. It uses your grenades, so three rounds a life for the Assault.',
+    ],
+  },
   {
     version: '3.3.2',
     date: '19 October 2026',

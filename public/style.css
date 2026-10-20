@@ -514,6 +514,7 @@ button { cursor: pointer; }
 #chat-mode.team { background: #2d4a2b; color: #b8f0b2; }
 #chat-input { flex: 1; min-width: 0; background: rgba(18, 21, 28, 0.85); border: 1px solid var(--saffron); border-radius: 3px; padding: 7px 10px; font-size: 15px; outline: none; }
 .mk.ping .ic { background: rgba(201, 65, 47, 0.8); box-shadow: inset 0 0 0 2px #ffb2a6; color: #fff; width: 22px; height: 22px; font-size: 12px; }
+.mk.strike .ic { background: rgba(255, 58, 42, 0.85); box-shadow: inset 0 0 0 2px #ffb2a6; color: #fff; animation: blink 0.5s steps(2) infinite; }
 
 /* accounts */
 .account-strip { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; }
@@ -718,3 +719,48 @@ body.turretcam #crosshair { display: none; }
 #turretcam .tc-bottom { bottom: calc(8% + 14px); padding: 0 56px; }
 #turretcam .tc-rec::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; background: #ff3a2a; vertical-align: 0; animation: recblink 1s steps(2) infinite; }
 @keyframes recblink { 50% { opacity: 0.15; } }
+#turretcam .tc-heat { position: absolute; left: 50%; bottom: calc(8% + 50px); transform: translateX(-50%); display: flex; gap: 10px; align-items: center; font-size: 13px; letter-spacing: 0.14em; }
+#turretcam .tc-heat .bar { width: 200px; height: 8px; border: 1px solid rgba(225, 255, 225, 0.6); }
+#turretcam .tc-heat .bar i { display: block; height: 100%; width: 0; background: rgba(225, 255, 225, 0.85); transition: width 0.08s linear; }
+#turretcam .tc-heat.hot { color: #ff5a44; animation: recblink 0.5s steps(2) infinite; }
+#turretcam .tc-heat.hot .bar i { background: #ff5a44; }
+/* the airstrike's overhead view: the same camera look, in cold blue, with a reticle the mouse moves */
+body.strikecam #view { filter: grayscale(0.7) contrast(1.25) brightness(1.1) sepia(0.2) hue-rotate(170deg); }
+body.strikecam #crosshair, body.strikecam #minimap, body.strikecam #markers, body.strikecam #arms, body.strikecam #vitals { display: none; }
+#strikecam { position: fixed; inset: 0; z-index: 11; pointer-events: none; font-family: var(--mono); color: rgba(225, 240, 255, 0.92); text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.5) 100%); }
+#strikecam .tc-corner { position: absolute; width: 48px; height: 48px; border: 3px solid rgba(225, 240, 255, 0.8); }
+#strikecam .tl { left: 6%; top: 8%; border-right: 0; border-bottom: 0; }
+#strikecam .tr { right: 6%; top: 8%; border-left: 0; border-bottom: 0; }
+#strikecam .bl { left: 6%; bottom: 8%; border-right: 0; border-top: 0; }
+#strikecam .br { right: 6%; bottom: 8%; border-left: 0; border-top: 0; }
+#strikecam .tc-top, #strikecam .tc-bottom { position: absolute; left: 8%; right: 8%; display: flex; justify-content: space-between; font-size: 15px; letter-spacing: 0.12em; }
+#strikecam .tc-top { top: calc(8% + 14px); padding: 0 56px; }
+#strikecam .tc-bottom { bottom: calc(8% + 14px); padding: 0 56px; }
+#strikecam .tc-rec::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; background: #ff3a2a; vertical-align: 0; animation: recblink 1s steps(2) infinite; }
+#strikecam .sc-reticle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+#strikecam .sc-reticle i { position: absolute; background: #ff4a3a; box-shadow: 0 0 4px rgba(0, 0, 0, 0.8); }
+#strikecam .sc-reticle i:nth-child(1) { left: -1px; top: -34px; width: 2px; height: 22px; }
+#strikecam .sc-reticle i:nth-child(2) { left: -1px; top: 12px; width: 2px; height: 22px; }
+#strikecam .sc-reticle i:nth-child(3) { top: -1px; left: -34px; height: 2px; width: 22px; }
+#strikecam .sc-reticle i:nth-child(4) { top: -1px; left: 12px; height: 2px; width: 22px; }
+#strikecam .sc-reticle b { position: absolute; left: -24px; top: -24px; width: 48px; height: 48px; border: 2px solid #ff4a3a; border-radius: 50%; box-sizing: border-box; }
+#strikecam .sc-reticle span { position: absolute; left: 30px; top: 18px; font-size: 12px; letter-spacing: 0.1em; color: #ffb2a6; white-space: nowrap; }
+/* the name field, shaken when someone tries to play without one */
+#name-field.nudge { animation: nudge 0.45s; }
+#name-field.nudge input { box-shadow: 0 0 0 2px #e05a46; }
+@keyframes nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+/* the owner's command list */
+#adminpanel { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); display: grid; gap: 3px; padding: 8px 10px; border-radius: 4px; background: rgba(18, 21, 28, 0.55); font-size: 12px; color: var(--plaster-dim); pointer-events: none; max-width: 300px; }
+#adminpanel .ap-title { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #ffd23f; font-weight: 700; margin-bottom: 2px; }
+#adminpanel div { display: flex; gap: 8px; align-items: baseline; }
+#adminpanel b { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: 2px; background: rgba(239, 228, 207, 0.18); color: var(--plaster); white-space: nowrap; }
+/* the scorestreaks under the perk */
+#streaks { display: grid; gap: 2px; margin-top: 4px; justify-items: end; }
+#streaks .sk { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--plaster-dim); }
+#streaks .sk-key { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: 2px; background: rgba(239, 228, 207, 0.18); color: var(--plaster); min-width: 14px; text-align: center; }
+#streaks .sk b { font-family: var(--mono); font-size: 11px; min-width: 36px; text-align: right; }
+#streaks .sk.ready { color: var(--plaster); }
+#streaks .sk.ready b { color: #ffd23f; animation: blink 1s steps(2) infinite; }
+#streaks .sk.ready .sk-key { background: #ffd23f; color: #1a1408; }
+#streaks .sk.spent { opacity: 0.45; }

@@ -64,7 +64,8 @@ export class Chat {
 
   send() {
     const text = this.field.value.trim();
-    if (text) this.net.send({ t: 'chat', m: text.slice(0, 120), team: this.team });
+    // a few commands act on this screen alone (the owner's /fly, /wall, /panel)
+    if (text && !(text.startsWith('/') && this.local && this.local(text))) this.net.send({ t: 'chat', m: text.slice(0, 120), team: this.team });
     this.close();
   }
 
