@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { nameTag, softDot, wood } from './textures.js';
-import { outfitMaterials, gunMaterials, chromeMaterial, OUTFIT, FINISH } from './skins.js';
+import { outfitMaterials, gunMaterials, chromeMaterial, OUTFIT, FINISH, rainbowCanvas } from './skins.js';
 import { makeChute } from './royale.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
@@ -203,7 +203,7 @@ export class Avatar {
     // T-shirt, with a stripe down each front edge
     this.jacket = new THREE.Group();
     upper.add(this.jacket);
-    part('shirt', bx(this.jacket, 0.5, 0.44, 0.3, this.body, 0, 0.4, 0));
+    this.jacketBox = part('shirt', bx(this.jacket, 0.5, 0.44, 0.3, this.body, 0, 0.4, 0));
     this.tee = bx(this.jacket, 0.13, 0.42, 0.01, lam('#f2d43a'), 0, 0.4, -0.152);
     this.web = [];
     for (const sx of [-1, 1]) {
@@ -237,6 +237,21 @@ export class Avatar {
     const beret = hg('beret');
     const b = part('wrap', bx(beret, 0.27, 0.06, 0.27, this.wrap, 0.02, 0.15, 0.01));
     b.rotation.z = -0.18;
+    // a party hat: a striped cone on the crown, a bobble on top, and a little lean
+    const party = hg('party');
+    const hatTex = new THREE.CanvasTexture(rainbowCanvas());
+    const hat = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.36, 14, 1, true), new THREE.MeshLambertMaterial({ map: hatTex }));
+    hat.position.set(0.01, 0.29, 0.0);
+    hat.rotation.z = -0.12;
+    party.add(hat);
+    const bobble = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), lam('#ffe13b'));
+    bobble.position.set(0.032, 0.47, 0.0);
+    party.add(bobble);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.128, 0.014, 6, 20), lam('#ffffff'));
+    band.rotation.x = Math.PI / 2;
+    band.position.set(0.01, 0.115, 0.0);
+    band.rotation.z = -0.12;
+    party.add(band);
     const hood = hg('hood');
     part('wrap', bx(hood, 0.29, 0.3, 0.2, this.wrap, 0, 0.02, 0.06));
     part('wrap', bx(hood, 0.29, 0.07, 0.3, this.wrap, 0, 0.15, 0.0));
@@ -482,6 +497,11 @@ export class Avatar {
     if (m.glow) this.visor.material = m.glow;
     const o = OUTFIT[this.outfit];
     this.jacket.visible = !!(o && o.jacket);
+    // a printed T-shirt is the jacket's box with the words on its chest and back, and none of the Gucci trim
+    const printed = !!(o && o.tee && m.tee);
+    this.jacketBox.material = printed ? m.tee : (m.shirt || this.body);
+    this.tee.visible = !printed;
+    for (const w of this.web) w.visible = !printed;
     const shape = (o && o.shape) || '';
     this.logOn = !!shape;              // any of the shaped bodies: the head is inside it
     this.log.visible = shape === 'log';

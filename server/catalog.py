@@ -79,6 +79,8 @@ OUTFITS = [
     ('royale1', 'legendary', 'royale'),
     # the Battle Pass outfits: granted by tier, never rolled
     ('sahur', 'legendary', 'pass'), ('ballerina', 'legendary', 'pass'), ('tunggod', 'legendary', 'pass'),
+    # the first month's gift: everyone who played on the day. Never rolled
+    ('month1', 'legendary', 'gift'),
     # given to one account by hand, never rolled: see OWNER_ONLY
     ('guccimorty', 'legendary', 'owner'),
 ]

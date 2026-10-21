@@ -320,6 +320,10 @@ export class Game {
       case 'brwin':
         locker.grantOutfit(m.outfit, m.locker);
         return;
+      case 'gift':
+        locker.grantOutfit(m.outfit, m.locker);
+        this.hud.center('1 month of Souk Siege', 'The "1 Month" outfit is yours: it is in your Locker', 'gold', 5, 4);
+        return;
       case 'pass':
         if (m.locker) locker.updateAccount(m.locker);
         for (const n of m.new || []) {

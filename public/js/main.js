@@ -18,6 +18,7 @@ import { touch, touchWanted } from './touch.js';
 import { PASS_TIERS, PASS_NAME, KILLS_PER_TIER } from './pass.js';
 import { FINISH, OUTFIT, swatch } from './skins.js';
 import { openGunStats } from './gunstats.js';
+import { startFacts, startParty } from './party.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -636,6 +637,8 @@ if (params.get('paid')) {
 if (params.get('shop')) setTimeout(() => { openShop(); history.replaceState(null, '', location.pathname); }, 800);
 loadShop();
 auth.onChange(() => loadShop());
+startFacts($('tagline'));
+startParty(() => { unlockAudio(); });
 // the gun stats page: from the menu or the pause menu, with the gun in hand picked
 function openGuns() {
   $('pause').hidden = true;

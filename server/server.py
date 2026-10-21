@@ -33,11 +33,16 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mapgen  # noqa: E402
+try:
+    from zoneinfo import ZoneInfo
+    SYDNEY = ZoneInfo('Australia/Sydney')
+except Exception:  # no tz database: the party runs on the server's own clock
+    SYDNEY = None
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 import shop  # noqa: E402
 
-VERSION = '3.7.0'
+VERSION = '3.7.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -234,6 +239,99 @@ POSTMATCH = 12.0
 PROTECT = 1.5
 # players who neither move nor act for this long are taken out of their match
 IDLE_KICK = float(os.environ.get('SOUK_IDLE') or 300.0)
+
+# -- the first month: 22 October 2026, Sydney time -----------------------------------------
+# Everyone who signs in or plays that day is given the "1 Month" outfit. The day runs
+# from 00:01 to 23:59.
+PARTY_DATE = os.environ.get('SOUK_PARTY_DATE') or '2026-10-22'
+PARTY_OUTFIT = 'month1'
+
+
+def party_day():
+    import datetime
+    t = datetime.datetime.now(SYDNEY) if SYDNEY else datetime.datetime.now()
+    if t.strftime('%Y-%m-%d') != PARTY_DATE:
+        return False
+    m = t.hour * 60 + t.minute
+    return 1 <= m <= 23 * 60 + 59
+
+
+def give_party_outfit(p):
+    """The gift onto a signed-in player's locker, once; tells them if it is new."""
+    lk = p.locker
+    if lk is None or not party_day():
+        return
+    if PARTY_OUTFIT in lk.setdefault('outfits', []):
+        return
+    lk['outfits'].append(PARTY_OUTFIT)
+    accounts.save_locker(p.account['id'], lk)
+    p.send({'t': 'gift', 'outfit': PARTY_OUTFIT, 'locker': lk, 'why': 'month'})
+
+
+# -- the menu's facts: what has been played most, all time -------------------------------
+FACTS_FILE = os.path.join(accounts.DATA_DIR, 'facts.json')
+facts = {'modes': {}, 'guns': {}, 'kills': 0, 'matches': 0}
+facts_dirty = False
+facts_saved_at = 0.0
+
+
+def load_facts():
+    global facts
+    try:
+        with open(FACTS_FILE) as f:
+            d = json.load(f)
+        for k in ('modes', 'guns'):
+            if isinstance(d.get(k), dict):
+                facts[k] = {str(a): int(b) for a, b in d[k].items()}
+        facts['kills'] = int(d.get('kills', 0))
+        facts['matches'] = int(d.get('matches', 0))
+    except (OSError, ValueError):
+        pass
+
+
+def fact_bump(kind, key):
+    global facts_dirty
+    facts[kind][key] = facts[kind].get(key, 0) + 1
+    facts['matches' if kind == 'modes' else 'kills'] += 1
+    facts_dirty = True
+
+
+def save_facts(force=False):
+    global facts_dirty, facts_saved_at
+    t = now()
+    if not force and (not facts_dirty or t - facts_saved_at < 15):
+        return
+    facts_dirty = False
+    facts_saved_at = t
+    try:
+        os.makedirs(accounts.DATA_DIR, exist_ok=True)
+        with open(FACTS_FILE, 'w') as f:
+            json.dump(facts, f)
+    except OSError as e:
+        print('facts file error: %r' % (e,), flush=True)
+
+
+_gun_totals = {'at': 0.0, 'v': {}}
+
+
+def facts_public():
+    """The counters, plus every account's kills by gun (summed once a minute at most)."""
+    t = now()
+    if ACCOUNTS and t - _gun_totals['at'] > 60:
+        _gun_totals['at'] = t
+        try:
+            _gun_totals['v'] = accounts.gun_totals()
+        except Exception as e:
+            print('gun totals error: %r' % (e,), flush=True)
+    guns = dict(_gun_totals['v'])
+    for w, n in facts['guns'].items():
+        guns[w] = max(guns.get(w, 0), n)
+    return {'modes': facts['modes'], 'guns': guns, 'kills': facts['kills'], 'matches': facts['matches'],
+            'accounts': accounts.user_count() if ACCOUNTS else 0, 'party': party_day()}
+
+
+load_facts()
+
 
 # -- bans -----------------------------------------------------------------
 # A ban is a record: the name it was made under, and everything learnt about
@@ -804,6 +902,7 @@ class Room:
         # bomb mode: joins as a spectator until the next round
         if not p.bot:
             self.add_dummies()
+            give_party_outfit(p)
 
     def add_dummies(self):
         """On a test server: the practice dummies come into any room a person is in."""
@@ -1094,6 +1193,7 @@ class Room:
         self.round = 0
         self.attackers = random.randrange(2)
         self.live_at = now()
+        fact_bump('modes', self.mode)
         if self.mode == 'royale':
             self.add_bots()
         for p in self.players.values():
@@ -1680,6 +1780,8 @@ class Room:
                 attacker.send({'t': 'doused'})
             attacker.kills += 1
             attacker.score += 100
+            if counting and w in WEAPONS:
+                fact_bump('guns', w)
             if counting and self.mode in STREAK_MODES:
                 # one more towards a scorestreak; at five, ten and fifteen it is theirs to call in
                 attacker.streak += 1
@@ -3554,6 +3656,9 @@ class Conn:
             return
         # one live locker per account, shared by all of that player's tabs
         lk = LIVE_LOCKERS.setdefault(user['id'], user['locker'])
+        if party_day() and PARTY_OUTFIT not in lk.setdefault('outfits', []):
+            lk['outfits'].append(PARTY_OUTFIT)      # the first month's gift, for signing in on the day
+            lk['party_gift'] = True
         if str(user.get('username', '')).lower() == 'mcb':
             # the owner's account: every gun fully unlocked and a full purse
             for w in catalog.SHOOTERS:
@@ -3863,6 +3968,8 @@ async def serve_http(method, target, headers, writer, body=b''):
         except Exception as e:
             print('shot error: %r' % (e,), flush=True)
         return respond(writer, 200, 'text/plain', b'ok', method)
+    if path == '/facts' and method in ('GET', 'HEAD'):
+        return respond(writer, 200, 'application/json', json.dumps(facts_public()).encode(), method, {'Cache-Control': 'no-cache'})
     if path == '/shop' and method in ('GET', 'HEAD'):
         return respond(writer, 200, 'application/json', json.dumps(shop.public()).encode(), method, {'Cache-Control': 'no-cache'})
     if path == '/shop/checkout' and method == 'POST':
@@ -4007,6 +4114,7 @@ async def ticker():
                 print('room %s error: %r' % (r.id, e), flush=True)
                 import traceback
                 traceback.print_exc()
+        save_facts()
         if t - last_list > 2.0 and lobby:
             last_list = t
             raw = json.dumps(room_list(), separators=(',', ':'))

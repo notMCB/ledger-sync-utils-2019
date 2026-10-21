@@ -121,6 +121,9 @@ export const OUTFITS = [
   { id: 'sahur', name: 'Tung Tung Tung Sahur', rarity: 'legendary', crate: 'pass', shirt: '#8a5a36', pants: '#6b4326', boots: '#3a2416', wrap: '#8a5a36', head: 'wrap', shape: 'log' },
   { id: 'ballerina', name: 'Ballerina Cappuccina', rarity: 'legendary', crate: 'pass', shirt: '#d8ac3f', pants: '#f1d9c0', boots: '#d8ac3f', wrap: '#c9a13b', head: 'wrap', shape: 'cup' },
   { id: 'tunggod', name: 'Tung Tung Tung God', rarity: 'legendary', crate: 'pass', shirt: '#f4f1ea', pants: '#f4f1ea', boots: '#f4f1ea', wrap: '#f4f1ea', head: 'wrap', shape: 'god', shine: true },
+  // the first month: Standard Issue in a white "1 month" T-shirt and a party hat, given to
+  // everyone who played on the day. No crate holds it.
+  { id: 'month1', name: '1 Month', rarity: 'legendary', crate: 'gift', shirt: '#ffffff', pants: '#6d6452', boots: '#3a2f24', wrap: null, head: 'party', tee: 'month1', jacket: true },
   // given to one account by hand; no crate holds it. The monogram jacket worn open
   // over his yellow T-shirt, jeans and white trainers, and Morty's head (see avatars.js)
   { id: 'guccimorty', name: 'Gucci Morty', rarity: 'legendary', crate: 'owner', pattern: 'gucci', colors: ['#cbb68c', '#4a3324', '#1f6b3a', '#b3201c'], pants: '#3f5f93', boots: '#f4f4f0', wrap: '#4a2a12', head: 'morty', jacket: true },
@@ -470,6 +473,38 @@ export function patternCanvas(kind, colors, seedKey = kind) {
   return c;
 }
 
+// the print on a T-shirt
+function teeCanvas(kind) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 256, 256);
+  if (kind === 'month1') {
+    g.fillStyle = '#17181c';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = '900 118px "Arial Black", Arial, sans-serif';
+    g.fillText('1', 128, 92);
+    g.font = '700 54px Arial, sans-serif';
+    g.fillText('month', 128, 176);
+  }
+  return c;
+}
+
+// the party hat's stripes
+export function rainbowCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 128;
+  const g = c.getContext('2d');
+  const cols = ['#ff3b3b', '#ff9f1c', '#ffe13b', '#3ddc84', '#2f8fff', '#7a5cff', '#ff4fd8'];
+  for (let i = 0; i < 16; i++) {
+    g.fillStyle = cols[i % cols.length];
+    g.fillRect(0, i * 8, 32, 8);
+  }
+  return c;
+}
+
 function canvasTex(c) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -571,7 +606,14 @@ export function outfitMaterials(outfitId) {
   const boots = lam(o.boots);
   const wrap = o.wrap ? lam(o.wrap) : null;
   const glow = o.glow ? new THREE.MeshBasicMaterial({ color: o.glow }) : null;
-  const set = { shirt, pants, boots, wrap, glow, head: o.head };
+  // a printed T-shirt: the words on the chest and the back, plain cloth everywhere else
+  let tee = null;
+  if (o.tee) {
+    const printed = new THREE.MeshLambertMaterial({ map: canvasTex(teeCanvas(o.tee)) });
+    const plain = lam(o.shirt || '#ffffff');
+    tee = [plain, plain, plain, plain, printed, printed];     // +x -x +y -y +z(back) -z(chest)
+  }
+  const set = { shirt, pants, boots, wrap, glow, head: o.head, tee };
   if (o.anim) animated.push({ kind: o.anim, mats: [shirt, pants, glow].filter(Boolean), base: o });
   outfitMatCache.set(o.id, set);
   return set;

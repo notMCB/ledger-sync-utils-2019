@@ -71,7 +71,18 @@ button { cursor: pointer; }
   margin: 4px 0 0; font-family: var(--display); font-weight: 700; font-size: clamp(44px, 7vw, 84px);
   line-height: 0.95; letter-spacing: -0.01em; color: var(--plaster); text-wrap: balance;
 }
-.tagline { margin: 0; color: var(--plaster-dim); font-size: 18px; max-width: 34ch; }
+.tagline { margin: 0; color: var(--plaster-dim); font-size: 18px; max-width: 34ch; min-height: 1.4em; transition: opacity 0.4s; }
+.tagline.fade { opacity: 0; }
+.tagline.mcb { font-family: var(--display); font-weight: 700; letter-spacing: 0.2em; color: var(--saffron); }
+/* the first month: every word in rainbow, and the splash over the screen on each load */
+@keyframes rainbowtext { 0% { color: #ff3b3b; } 16% { color: #ff9f1c; } 33% { color: #ffe13b; } 50% { color: #3ddc84; } 66% { color: #2f8fff; } 83% { color: #a05cff; } 100% { color: #ff3b3b; } }
+body.party *:not(canvas):not(#party-splash):not(#party-splash *) { animation: rainbowtext 5s linear infinite; }
+#party-splash { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: rgba(8, 10, 14, 0.82); cursor: pointer; text-align: center; }
+#party-splash .ps-text { font-family: var(--display); font-weight: 800; font-size: min(16vw, 22vh); line-height: 0.95; letter-spacing: -0.02em;
+  background: linear-gradient(90deg, #ff3b3b, #ff9f1c, #ffe13b, #3ddc84, #2f8fff, #a05cff, #ff4fd8, #ff3b3b); background-size: 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; animation: pssweep 4s linear infinite; }
+#party-splash .ps-hint { position: absolute; bottom: 8vh; left: 0; right: 0; font-family: var(--mono); letter-spacing: 0.2em; text-transform: uppercase; color: var(--plaster-dim); font-size: 14px; }
+@keyframes pssweep { to { background-position: 300% 0; } }
 
 .modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .mode {

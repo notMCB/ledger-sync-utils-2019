@@ -179,6 +179,22 @@ def save_locker(user_id, locker):
         db().commit()
 
 
+def gun_totals():
+    """Kills by gun across every account, for the menu's facts."""
+    out = {}
+    with _lock:
+        rows = db().execute('SELECT locker FROM users').fetchall()
+    for (locker,) in rows:
+        try:
+            kills = json.loads(locker).get('kills') or {}
+        except ValueError:
+            continue
+        for w, n in kills.items():
+            if isinstance(n, int):
+                out[w] = out.get(w, 0) + n
+    return out
+
+
 def user_count():
     with _lock:
         return db().execute('SELECT COUNT(*) FROM users').fetchone()[0]
