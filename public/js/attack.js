@@ -107,7 +107,7 @@ export function poseTowerBomb(mesh, state, clock, left = 0) {
 // -- a Breakthrough point: the ground that changes hands -------------------------------------
 export function makeZone(zone) {
   const g = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
+  const mat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
   const edge = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
   if (zone.k === 'circle') {
     const fill = new THREE.Mesh(new THREE.CircleGeometry(zone.r, 40), mat);
@@ -128,6 +128,12 @@ export function makeZone(zone) {
     const slab = new THREE.Mesh(new THREE.BoxGeometry(zone.hw * 2, 0.05, zone.hd * 2), mat);
     slab.position.y = zone.y0 + 1.05;
     g.add(slab);
+    // a bright edge round the floor where it meets the walls, so the room reads as the point
+    for (const [w, d, x, z] of [[zone.hw * 2, 0.25, 0, -zone.hd + 0.12], [zone.hw * 2, 0.25, 0, zone.hd - 0.12], [0.25, zone.hd * 2, -zone.hw + 0.12, 0], [0.25, zone.hd * 2, zone.hw - 0.12, 0]]) {
+      const e = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, d), edge);
+      e.position.set(x, zone.y0 + 1.08, z);
+      g.add(e);
+    }
     const frame = new THREE.Mesh(new THREE.BoxGeometry(zone.hw * 2, h, zone.hd * 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.08, depthWrite: false, side: THREE.BackSide }));
     frame.position.y = zone.y0 + 1.0 + h / 2;
     g.add(frame);
@@ -140,5 +146,5 @@ export function makeZone(zone) {
 
 export function colourZone(mesh, hex, pulse = 0) {
   for (const m of mesh.userData.mats) m.color.setHex(hex);
-  mesh.userData.mats[0].opacity = 0.14 + pulse * 0.12;
+  mesh.userData.mats[0].opacity = 0.2 + pulse * 0.14;
 }
