@@ -571,7 +571,7 @@ function renderShop() {
     $('shop-note').textContent = 'Nothing for sale yet.';
   } else {
     grid.innerHTML = d.items.map((it) => `<div class="shop-card${owned(it) ? ' owned' : ''}" data-sku="${esc(it.sku)}"><div class="sw" style="background:${shopItemSwatch(it)}"></div><b>${esc(it.name)}</b><small>${esc(shopKindName(it.kind))}${it.blurb ? ' · ' + esc(it.blurb) : ''}</small><span class="price">${esc(priceText(it.price, d.currency))}</span><button class="btn small" ${owned(it) ? 'disabled' : ''}>${owned(it) ? 'Owned' : 'Buy'}</button></div>`).join('');
-    $('shop-note').textContent = !auth.user ? 'Sign in to buy: what you buy goes on your account and stays there.' : !d.on ? 'Payments are not switched on yet.' : 'Paying takes you to a secure Stripe page and brings you straight back. Prices in Australian dollars.';
+    $('shop-note').textContent = !auth.user ? 'Sign in to buy: what you buy goes on your account and stays there.' : !d.on ? 'The trader is not taking payments yet.' : 'Paying takes you to a secure Stripe page and brings you straight back. Prices in Australian dollars.';
     grid.querySelectorAll('.shop-card .btn').forEach((b) => b.addEventListener('click', () => buyItem(b.closest('.shop-card').dataset.sku)));
   }
   $('shop-sub').textContent = auth.user ? `Buying as ${auth.user.username}` : 'Not signed in';

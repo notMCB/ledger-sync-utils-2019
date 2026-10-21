@@ -220,7 +220,7 @@ export function poseHeli(mesh, path, s, dt, clock) {
 // outline is what matters: fifty-odd metres across, twenty from nose to the notch.
 export function makeBomber() {
   const g = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color: '#23262a', side: THREE.DoubleSide });
+  const skin = new THREE.MeshLambertMaterial({ color: '#050506', side: THREE.DoubleSide });     // black, as they are
   // the wing's outline in the x (forward) / z (span) plane, drawn as a flat shape
   const half = 26, nose = 11, tail = -9, notch = -4, mid = -6;
   const pts = [

@@ -2,9 +2,21 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.6.0';
+export const VERSION = '3.6.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.6.1',
+    date: '21 October 2026',
+    title: 'Royale carts, no bots, the Manor by day',
+    notes: [
+      'Souk Royale: golf carts are parked about the map, by the roads between the quarters, on top of the ones the dock and the manor already had. Get across the map in one, or run someone down.',
+      'No more bots in Souk Royale: it is players only, and the plane leaves once two are in.',
+      'The Manor is always played by day.',
+      'The airstrike’s B-2s are black.',
+      'The shop is the Local Souk Trader now (the menu button still says Shop).',
+    ],
+  },
   {
     version: '3.6.0',
     date: '21 October 2026',

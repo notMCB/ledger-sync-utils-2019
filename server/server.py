@@ -37,7 +37,7 @@ import catalog  # noqa: E402
 import accounts  # noqa: E402
 import shop  # noqa: E402
 
-VERSION = '3.6.0'
+VERSION = '3.6.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -84,7 +84,7 @@ DERBY_CRASH_REACH = 3.4    # how far from the cart's middle a hit can be
 PLANE_ALT = 160.0          # how high the plane flies
 PLANE_SPEED = 24.0         # metres a second
 NIGHT_CHANCE = float(os.environ.get('SOUK_NIGHT') or 0.4)   # how often a match is played after dark
-BOT_FILL = int(os.environ.get('SOUK_BOTS') or 8)            # a quiet royale is filled up to this many with bots
+BOT_FILL = int(os.environ.get('SOUK_BOTS') or 0)            # a quiet royale is filled up to this many with bots (none, since 3.6.1)
 BOT_NAMES = ['Bot Ahmed', 'Bot Layla', 'Bot Omar', 'Bot Zara', 'Bot Idris', 'Bot Nadia', 'Bot Samir', 'Bot Rania',
              'Bot Tariq', 'Bot Yasmin', 'Bot Karim', 'Bot Hana', 'Bot Faris', 'Bot Dalia']
 BOT_SPEED = 4.6
@@ -682,8 +682,8 @@ class Room:
         if self.mode == 'knives':
             # Knife Fight is on foot: no golf carts to drive about in
             self.map['deco'] = [d for d in self.map['deco'] if d.get('k') != 'golfcart']
-        # night falls on four matches in ten, on every map but the royale's
-        self.night = self.mode != 'royale' and random.random() < NIGHT_CHANCE
+        # night falls on four matches in ten, on every map but the royale's and the Manor
+        self.night = self.mode != 'royale' and self.map_kind != 'manor' and random.random() < NIGHT_CHANCE
         self.map['night'] = self.night
         self.solid = mapgen.Solid(self.map['boxes'])
         # forklifts: driveable, so the server keeps their pose and who is at the wheel

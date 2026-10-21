@@ -1478,7 +1478,7 @@ export class Game {
   onPhase(prev, ph) {
     const g = this.g;
     if (ph === 'live') { this.liveT = this.clock; this.dmgDealt = 0; this.lap = null; }
-    if (ph === 'waiting') this.hud.center('Warm-up', this.br ? 'The plane leaves in a moment. Bots fill the empty seats' : 'The match starts when a second player joins', '', 3, 1);
+    if (ph === 'waiting') this.hud.center('Warm-up', this.br ? 'The plane leaves when a second player joins' : 'The match starts when a second player joins', '', 3, 1);
     if (ph === 'ended' && this.br) { this.me.aboard = false; this.me.falling = null; this.endMyChute(); }
     if (ph === 'live' && g.mode !== 'bomb') {
       this.hud.center(MODE_INFO[g.mode].name, this.goalText(), '', 3.5, 2);
@@ -4003,7 +4003,7 @@ export class Game {
     } else hud.crosshair(0, false, false);
     // held messages
     if (g) {
-      if (g.ph === 'waiting') hud.holdCenter(br ? 'Warm-up' : 'Waiting for players', br ? 'The plane leaves in a moment · bots fill the empty seats' : `${g.n} of 2 needed to start · warm-up`, '');
+      if (g.ph === 'waiting') hud.holdCenter(br ? 'Warm-up' : 'Waiting for players', `${g.n} of 2 needed to start · warm-up`, '');
       else if (g.ph === 'countdown') hud.holdCenter(`${br ? 'The plane leaves' : 'Match starts'} in ${Math.ceil(g.tl)}`, MODE_INFO[g.mode].name, '');
       else if (g.ph === 'freeze') hud.holdCenter(`${Math.ceil(g.tl)}`, g.att === me.team ? 'Attack — the round starts soon' : 'Defend — the round starts soon', '');
       else if (g.ph === 'ended') hud.holdCenter('Match over', `Next town in ${Math.ceil(g.tl)}`, '');

@@ -40,6 +40,7 @@ RING_X, RING_Z = 110.0, 94.0    # the ring road round the city
 ROAD_H = 0.12             # a road's top stands this much over the ground it runs on
 GROUND_TINT = {'alpine': 1, 'town': 0, 'dock': 3, 'manor': 2, 'city': 3}    # terrain tops: sand, snow, grass, concrete
 N_CHESTS = 340
+N_CARTS = 14           # golf carts parked about the seams, besides the ones the quarters bring
 # where each town goes: centre and the turn, chosen so their roads come out facing the ring
 LAYOUT = {
     'alpine': (-202.0, -96.0, 0.0),
@@ -596,6 +597,25 @@ class Royale(Town):
             if any(math.hypot(x - c[0], z - c[2]) < 6.0 for c in self.chests):
                 continue
             self.chests.append([round(x, 2), round(y, 2), round(z, 2), round(rng.uniform(0, math.pi), 3)])
+        # golf carts parked about the seams, by the roads, to get across the map in
+        tries = 0
+        carts = []
+        while len(carts) < N_CARTS and tries < 6000:
+            tries += 1
+            x = rng.uniform(-BX + 10, BX - 10)
+            z = rng.uniform(-BZ + 10, BZ - 10)
+            if self.in_quarter(x, z) or not (0.5 < self.road_dist(x, z) < 7.0):
+                continue
+            if not self.seam_free(x, z, 1.8, 2.0, 1.2):
+                continue
+            if any(math.hypot(x - cx, z - cz) < 28.0 for (cx, cz) in carts):
+                continue
+            if any(math.hypot(x - c[0], z - c[2]) < 4.0 for c in self.chests):
+                continue
+            carts.append((x, z))
+            self.vehicles += 1
+            self.deco.append({'k': 'golfcart', 'id': self.vehicles, 'x': round(x, 2), 'y': round(self.ground(x, z), 2), 'z': round(z, 2),
+                              'yaw': round(rng.uniform(0, math.tau), 4)})
         # nobody fights over sites or hills here, but the record wants them
         self.site_a = (0.0, 0.0)
         self.site_b = (0.0, 0.0)
