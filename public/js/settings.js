@@ -28,7 +28,7 @@ export const ACTIONS = [
   { id: 'loadout', label: 'Change loadout', key: 'KeyB', group: 'Other' },
   { id: 'chat', label: 'Chat to everyone', key: 'Enter', group: 'Other' },
   { id: 'teamchat', label: 'Chat to your team', key: 'KeyY', group: 'Other' },
-  { id: 'talk', label: 'Push to talk (voice chat)', key: 'KeyT', group: 'Other' },
+  { id: 'talk', label: 'Push to talk (voice chat, if set to that)', key: 'KeyT', group: 'Other' },
 ];
 
 const DEFAULTS = {
@@ -46,7 +46,8 @@ const DEFAULTS = {
   volMusic: 0.45,
   volVoice: 1.0,
   volChat: 1.0,
-  voiceMode: 'push',   // proximity voice chat: 'push' to talk, 'open' mic, or 'off'
+  voiceMode: 'open',   // proximity voice chat: 'open' mic, 'push' to talk, or 'off'
+  voiceV2: true,       // set once the open-mic default has been applied
   aimToggle: true,  // holding a two-finger click is hard on a trackpad
   crouchToggle: false,
   sprintToggle: false,
@@ -75,6 +76,7 @@ function load() {
   s.binds = { ...DEFAULTS.binds, ...(saved.binds || {}) };
   s.alt = { ...DEFAULTS.alt, ...(saved.alt || {}) };
   s.touch = saved.touch && typeof saved.touch === 'object' ? saved.touch : {};
+  if (!saved.voiceV2) { s.voiceMode = 'open'; s.voiceV2 = true; }
   return s;
 }
 

@@ -68,6 +68,7 @@ export const auth = {
         const username = $('auth-user').value.trim();
         const email = $('auth-email').value.trim();
         if (!/^[A-Za-z0-9_]{3,16}$/.test(username)) return this.error('Usernames are 3–16 letters, numbers or underscores.');
+        if (username.toLowerCase() === 'player') return this.error('Pick a name of your own: "Player" is nobody.');
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) return this.error('That email address doesn’t look right.');
         if (pass.length < 8) return this.error('Passwords need at least 8 characters.');
         setBusy(true);

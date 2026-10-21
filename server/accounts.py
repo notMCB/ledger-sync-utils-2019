@@ -94,6 +94,8 @@ def validate_signup(username, email, password):
     password = password or ''
     if not USERNAME_RE.match(username):
         raise AuthError('Usernames are 3–16 letters, numbers or underscores.')
+    if username.lower() == 'player':
+        raise AuthError('Pick a name of your own: "Player" is nobody.')
     if not EMAIL_RE.match(email) or len(email) > 254:
         raise AuthError('That email address doesn’t look right.')
     if len(password) < 8:

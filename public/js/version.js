@@ -10,9 +10,10 @@ export const PATCH_NOTES = [
     date: '21 October 2026',
     title: 'Proximity voice chat',
     notes: [
-      'Voice chat, by distance. Hold T to talk and the players near you hear you: full volume within a few metres, fainter further off, muffled through a wall, and nothing at all beyond thirty metres. Enemies hear you as well as friends, so mind what you say round a corner. Voices come from the side the player is on.',
+      'Voice chat, by distance. Your mic is live while you play, and the players near you hear you: full volume within a few metres, fainter further off, muffled through a wall, and nothing at all beyond thirty metres. Enemies hear you as well as friends, so mind what you say round a corner. Voices come from the side the player is on.',
       'Your name shows over your head while you talk. The dead can listen but not speak.',
-      'Sound settings: push to talk, open mic, or off, and a volume for other players’ voices. The browser asks for your microphone the first time you join; say no and you can still hear everyone.',
+      'Sound settings: open mic, push to talk (hold T), or off, and a volume for other players’ voices. The browser asks for your microphone the first time you join; say no and you can still hear everyone.',
+      'Nobody can be "Player" any more, as a guest name or an account name.',
       'The Interceptor’s turret is now I rather than T.',
     ],
   },
