@@ -69,9 +69,13 @@ async def main(url, secs, out):
         if len(sys.argv) > 4:
             # something to run in the page first, e.g. pressing a key
             r = await call('Runtime.evaluate', {'expression': sys.argv[4], 'awaitPromise': True}, sid)
-            print('eval:', (r.get('result', {}).get('result', {}).get('value')), (r.get('result', {}).get('exceptionDetails') or {}).get('text', ''))
+            ex = r.get('result', {}).get('exceptionDetails') or {}
+            print('eval:', (r.get('result', {}).get('result', {}).get('value')), ex.get('text', ''), (ex.get('exception') or {}).get('description', '')[:300])
             await asyncio.sleep(1.5)
         r = await call('Page.captureScreenshot', {'format': 'png'}, sid)
+        if 'result' not in r:
+            print('screenshot failed:', r)
+            return
         with open(out, 'wb') as f:
             f.write(base64.b64decode(r['result']['data']))
         print('saved', out)

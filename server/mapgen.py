@@ -472,8 +472,8 @@ class Town:
 
         # buildings
         tints = 6
-        for _ in range(14000):
-            if len(self.rects) >= 60:
+        for _ in range(getattr(self, 'build_tries', 14000)):
+            if len(self.rects) >= getattr(self, 'max_rects', 60):
                 break
             w = rng.uniform(6.8, 13.5)
             d = rng.uniform(6.8, 12.5)
@@ -1392,6 +1392,9 @@ def generate(seed, kind='town'):
     elif kind == 'royale':
         import map_royale
         t = map_royale.Royale(seed)
+    elif kind == 'front':
+        import map_front
+        t = map_front.Front(seed)
     else:
         t = Town(seed)
     t.generate()

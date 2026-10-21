@@ -514,6 +514,7 @@ button { cursor: pointer; }
 #chat-mode.team { background: #2d4a2b; color: #b8f0b2; }
 #chat-input { flex: 1; min-width: 0; background: rgba(18, 21, 28, 0.85); border: 1px solid var(--saffron); border-radius: 3px; padding: 7px 10px; font-size: 15px; outline: none; }
 .mk.ping .ic { background: rgba(201, 65, 47, 0.8); box-shadow: inset 0 0 0 2px #ffb2a6; color: #fff; width: 22px; height: 22px; font-size: 12px; }
+.mk.site.gone .ic { opacity: 0.4; }
 .mk.strike .ic { background: rgba(255, 58, 42, 0.85); box-shadow: inset 0 0 0 2px #ffb2a6; color: #fff; animation: blink 0.5s steps(2) infinite; }
 
 /* accounts */
@@ -750,6 +751,13 @@ body.strikecam #crosshair, body.strikecam #minimap, body.strikecam #markers, bod
 #name-field.nudge { animation: nudge 0.45s; }
 #name-field.nudge input { box-shadow: 0 0 0 2px #e05a46; }
 @keyframes nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+/* Attack and Defend: the points in the top bar, and the spawn choice on the death card */
+#topbar .time b { font-weight: 700; margin: 0 2px; }
+#topbar .time b.took { color: #7fc47a; }
+#topbar .time s { opacity: 0.45; margin: 0 2px; }
+#topbar .time b.hot { color: #ff6a4a; }
+.spawn-side { display: flex; gap: 10px; justify-content: center; margin: 8px 0 4px; }
+.spawn-side .btn.on { box-shadow: inset 0 0 0 2px var(--saffron); }
 /* the shop */
 .shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin: 8px 0 12px; }
 .shop-card { display: grid; gap: 6px; padding: 10px; border-radius: 6px; background: rgba(239, 228, 207, 0.07); box-shadow: inset 0 0 0 1px rgba(239, 228, 207, 0.12); }

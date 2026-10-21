@@ -19,8 +19,12 @@ export const MODE_INFO = {
   oitc: { name: 'One in the Chamber', short: 'OITC', desc: 'A pistol with one round, a knife, three lives. A hit kills and gives you another round; a miss leaves you the knife. Most kills wins.' },
   derby: { name: 'Derby', short: 'Derby', desc: 'Golf carts round a race track on the Dockyard, up to 12. Crash into people or grenade them: any grenade damage kills. First to 20.' },
   royale: { name: 'Souk Royale', short: 'Royale', desc: 'Battle royale, up to 64, one match at a time. Jump from the plane over Downtown and all four maps, loot the chests, stay out of the gas. Last one standing.' },
+  ad: { name: 'Attack and Defend', short: 'A&D', desc: 'Rush and Breakthrough on the Long Souk: attackers push through three sectors of two points, defenders hold them. Up to 10 a side.' },
+  rush: { name: 'Rush', short: 'Rush', desc: 'Attackers arm the two bombs in each sector (hold E), defenders disarm them before they go off. 40 lives a sector for the attackers; blow the last pair to win.' },
+  breakthrough: { name: 'Breakthrough', short: 'Break', desc: 'Attackers take each sector’s two points by outnumbering the defenders on them, and must hold both at once to move on. Defenders can take them back. 40 lives a sector.' },
 };
-export const TEAM_MODES = ['tdm', 'koth', 'bomb'];
+export const AD_MODES = ['rush', 'breakthrough'];
+export const TEAM_MODES = ['tdm', 'koth', 'bomb', ...AD_MODES];
 export const NICHE_MODES = ['snipers', 'knives', 'firefight', 'oitc'];
 export const isTeamMode = (mode) => TEAM_MODES.includes(mode);
 
@@ -367,6 +371,21 @@ export class Hud {
       const other = lead && lead.id !== myId ? lead : sorted[1];
       html = `<div class="tb-team" style="box-shadow:inset 0 -3px 0 ${playerColor(myId, -1)}"><div class="n">${mine}</div><div class="l">You</div></div>${mid}` +
         `<div class="tb-team" style="box-shadow:inset 0 -3px 0 ${other ? playerColor(other.id, -1) : '#666'}"><div class="n">${other ? other.k : 0}</div><div class="l">${other ? esc(other.n).slice(0, 10) : '—'}</div></div>`;
+    } else if (AD_MODES.includes(mode) && g.ad) {
+      const A = g.ad;
+      const att = g.att;
+      const mine = myTeam === att;
+      let st = '';
+      for (const [i, pt] of A.pts.entries()) {
+        const id = 'AB'[i];
+        if (mode === 'rush') st += pt.s === 'gone' ? `<s>${id}</s>` : pt.s === 'armed' ? `<b class="hot">${id} ${fmtTime(pt.ex)}</b>` : `<b>${id}</b>`;
+        else st += `<b class="${pt.o === att ? 'took' : ''}">${id} ${Math.round(pt.c * 100)}%</b>`;
+        if (i === 0) st += ' · ';
+      }
+      const hotNow = mode === 'rush' && A.pts.some((p) => p.s === 'armed');
+      const midAd = `<div class="tb-mid"><div class="time${hotNow ? ' hot' : ''}">${st}</div><div class="sub">Sector ${A.sec + 1} of ${A.n} · ${ph === 'ended' ? 'Match over' : fmtTime(tl)}</div></div>`;
+      html = `<div class="tb-team sand${att === 0 ? (mine ? ' mine' : '') : (myTeam === 0 ? ' mine' : '')}"><div class="n">${att === 0 ? A.tk : '∞'}</div><div class="l">${att === 0 ? 'Attack · lives' : 'Defend'}</div></div>${midAd}` +
+        `<div class="tb-team sky${myTeam === 1 ? ' mine' : ''}"><div class="n">${att === 1 ? A.tk : '∞'}</div><div class="l">${att === 1 ? 'Attack · lives' : 'Defend'}</div></div>`;
     } else {
       const sc = g.sc || [0, 0];
       const lab = (i) => {

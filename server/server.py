@@ -37,7 +37,7 @@ import catalog  # noqa: E402
 import accounts  # noqa: E402
 import shop  # noqa: E402
 
-VERSION = '3.6.2'
+VERSION = '3.7.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -63,7 +63,21 @@ MODES = {
     'royale':    {'name': 'Souk Royale',        'time': 900, 'limit': 0,  'respawn': 0.0, 'max': 64, 'countdown': 20.0},
     # golf carts round a circuit on the Dockyard: crash into people, or grenade them
     'derby':     {'name': 'Derby',              'time': 480, 'limit': 20, 'respawn': 1.0, 'max': 12},
+    # Attack and Defend, on the Long Souk: attackers push through three sectors of two points
+    'rush':         {'name': 'Rush',         'time': 1800, 'limit': 0, 'respawn': 6.0, 'max': 20},
+    'breakthrough': {'name': 'Breakthrough', 'time': 1800, 'limit': 0, 'respawn': 6.0, 'max': 20},
 }
+AD_MODES = ('rush', 'breakthrough')
+AD_TICKETS = int(os.environ.get('SOUK_AD_TICKETS') or 40)   # the attackers' lives, per sector (anyone may use them; the team runs out together)
+AD_ARM = 4.0             # seconds holding E to arm or disarm a Rush bomb
+AD_FUSE = 40.0           # seconds an armed bomb takes to go off
+AD_CAP = 25.0            # seconds attackers must outnumber defenders on a Breakthrough point to take it (and the same back)
+AD_REACH = 2.8           # how close to the bomb you have to be
+AD_BLAST = 9.0           # the bomb's blast reaches this far
+_ad_scale = float(os.environ.get('SOUK_AD') or 1.0)    # SOUK_AD=0.1 makes arming, the fuse and capturing ten times quicker, for the tests
+AD_ARM *= _ad_scale
+AD_FUSE *= _ad_scale
+AD_CAP *= _ad_scale
 NICHE_MODES = ('snipers', 'knives', 'firefight', 'oitc')
 FFA_MODES = ('ffa',) + NICHE_MODES + ('royale', 'derby')
 # what a niche mode hands you: (primary, secondary, grenade kinds); None is nothing in that slot
@@ -74,7 +88,7 @@ NICHE_ARMS = {
     'oitc':      (None, 'pistol', ()),
 }
 OITC_LIVES = 3
-TEAM_MODES = ('tdm', 'koth', 'bomb')
+TEAM_MODES = ('tdm', 'koth', 'bomb') + AD_MODES
 # the Derby: everyone in a golf cart, grenades only, and any grenade damage at all kills
 DERBY_NADES = 3
 DERBY_CRASH_SPEED = 3.5    # metres a second a cart must be doing to kill what it hits
@@ -527,6 +541,7 @@ class Player:
         self.streaks = []
         self.heli = None
         self.dummy = False       # a practice target on a test server: it stands there and takes it
+        self.side = 0            # Attack and Defend: come back at the left (0) or right (1) point
 
     def send(self, obj):
         self.conn.send(obj)
@@ -630,6 +645,7 @@ class Room:
         self.strikes = []
         self.strike_seq = 0
         self.dummy_want = DUMMIES
+        self.ad = None           # Attack and Defend: the sector, the attackers' lives, the points' state
         # the battle royale
         self.plane = None
         self.gas = None
@@ -650,6 +666,8 @@ class Room:
             return 'royale'
         if self.mode == 'derby':
             return 'derby'
+        if self.mode in AD_MODES:
+            return 'front'
         if FORCE_MAP:
             return FORCE_MAP
         # any of the four, never the same one twice running
@@ -675,6 +693,8 @@ class Room:
             self.seed = random.randrange(1, 2 ** 31)
             if self.mode in ('royale', 'derby'):
                 self.map_kind = self.mode
+            elif self.mode in AD_MODES:
+                self.map_kind = 'front'
             else:
                 self.map_kind = kind or (FORCE_MAP or getattr(self, 'map_kind', None) or MAP_KINDS[0])
             town = mapgen.generate(self.seed, self.map_kind)
@@ -683,7 +703,7 @@ class Room:
             # Knife Fight is on foot: no golf carts to drive about in
             self.map['deco'] = [d for d in self.map['deco'] if d.get('k') != 'golfcart']
         # night falls on four matches in ten, on every map but the royale's and the Manor
-        self.night = self.mode != 'royale' and self.map_kind != 'manor' and random.random() < NIGHT_CHANCE
+        self.night = self.mode != 'royale' and self.map_kind not in ('manor', 'front') and random.random() < NIGHT_CHANCE
         self.map['night'] = self.night
         self.solid = mapgen.Solid(self.map['boxes'])
         # forklifts: driveable, so the server keeps their pose and who is at the wheel
@@ -920,6 +940,8 @@ class Room:
                                                  for q in others)), pts[0])
         elif self.mode == 'derby':
             best = None
+        elif self.mode in AD_MODES and self.ad and not warmup:
+            best = self.ad_spawn(p, others)
         else:
             best = self.random_spawn(p, others, warmup)
         if self.mode == 'derby':
@@ -930,6 +952,8 @@ class Room:
             x, z = best[0], best[1]
             y = float(best[2]) if len(best) > 2 else 0.0
             yaw = random.uniform(-math.pi, math.pi)
+            if self.mode in AD_MODES and self.ad and not warmup:
+                yaw = -math.pi / 2 if p.team == self.attackers else math.pi / 2     # facing along the town: attackers east, defenders west
         p.pos = [x, y, z]
         p.yaw = yaw
         p.hp = 100
@@ -1085,6 +1109,8 @@ class Room:
             self.hill_i = random.randrange(len(self.map['hills']))
             self.hill_next = now() + HILL_MOVE
             self.hill_owner = -1
+        if self.mode in AD_MODES:
+            self.start_ad()
         for p in self.players.values():
             self.spawn(p)
         self.roster_dirty = True
@@ -1172,6 +1198,8 @@ class Room:
         self.event({'e': 'bombdrop'})
 
     def handle_plant(self, p, on):
+        if self.mode in AD_MODES:
+            return self.handle_arm(p, on)
         b = self.bomb
         if self.mode != 'bomb' or not b or self.phase != 'live':
             return
@@ -1258,6 +1286,161 @@ class Room:
                             if dmg > 0:
                                 self.damage(q, None, dmg, 'bomb', False)
                 self.end_round(self.attackers, 'exploded')
+
+    # -- Attack and Defend: Rush and Breakthrough -------------------------------------
+
+    def start_ad(self):
+        self.attackers = 0
+        self.ad = {'sector': 0, 'tickets': AD_TICKETS, 'pts': self.ad_points(0)}
+
+    def ad_points(self, i):
+        out = []
+        for _ in self.map['ad']['sectors'][i]['pts']:
+            if self.mode == 'rush':
+                out.append({'s': 'idle', 'planter': None, 'plant_t': 0.0, 'defuser': None, 'defuse_t': 0.0, 'explode': 0.0})
+            else:
+                out.append({'owner': 1, 'cap': 0.0, 'a': 0, 'd': 0})
+        return out
+
+    def ad_point_pos(self, i, j):
+        P = self.map['ad']['sectors'][i]['pts'][j]
+        return [P['x'], P['y'], P['z']]
+
+    def ad_inside(self, pos, zone):
+        if pos[1] < zone['y0'] or pos[1] > zone['y1']:
+            return False
+        if zone['k'] == 'circle':
+            return math.hypot(pos[0] - zone['x'], pos[2] - zone['z']) <= zone['r']
+        return mapgen.point_in_rect(pos[0], pos[2], (zone['x'], zone['z'], zone['hw'], zone['hd'], zone['yaw']), 0.0)
+
+    def ad_spawn(self, p, others):
+        """Attackers come back at the sector before this one (or the west end for the first);
+        defenders at the sector after it (or the east end for the last). Left or right as they chose."""
+        A = self.map['ad']
+        i = self.ad['sector']
+        side = 1 if p.side == 1 else 0
+        if p.team == self.attackers:
+            spots = A['start'][side] if i == 0 else A['sectors'][i - 1]['pts'][side]['spawns']
+        else:
+            spots = A['end'][side] if i == len(A['sectors']) - 1 else A['sectors'][i + 1]['pts'][side]['spawns']
+        spots = spots or A['start'][0] or [[0.0, 0.0]]
+        pts = list(spots)
+        random.shuffle(pts)
+        best = next((pt for pt in pts if all(math.hypot(pt[0] - q.pos[0], pt[1] - q.pos[2]) > 1.5 for q in others)), pts[0])
+        return [best[0], best[1], 0.0]
+
+    def handle_arm(self, p, on):
+        """Rush: an attacker holding E at a bomb arms it, a defender holding E at an armed one disarms it."""
+        if self.mode != 'rush' or self.phase != 'live' or not self.ad:
+            return
+        pts = self.ad['pts']
+        if not on:
+            for S in pts:
+                if S['planter'] == p.id:
+                    S['planter'] = None
+                if S['defuser'] == p.id:
+                    S['defuser'] = None
+            return
+        if not p.alive:
+            return
+        i = self.ad['sector']
+        for j, S in enumerate(pts):
+            if dist3(p.pos, self.ad_point_pos(i, j)) > AD_REACH:
+                continue
+            if p.team == self.attackers:
+                if S['s'] == 'idle' and not S['planter']:
+                    S['planter'] = p.id
+                    S['plant_t'] = now()
+            elif S['s'] == 'armed' and not S['defuser']:
+                S['defuser'] = p.id
+                S['defuse_t'] = now()
+            return
+
+    def update_ad(self, t):
+        if self.phase != 'live' or not self.ad:
+            return
+        A = self.ad
+        i = A['sector']
+        secs = self.map['ad']['sectors']
+        if self.mode == 'rush':
+            for j, S in enumerate(A['pts']):
+                pos = self.ad_point_pos(i, j)
+                if S['s'] == 'idle' and S['planter']:
+                    p = self.players.get(S['planter'])
+                    if not p or not p.alive or dist3(p.pos, pos) > AD_REACH + 0.6:
+                        S['planter'] = None
+                    elif t - S['plant_t'] >= AD_ARM:
+                        S['s'] = 'armed'
+                        S['planter'] = None
+                        S['explode'] = t + AD_FUSE
+                        p.score += 50
+                        self.earn(p, 'plant')
+                        self.roster_dirty = True
+                        self.event({'e': 'adarmed', 'id': p.id, 'pt': j, 'p': pos})
+                elif S['s'] == 'armed':
+                    if S['defuser']:
+                        p = self.players.get(S['defuser'])
+                        if not p or not p.alive or dist3(p.pos, pos) > AD_REACH + 0.6:
+                            S['defuser'] = None
+                        elif t - S['defuse_t'] >= AD_ARM:
+                            S['s'] = 'idle'
+                            S['defuser'] = None
+                            p.score += 50
+                            self.earn(p, 'defuse')
+                            self.roster_dirty = True
+                            self.event({'e': 'addisarmed', 'id': p.id, 'pt': j})
+                    if S['s'] == 'armed' and t >= S['explode']:
+                        S['s'] = 'gone'
+                        self.event({'e': 'adboom', 'pt': j, 'p': pos})
+                        for q in list(self.players.values()):
+                            d = dist3(q.pos, pos)
+                            if q.alive and d < AD_BLAST:
+                                self.damage(q, None, int(220 * (1 - d / AD_BLAST)), 'bomb', False)
+            if all(S['s'] == 'gone' for S in A['pts']):
+                return self.ad_advance(t)
+        else:
+            for j, S in enumerate(A['pts']):
+                zone = secs[i]['pts'][j]['zone']
+                a = d = 0
+                for q in self.players.values():
+                    if q.alive and self.ad_inside(q.pos, zone):
+                        if q.team == self.attackers:
+                            a += 1
+                        else:
+                            d += 1
+                S['a'], S['d'] = a, d
+                if a > d:
+                    S['cap'] = min(1.0, S['cap'] + TICK / AD_CAP)
+                elif d > a:
+                    S['cap'] = max(0.0, S['cap'] - TICK / AD_CAP)
+                if S['owner'] != self.attackers and S['cap'] >= 1.0:
+                    S['owner'] = self.attackers
+                    self.event({'e': 'adcap', 'pt': j, 'tm': self.attackers})
+                elif S['owner'] == self.attackers and S['cap'] <= 0.0:
+                    S['owner'] = 1 - self.attackers
+                    self.event({'e': 'adcap', 'pt': j, 'tm': 1 - self.attackers})
+            if all(S['owner'] == self.attackers for S in A['pts']):
+                return self.ad_advance(t)
+        # out of lives and nobody left standing: the defenders have held
+        att = [q for q in self.players.values() if q.team == self.attackers]
+        if A['tickets'] <= 0 and att and not any(q.alive for q in att):
+            return self.end_match(1 - self.attackers)
+        if t >= self.match_end:
+            return self.end_match(1 - self.attackers)
+
+    def ad_advance(self, t):
+        """Both points taken: on to the next sector, with a fresh set of lives; the last one won is the match."""
+        A = self.ad
+        if A['sector'] >= len(self.map['ad']['sectors']) - 1:
+            return self.end_match(self.attackers)
+        A['sector'] += 1
+        A['tickets'] = AD_TICKETS
+        A['pts'] = self.ad_points(A['sector'])
+        self.event({'e': 'adsector', 'sec': A['sector']})
+        for q in self.players.values():
+            if not q.alive and q.team == self.attackers and not q.respawn_at:
+                q.respawn_at = t + 1.0       # the ones who were out come back for the next sector
+        self.roster_dirty = True
 
     # -- combat --
 
@@ -1460,6 +1643,8 @@ class Room:
             if self.bomb.get('defuser') == q.id:
                 self.bomb['defuser'] = None
         counting = self.phase in ('live', 'freeze') and w != ADMIN_KILL
+        if counting and self.mode in AD_MODES and self.ad and q.team == self.attackers:
+            self.ad['tickets'] = max(0, self.ad['tickets'] - 1)      # one of the attackers' lives
         # anyone who did ASSIST_DAMAGE or more, and didn't land the kill, assisted
         assisted = []
         for pid, dealt in q.hurt_by.items():
@@ -1516,6 +1701,8 @@ class Room:
         if self.mode == 'oitc' and self.phase == 'live':
             q.lives -= 1
             out = q.lives <= 0
+        if self.mode in AD_MODES and self.phase == 'live' and self.ad and q.team == self.attackers and self.ad['tickets'] <= 0:
+            out = True      # the attackers' lives are spent: no coming back until the sector falls
         royale_live = self.mode == 'royale' and self.phase == 'live'
         if royale_live:
             out = True
@@ -1665,7 +1852,7 @@ class Room:
     def handle_streak(self, p, m):
         """Calling in a reward you have earned: the scan, the helicopter's gun, the airstrike."""
         k = m.get('k')
-        owner = is_owner(p) and k in [x for _, x in STREAKS] and self.mode not in ('royale', 'derby') and self.phase != 'ended'
+        owner = is_owner(p) and k in [x for _, x in STREAKS] and self.mode not in ('royale', 'derby') + AD_MODES and self.phase != 'ended'
         if not owner and (self.mode not in STREAK_MODES or self.phase != 'live' or not p.alive or k not in p.streaks):
             return
         if not p.alive:
@@ -2814,6 +3001,8 @@ class Room:
                 self.update_bomb_mode(t)
             elif self.mode == 'royale':
                 self.update_royale(t)
+            elif self.mode in AD_MODES:
+                self.update_ad(t)
             else:
                 self.update_timed_mode(t)
 
@@ -2943,6 +3132,25 @@ class Room:
         if self.mode == 'koth' and self.phase == 'live':
             g['h'] = {'i': self.hill_i, 'o': self.hill_owner, 'c': self.hill_contested,
                       'nx': round(max(0.0, self.hill_next - t), 1)}
+        if self.mode in AD_MODES and self.ad and self.phase in ('live', 'ended'):
+            A = self.ad
+            pts = []
+            for S in A['pts']:
+                if self.mode == 'rush':
+                    d = {'s': S['s']}
+                    if S['s'] == 'armed':
+                        d['ex'] = round(max(0.0, S['explode'] - t), 1)
+                    if S['planter']:
+                        d['pl'] = S['planter']
+                        d['pt'] = round(min(1.0, (t - S['plant_t']) / AD_ARM), 2)
+                    if S['defuser']:
+                        d['df'] = S['defuser']
+                        d['dt'] = round(min(1.0, (t - S['defuse_t']) / AD_ARM), 2)
+                else:
+                    d = {'o': S['owner'], 'c': round(S['cap'], 3), 'a': S['a'], 'd': S['d']}
+                pts.append(d)
+            g['ad'] = {'sec': A['sector'], 'n': len(self.map['ad']['sectors']), 'tk': A['tickets'], 'pts': pts}
+            g['att'] = self.attackers
         if self.mode == 'royale':
             g['al'] = sum(1 for p in self.players.values() if p.alive and not p.late)
             if self.phase == 'live' and self.plane:
@@ -3429,7 +3637,7 @@ class Conn:
             if 'cos' in m:
                 p.cos = owned_cos(p, clean_cos(m.get('cos')))
             # an empty room takes the map its first player asks for
-            if m.get('map') in MAP_KINDS and r.count() == 0 and r.map_kind != m['map'] and r.mode not in ('royale', 'derby'):
+            if m.get('map') in MAP_KINDS and r.count() == 0 and r.map_kind != m['map'] and r.mode not in ('royale', 'derby') + AD_MODES:
                 r.new_map(m['map'])
                 r.prepare_map()
             lobby.discard(self)
@@ -3582,6 +3790,8 @@ class Conn:
         elif t == 'streak':
             p.acted()
             p.room.handle_streak(p, m)
+        elif t == 'side':
+            p.side = 1 if m.get('s') else 0
         elif t == 'plant':
             p.room.handle_plant(p, bool(m.get('on')))
         elif t == 'reload':

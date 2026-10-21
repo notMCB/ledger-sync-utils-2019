@@ -2,9 +2,21 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.6.2';
+export const VERSION = '3.7.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.7.0',
+    date: '21 October 2026',
+    title: 'Attack and Defend',
+    notes: [
+      'A new collection on the menu: Attack and Defend, with two modes, Rush and Breakthrough, played on the Long Souk: the Old Town twice as long, and always the same town. Up to 10 a side. Attackers start at the west end and push east through three sectors; each sector has two points, A on the south side and B on the north, some inside buildings and some out in the open.',
+      'Attackers get 40 lives a sector between them; defenders have as many as they like. Attackers come back at the sector they last took (or the west end), defenders at the next one (or the east end), and on the death card you choose the left point or the right with A and D.',
+      'Rush: each point is a bomb, a rack of screens and drives with the charge wired through it. Attackers hold E for four seconds to arm one; it goes off forty seconds later unless a defender holds E on it for four seconds to disarm it. Blow both in a sector to move on; blow the last pair and the attackers win.',
+      'Breakthrough: each point is a patch of ground or a building’s ground floor, held by the defenders to start. Have more attackers than defenders on it for 25 seconds and it is yours; the defenders can take it back the same way. Hold both points of a sector at once to move on.',
+      'No scorestreaks in either mode.',
+    ],
+  },
   {
     version: '3.6.2',
     date: '21 October 2026',

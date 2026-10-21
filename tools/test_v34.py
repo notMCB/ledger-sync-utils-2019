@@ -196,6 +196,16 @@ def test_rules():
     r2.new_map('town')
     r2.phase = 'live'
     o2, m2, e2 = mk('o2'), mk('m2'), mk('e2')
+    # an open spot in this room's own town (each room builds its own)
+    spot2 = None
+    for pt in r2.map['ffaSpawns']:
+        x, z = pt[0], pt[1]
+        y = float(pt[2]) if len(pt) > 2 else 0.0
+        if not r2.solid.blocked([x, y + 1.0, z], [x, y + 41.0, z]):
+            spot2 = (x, y, z)
+            break
+    assert spot2, 'an open spawn'
+    sx, sy, sz = spot2
     for p, tm in ((o2, 0), (m2, 0), (e2, 1)):
         r2.players[p.id] = p
         p.room = r2

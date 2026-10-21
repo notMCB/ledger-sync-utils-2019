@@ -6,7 +6,7 @@ import { input } from './input.js';
 import { settings, saveSettings, resetBinds, ACTIONS, keyName } from './settings.js';
 import { VERSION, PATCH_NOTES } from './version.js';
 import { LOADOUTS, WEAPONS } from './weapons.js';
-import { MODE_INFO, NICHE_MODES, esc } from './hud.js';
+import { MODE_INFO, NICHE_MODES, AD_MODES, esc } from './hud.js';
 import { unlockAudio, uiBlip, musicOn } from './audio.js';
 import * as sfxModule from './audio.js';
 import { nextUnlock } from './attachments.js';
@@ -64,6 +64,9 @@ const ui = {
     $('death-loadouts').hidden = noKit;
     $('death-ld-title').hidden = noKit;
     $('death-stats').hidden = true;
+    const ad = game.isAD();
+    $('death-side').hidden = !ad;
+    if (ad) game.showSide();
     if (!royale) renderLoadouts($('death-loadouts'), true);
     $('death-hint').textContent = royale ? `${keyName(settings.binds.fire)} to watch the next player · Esc for the menu` : noKit ? 'Back on the track in a second' : input.locked ? 'Press 1–4 to pick a loadout, or Esc to use the mouse' : 'Click a loadout';
     $('death').hidden = false;
@@ -329,6 +332,26 @@ function renderModes() {
       nh.appendChild(b);
       modeButtons[id] = b;
     }
+    // Attack and Defend: a folder too, one map, straight in
+    const adf = document.createElement('button');
+    adf.className = 'mode';
+    adf.innerHTML = `<span class="m-name">${MODE_INFO.ad.name}</span><span class="m-desc">${MODE_INFO.ad.desc}</span>` +
+      `<span class="m-meta"><span><span class="m-count">0</span> playing</span><span class="m-play">Open →</span></span>`;
+    adf.addEventListener('click', () => { uiBlip(); $('modes').hidden = true; $('ad').hidden = false; });
+    host.appendChild(adf);
+    modeButtons.ad = adf;
+    const ah = $('ad-modes');
+    ah.innerHTML = '';
+    for (const id of AD_MODES) {
+      const info = MODE_INFO[id];
+      const b = document.createElement('button');
+      b.className = 'mode';
+      b.innerHTML = `<span class="m-name">${info.name}</span><span class="m-desc">${info.desc}</span>` +
+        `<span class="m-meta"><span><span class="m-count">0</span> playing · up to 20</span><span class="m-play">Play →</span></span>`;
+      b.addEventListener('click', () => join({ mode: id }));
+      ah.appendChild(b);
+      modeButtons[id] = b;
+    }
     // solo aim training: no server needed
     const info = MODE_INFO.range;
     const r = document.createElement('button');
@@ -345,9 +368,9 @@ function renderModes() {
     });
     host.appendChild(r);
   }
-  for (const id of [ROYALE, ...MODE_ORDER, 'derby', ...NICHE_MODES, 'niche']) {
+  for (const id of [ROYALE, ...MODE_ORDER, 'derby', ...NICHE_MODES, 'niche', ...AD_MODES, 'ad']) {
     const b = modeButtons[id];
-    const n = rooms.filter((r) => (id === 'niche' ? NICHE_MODES.includes(r.mode) : r.mode === id)).reduce((a, r) => a + r.n, 0);
+    const n = rooms.filter((r) => (id === 'niche' ? NICHE_MODES.includes(r.mode) : id === 'ad' ? AD_MODES.includes(r.mode) : r.mode === id)).reduce((a, r) => a + r.n, 0);
     const c = b.querySelector('.m-count');
     if (c.textContent !== String(n)) c.textContent = n;
     const off = status !== 'online';
@@ -403,6 +426,7 @@ function pickMap(mode) {
   }
   $('modes').hidden = true;
   $('niche').hidden = true;
+  $('ad').hidden = true;
   const box = $('maps');
   box.hidden = false;
   $('maps-title').textContent = `${MODE_INFO[mode].name} · pick a map`;
@@ -424,10 +448,15 @@ function pickMap(mode) {
 function closeMaps() {
   $('maps').hidden = true;
   $('niche').hidden = true;
+  $('ad').hidden = true;
   $('modes').hidden = false;
 }
 
 $('niche-back').addEventListener('click', () => { uiBlip(); $('niche').hidden = true; $('modes').hidden = false; });
+$('ad-back').addEventListener('click', () => { uiBlip(); $('ad').hidden = true; $('modes').hidden = false; });
+// Attack and Defend: which point to come back at
+$('side-a').addEventListener('click', () => { uiBlip(); game.pickSide(0); });
+$('side-b').addEventListener('click', () => { uiBlip(); game.pickSide(1); });
 
 $('maps-back').addEventListener('click', () => { uiBlip(); closeMaps(); });
 

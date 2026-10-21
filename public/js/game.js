@@ -18,6 +18,7 @@ import { tickSkins, OUTFIT, CAMO_OUTFITS, CART, sirenMaterials, chromeMaterial }
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
 import { Voice, TALK_FLAG } from './voice.js';
+import { AD_MODES, AD_REACH, makeTowerBomb, poseTowerBomb, makeZone, colourZone } from './attack.js';
 import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, STRIKE_DELAY, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
 
 const GRAVITY = 18;
@@ -142,6 +143,9 @@ export class Game {
     this.strikeRing = null;
     this.circuit = null;        // the helicopters' circuit round this map
     this.voice = new Voice(this);   // proximity voice chat
+    this.adSector = -1;             // Attack and Defend: the sector whose points are drawn
+    this.adMeshes = [];             // the bombs or zones of that sector
+    this.side = 0;                  // which point I come back at (0 left, 1 right)
     // the owner's tools: flying, seeing through walls, the command list on screen
     this.admin = false;
     this.fly = false;
@@ -407,6 +411,7 @@ export class Game {
     this.addChests(map);
     this.circuit = heliPath(map.bounds[0], map.bounds[1]);
     this.clearStreaks();
+    this.clearAD();
     this.hasMap = true;
     if (this.inRoom && map.name) this.hud.center(map.name, 'Next map', '', 3, 2);
   }
@@ -536,6 +541,76 @@ export class Game {
 
   isDerby() {
     return !!(this.room && this.room.mode === 'derby');
+  }
+
+  isAD() {
+    return !!(this.room && AD_MODES.includes(this.room.mode));
+  }
+
+  // -- Attack and Defend -------------------------------------------------------
+
+  pickSide(s) {
+    this.side = s ? 1 : 0;
+    if (!this.offline) this.send({ t: 'side', s: this.side });
+    this.showSide();
+  }
+
+  showSide() {
+    const a = document.getElementById('side-a'), b = document.getElementById('side-b');
+    if (!a || !b) return;
+    a.classList.toggle('on', this.side === 0);
+    b.classList.toggle('on', this.side === 1);
+    a.textContent = `Point A · left${this.side === 0 ? ' ✓' : ''}  (A)`;
+    b.textContent = `Point B · right${this.side === 1 ? ' ✓' : ''}  (D)`;
+  }
+
+  // the points of the current sector: bombs in Rush, zones in Breakthrough, rebuilt when the sector changes
+  updateAD(dt) {
+    const g = this.g;
+    if (!this.isAD() || !this.map || !this.map.ad) {
+      if (this.adMeshes.length) this.clearAD();
+      return;
+    }
+    const sec = g && g.ad ? g.ad.sec : -1;
+    if (sec !== this.adSector) {
+      this.clearAD();
+      this.adSector = sec;
+      if (sec >= 0) {
+        for (const P of this.map.ad.sectors[sec].pts) {
+          let mesh;
+          if (this.room.mode === 'rush') {
+            mesh = makeTowerBomb();
+            mesh.position.set(P.x, P.y, P.z);
+            mesh.rotation.y = P.x < 0 ? -Math.PI / 2 : Math.PI / 2;
+          } else mesh = makeZone(P.zone);
+          this.scene.add(mesh);
+          this.adMeshes.push(mesh);
+        }
+      }
+    }
+    if (!g || !g.ad) return;
+    for (const [i, mesh] of this.adMeshes.entries()) {
+      const pt = g.ad.pts[i];
+      if (!pt) continue;
+      if (this.room.mode === 'rush') poseTowerBomb(mesh, pt.s, this.clock, pt.ex || 0);
+      else {
+        const ours = pt.o === this.me.team;
+        const contested = pt.a > 0 && pt.d > 0;
+        const moving = (pt.o === g.att && pt.c < 1) || (pt.o !== g.att && pt.c > 0);
+        colourZone(mesh, ours ? 0x7fc47a : 0xff5a44, moving || contested ? 0.5 + 0.5 * Math.sin(this.clock * 6) : 0);
+      }
+    }
+    // the dead pick a point to come back at with A and D
+    if (!this.me.alive && this.inRoom) {
+      if (input.pressedCode('KeyA')) this.pickSide(0);
+      if (input.pressedCode('KeyD')) this.pickSide(1);
+    }
+  }
+
+  clearAD() {
+    for (const m of this.adMeshes) this.scene.remove(m);
+    this.adMeshes = [];
+    this.adSector = -1;
   }
 
   stopDriving(sendIt = true) {
@@ -1248,6 +1323,7 @@ export class Game {
     this.hill.visible = false;
     this.clearRoyale();
     this.clearStreaks();
+    this.clearAD();
     this.voice.stop();
     this.me.streaks = [];
     this.me.streak = 0;
@@ -1608,6 +1684,13 @@ export class Game {
           big = m.w === this.myId ? 'You win' : `${this.nameOf(m.w)} wins`;
         } else if (m.w === -1) {
           big = 'Draw';
+        } else if (this.isAD()) {
+          big = m.w === myTeam ? 'Victory' : 'Defeat';
+          cls = TEAM_NAMES[m.w].toLowerCase();
+          this.hud.center(big, m.w === g.att ? 'The attackers broke through' : 'The defenders held', cls, 12, 5);
+          this.showScores = true;
+          setTimeout(() => { this.showScores = false; }, 11000);
+          break;
         } else {
           big = m.w === myTeam ? 'Victory' : 'Defeat';
           cls = TEAM_NAMES[m.w].toLowerCase();
@@ -1628,6 +1711,40 @@ export class Game {
         }
         break;
       case 'healing': this.hud.center('Medkit', '50 health over five seconds', '', 1.6, 1); break;
+      case 'adarmed': {
+        const mine = g.att === myTeam;
+        this.hud.center(`Bomb ${'AB'[m.pt]} armed`, mine ? 'Hold them off until it goes' : 'Get to it and hold E to disarm', mine ? '' : 'warn', 3.5, 3);
+        sfx.beep(2000, 0.3, 0.4);
+        break;
+      }
+      case 'addisarmed': {
+        const mine = g.att !== myTeam;
+        this.hud.center(`Bomb ${'AB'[m.pt]} disarmed`, mine ? `${this.nameOf(m.id)} pulled the wires` : 'Arm it again', mine ? '' : 'warn', 3, 3);
+        sfx.beep(600, 0.3, 0.35);
+        break;
+      }
+      case 'adboom': {
+        const p = new THREE.Vector3(m.p[0], m.p[1], m.p[2]);
+        this.fx.explosion(p);
+        this.fx.explosion(p.clone().add(new THREE.Vector3(1, 0.8, 0)));
+        this.fx.bigSmoke(p);
+        sfx.explosion(p, 1.8);
+        this.shakeFrom(p, 60);
+        this.hud.center(`Bomb ${'AB'[m.pt]} destroyed`, '', g.att === myTeam ? '' : 'warn', 3, 3);
+        break;
+      }
+      case 'adcap': {
+        const mine = m.tm === myTeam;
+        this.hud.center(`Point ${'AB'[m.pt]} ${mine ? 'taken' : 'lost'}`, mine ? '' : 'Get back on it', mine ? '' : 'warn', 3, 3);
+        sfx.beep(mine ? 1400 : 500, 0.25, 0.35);
+        break;
+      }
+      case 'adsector': {
+        const mine = g.att === myTeam;
+        this.hud.center(`Sector ${m.sec + 1}`, mine ? 'Push on to the next two points' : 'Fall back and hold the next two', mine ? 'gold' : 'warn', 4, 4);
+        sfx.beep(mine ? 1500 : 450, 0.3, 0.4);
+        break;
+      }
       case 'streak': {
         const S = STREAKS.find((s) => s.k === m.k);
         const what = m.k === 'scan' ? 'a scan beacon' : m.k === 'heli' ? 'a helicopter' : 'an airstrike';
@@ -3709,6 +3826,17 @@ export class Game {
   interactOption() {
     const g = this.g;
     const me = this.me;
+    if (g && g.mode === 'rush' && g.ph === 'live' && g.ad && me.alive && this.map && this.map.ad) {
+      const attacking = g.att === me.team;
+      const pts = this.map.ad.sectors[g.ad.sec].pts;
+      for (const [i, P] of pts.entries()) {
+        const st = g.ad.pts[i];
+        if (!st || Math.hypot(me.pos.x - P.x, me.pos.z - P.z) > AD_REACH || Math.abs(me.pos.y - P.y) > 1.6) continue;
+        if (attacking && st.s === 'idle') return { kind: 'arm', pt: i };
+        if (!attacking && st.s === 'armed') return { kind: 'disarm', pt: i };
+      }
+      return null;
+    }
     if (!g || g.mode !== 'bomb' || g.ph !== 'live' || !me.alive || !this.map) return null;
     const b = g.b;
     if (!b) return null;
@@ -3737,6 +3865,11 @@ export class Game {
     if (opt && held) {
       if (!this.me.interacting) {
         this.me.interacting = true;
+        this.me.interactT = this.clock;
+        this.send({ t: 'plant', on: true });
+      } else if (this.clock - (this.me.interactT || 0) > 0.6 && !this.interactSeen()) {
+        // the server has not taken it up (our position reached it a moment after): ask again
+        this.me.interactT = this.clock;
         this.send({ t: 'plant', on: true });
       }
     } else if (this.me.interacting) this.stopInteract();
@@ -3745,6 +3878,15 @@ export class Game {
   stopInteract() {
     this.me.interacting = false;
     this.send({ t: 'plant', on: false });
+  }
+
+  // does the server show me planting, defusing, arming or disarming right now?
+  interactSeen() {
+    const g = this.g;
+    if (!g) return false;
+    if (g.ad) return g.ad.pts.some((p) => p.pl === this.myId || p.df === this.myId);
+    const b = g.b;
+    return !!b && (b.pl === this.myId || b.df === this.myId);
   }
 
   // -- camera ------------------------------------------------------------------
@@ -3944,6 +4086,26 @@ export class Game {
       const ours = D.owner === this.myId || (teamMode && D.tm === this.me.team);
       mmObj.push({ x: D.pos.x, z: D.pos.z, dot: true, color: ours ? '#7fc8ff' : '#ff4a33' });
     }
+    // Attack and Defend: the sector's two points, with what state they are in
+    if (this.isAD() && g && g.ad && this.map && this.map.ad && g.ph !== 'ended') {
+      const pts = this.map.ad.sectors[g.ad.sec].pts;
+      for (const [i, P] of pts.entries()) {
+        const st = g.ad.pts[i] || {};
+        const [sx, sy] = project(P.x, P.y + 2.6, P.z);
+        let label = P.id, cls = 'site';
+        if (g.mode === 'rush') {
+          if (st.s === 'gone') { label = '✕'; cls = 'site gone'; }
+          else if (st.s === 'armed') { label = `${P.id} ${Math.ceil(st.ex || 0)}`; cls = 'bomb'; }
+        } else {
+          cls = st.o === this.me.team ? 'hill own' + this.me.team : 'site';
+          if ((st.o === g.att ? st.c < 1 : st.c > 0) || (st.a > 0 && st.d > 0)) cls += ' contested';
+        }
+        markers.push({ key: 'ad' + P.id, x: sx, y: sy, cls, label, dist: dist(P.x, P.z) });
+        const z = P.zone;
+        mmObj.push({ x: z.x, z: z.z, r: z.k === 'circle' ? z.r : Math.max(z.hw, z.hd), color: g.mode === 'rush' ? (st.s === 'gone' ? '#777' : st.s === 'armed' ? '#ff5a44' : '#ff8a75') : (st.o === this.me.team ? '#7fc47a' : '#ff8a75'),
+          fill: g.mode === 'rush' ? 'rgba(201,65,47,0.2)' : (st.o === this.me.team ? 'rgba(127,196,122,0.25)' : 'rgba(201,65,47,0.2)'), label: P.id });
+      }
+    }
     // the range: the targets, with how far off each one is
     if (this.range) {
       for (const T of this.range.targets) mmObj.push({ x: T.x, z: T.z, dot: true, color: T.down > 0 ? '#6b6b6b' : '#ff4a33' });
@@ -4026,6 +4188,9 @@ export class Game {
       }
       const pt = document.getElementById('prompt-text');
       pt.style.color = this.brPrompt && !me.aboard && !me.falling && me.applying <= this.clock ? this.brPrompt.color : '';
+    } else if (me.interacting && g && g.mode === 'rush' && g.ad) {
+      const mine = g.ad.pts.find((p) => p.pl === this.myId || p.df === this.myId);
+      hud.prompt(mine && mine.pl === this.myId ? 'Arming the bomb…' : 'Disarming…', mine ? (mine.pl === this.myId ? mine.pt : mine.dt) || 0 : 0);
     } else if (me.interacting && b) {
       const planting = b.pl === this.myId;
       const prog = planting ? b.pt : b.df === this.myId ? b.dt : 0;
@@ -4033,7 +4198,9 @@ export class Game {
     } else {
       const opt = this.interactOption();
       const fk = !opt && !this.driving && me.alive && !this.drone ? this.forkliftNear() : null;
-      if (opt) hud.prompt(opt.kind === 'plant' ? `Hold ${keyName(settings.binds.interact)} to plant at ${opt.site}` : `Hold ${keyName(settings.binds.interact)} to defuse`, undefined);
+      if (opt && opt.kind === 'arm') hud.prompt(`Hold ${keyName(settings.binds.interact)} to arm bomb ${'AB'[opt.pt]}`, undefined);
+      else if (opt && opt.kind === 'disarm') hud.prompt(`Hold ${keyName(settings.binds.interact)} to disarm bomb ${'AB'[opt.pt]}`, undefined);
+      else if (opt) hud.prompt(opt.kind === 'plant' ? `Hold ${keyName(settings.binds.interact)} to plant at ${opt.site}` : `Hold ${keyName(settings.binds.interact)} to defuse`, undefined);
       else if (fk) hud.prompt(`${keyName(settings.binds.interact)} to drive the ${fk.kind === 'golfcart' ? 'golf cart' : 'forklift'}`, undefined);
       else if (b && b.dt !== undefined && b.df !== this.myId && g.att !== me.team) hud.prompt(`${this.nameOf(b.df)} is defusing`, b.dt);
       else if (b && b.pt !== undefined && b.pl !== this.myId && g.att === me.team) hud.prompt(`${this.nameOf(b.pl)} is planting`, b.pt);
@@ -4103,6 +4270,7 @@ export class Game {
       this.updateRoyale(dt);
       this.updateLaser();
       this.updateStreakVisuals(dt);
+      this.updateAD(dt);
       this.voice.update(dt);
       if (this.wall && this.admin) this.avatars.xray(true);
       if (this.range) this.range.update(dt);
