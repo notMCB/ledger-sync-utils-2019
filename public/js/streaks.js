@@ -10,19 +10,19 @@ import { addGatling } from './world.js';
 
 // keep every number in step with server/server.py
 export const STREAKS = [
-  { k: 'scan', n: 5, name: 'Scan beacon', bind: 'streak1', what: 'Every enemy marked on the map for 30 seconds' },
-  { k: 'heli', n: 10, name: 'Helicopter gunner', bind: 'streak2', what: '45 seconds on the door gun of a helicopter over the town' },
-  { k: 'strike', n: 15, name: 'Airstrike', bind: 'streak3', what: 'Pick a spot from above: three bombers flatten it ten seconds later' },
+  { k: 'scan', n: 2, name: 'Scan beacon', bind: 'streak1', what: 'Every enemy marked on the map for 30 seconds' },
+  { k: 'strike', n: 5, name: 'Airstrike', bind: 'streak2', what: 'Pick a spot from above: three bombers flatten it five seconds later' },
+  { k: 'heli', n: 8, name: 'Helicopter gunner', bind: 'streak3', what: '45 seconds on the door gun of a helicopter over the town' },
 ];
 export const HELI_FLAG = 2097152;
 export const HELI_ALT = 30, HELI_MARGIN = 12, HELI_CORNER = 22, HELI_SPEED = 22;
 export const HELI_SEAT = { left: 1.05, down: -1.0, back: 0.2 };   // the gunner's feet, from the hub
 export const HELI_HEAT = 7.0;         // seconds of fire before the gun overheats
 export const HELI_COOL = 4.0;         // seconds to cool right down after that
-export const STRIKE_R = 7.5, STRIKE_KILL_R = 5.0, STRIKE_DELAY = 10;
+export const STRIKE_R = 7.5, STRIKE_KILL_R = 5.0, STRIKE_DELAY = 5;
 export const BOMBER_ALT = 600;        // two thousand feet
 export const BOMBER_SPEED = 120;
-export const BOMBER_OVER = 8.0;       // seconds after the call the formation is over the target
+export const BOMBER_OVER = 3.0;       // seconds after the call the formation is over the target
 export const BOMB_FALL = 2.0;         // and the bombs take this long to come down
 
 const lam = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
@@ -324,8 +324,8 @@ export class StrikeShow {
       this.flare = 0.12;
       this.fx.flare(this.p, 0xff3a2a);
     }
-    // the planes: in sight from about three seconds in, gone a few seconds after the bombs
-    const inSky = t > 2.5 && t < BOMBER_OVER + 7;
+    // the planes: in sight almost at once, gone a few seconds after the bombs
+    const inSky = t > 0.3 && t < BOMBER_OVER + 7;
     this.leadAt(t, this.lead);
     for (const P of this.planes) {
       P.m.visible = inSky;

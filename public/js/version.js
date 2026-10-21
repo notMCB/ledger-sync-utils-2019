@@ -2,9 +2,18 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.6.1';
+export const VERSION = '3.4.2';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.4.2',
+    date: '21 October 2026',
+    title: 'Quicker scorestreaks',
+    notes: [
+      'Scorestreaks come sooner: the scan beacon at 2 kills in a life (key 4), the airstrike at 5 (key 5), the helicopter gunner at 8 (key 6).',
+      'The airstrike’s bombs land five seconds after the call, not ten. The B-2s are over the target almost as soon as you have picked it.',
+    ],
+  },
   {
     version: '3.6.1',
     date: '21 October 2026',

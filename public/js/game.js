@@ -18,7 +18,7 @@ import { tickSkins, OUTFIT, CAMO_OUTFITS, CART, sirenMaterials, chromeMaterial }
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
 import { Voice, TALK_FLAG } from './voice.js';
-import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
+import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, STRIKE_DELAY, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
 
 const GRAVITY = 18;
 const JUMP_V = 6.6;
@@ -780,7 +780,7 @@ export class Game {
       ['/bots N', 'practice dummies (test server)'],
       ['/fly', `${this.fly ? 'ON' : 'off'} · move keys, ${keyName(settings.binds.jump)} up, ${keyName(settings.binds.crouch)} down`],
       ['/wall', `${this.wall ? 'ON' : 'off'} · everyone through walls`],
-      ['4 5 6', 'scan · helicopter · airstrike, always'],
+      ['4 5 6', 'scan · airstrike · helicopter, always'],
       ['/panel', 'hide this'],
     ];
   }
@@ -1096,14 +1096,14 @@ export class Game {
     if (input.pressed('fire')) {
       this.useStreak('strike', { p: [+sp.x.toFixed(2), +sp.y.toFixed(2), +sp.z.toFixed(2)] });
       this.cancelStrikePick();
-      this.hud.center('Airstrike called in', 'Bombs on target in ten seconds', 'gold', 2.5, 2);
+      this.hud.center('Airstrike called in', 'Bombs on target in five seconds', 'gold', 2.5, 2);
     } else if (input.pressed('perk') || input.pressed('interact')) this.cancelStrikePick();
   }
 
   onStrike(m) {
     const old = this.strikes.get(m.id);
     if (old) old.show.end();
-    const t0 = this.clock - (10 - (m.in !== undefined ? m.in : 10));
+    const t0 = this.clock - (STRIKE_DELAY - (m.in !== undefined ? m.in : STRIKE_DELAY));
     const show = new StrikeShow(this.scene, this.fx, new THREE.Vector3(m.p[0], m.p[1], m.p[2]), t0, m.h || 0, m.by === this.myId);
     this.strikes.set(m.id, { id: m.id, p: show.p, t0, show, by: m.by, tm: m.tm });
   }
@@ -3951,7 +3951,7 @@ export class Game {
     }
     // airstrikes on their way: everyone sees where the bombs will land
     for (const S of this.strikes.values()) {
-      const left = Math.max(0, S.t0 + 10 - this.clock);
+      const left = Math.max(0, S.t0 + STRIKE_DELAY - this.clock);
       if (left <= 0) continue;
       const [sx, sy] = project(S.p.x, S.p.y + 2.5, S.p.z);
       markers.push({ key: 'strike' + S.id, x: sx, y: sy, cls: 'strike', label: `${Math.ceil(left)}`, dist: dist(S.p.x, S.p.z) });

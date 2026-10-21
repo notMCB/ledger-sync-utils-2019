@@ -53,15 +53,15 @@ async def test_flow():
     await phase(a, 'live', 20)
     await asyncio.sleep(0.5)
     a.move([a.pos[0], 0, a.pos[2] + 0.5])
-    # five kills: the scan
-    for i in range(5):
+    # two kills: the scan
+    for i in range(2):
         ev = await kill_once(a, b)
         assert ev['ks'] == i + 1, 'the kill event carries the streak: %r' % ev
     await wait(lambda: any(m.get('k') == 'scan' for m in msgs(a, 'streak')), 3, 'the scan earned')
     have = [m for m in msgs(a, 'streak') if m.get('k') == 'scan'][0]['have']
     assert have == ['scan'], have
     assert not any(m.get('k') for m in msgs(b, 'streak')), 'the victim earns nothing'
-    print('  ok   five kills earn the scan, and the kill events count the streak')
+    print('  ok   two kills earn the scan, and the kill events count the streak')
     await wait(lambda: b.alive, 8, 'B alive')
     a.ws.send({'t': 'streak', 'k': 'scan'})
     await wait(lambda: any(m.get('scan') and m.get('pts') for m in msgs(a, 'ping')), 3, 'a scan ping')
@@ -74,8 +74,27 @@ async def test_flow():
     await asyncio.sleep(0.3)
     assert len([m for m in msgs(a, 'streak') if m.get('used')]) == 1, 'a reward is used once'
     print('  ok   the scan pings the enemy to its owner only, and is spent')
-    # ten kills: the helicopter
-    for i in range(5):
+    # five kills: the airstrike
+    for i in range(3):
+        await kill_once(a, b)
+    await wait(lambda: any(m.get('k') == 'strike' for m in msgs(a, 'streak')), 3, 'the airstrike earned')
+    await wait(lambda: b.alive, 8, 'B alive')
+    await asyncio.sleep(1.7)
+    b.move([b.pos[0] + 0.5, 0, b.pos[2]])
+    await asyncio.sleep(0.3)
+    a.ws.send({'t': 'streak', 'k': 'strike', 'p': [b.pos[0], 0, b.pos[2]]})
+    await wait(lambda: msgs(b, 'strike'), 3, 'the strike announced to everyone')
+    sm = msgs(b, 'strike')[0]
+    assert abs(sm['in'] - 5 * SCALE) < 0.05 and sm['by'] == a.id, sm
+    kills_before = len(a.saw('kill'))
+    await asyncio.sleep(5 * SCALE - 0.5)
+    assert len(a.saw('kill')) == kills_before, 'nothing lands before its time'
+    await wait(lambda: len(a.saw('kill')) > kills_before, 3, 'the bombs landing')
+    ev = a.saw('kill')[-1]
+    assert ev['w'] == 'strike' and ev['v'] == b.id and ev['k'] == a.id, ev
+    print('  ok   the airstrike lands five seconds after the call, on the spot picked')
+    # eight kills: the helicopter
+    for i in range(3):
         await kill_once(a, b)
     await wait(lambda: any(m.get('k') == 'heli' for m in msgs(a, 'streak')), 3, 'the helicopter earned')
     ground = list(a.pos)
@@ -120,25 +139,6 @@ async def test_flow():
     assert math.hypot(s[1] - ground[0], s[3] - ground[2]) < 0.1 and s[2] < 5, 'back where they were: %r' % (s,)
     a.pos = list(off['back'])
     print('  ok   after its time the gunner is back where they were picked up')
-    # fifteen kills: the airstrike
-    for i in range(5):
-        await kill_once(a, b)
-    await wait(lambda: any(m.get('k') == 'strike' for m in msgs(a, 'streak')), 3, 'the airstrike earned')
-    await wait(lambda: b.alive, 8, 'B alive')
-    await asyncio.sleep(1.7)
-    b.move([b.pos[0] + 0.5, 0, b.pos[2]])
-    await asyncio.sleep(0.3)
-    a.ws.send({'t': 'streak', 'k': 'strike', 'p': [b.pos[0], 0, b.pos[2]]})
-    await wait(lambda: msgs(b, 'strike'), 3, 'the strike announced to everyone')
-    sm = msgs(b, 'strike')[0]
-    assert abs(sm['in'] - 10 * SCALE) < 0.05 and sm['by'] == a.id, sm
-    kills_before = len(a.saw('kill'))
-    await asyncio.sleep(10 * SCALE - 0.5)
-    assert len(a.saw('kill')) == kills_before, 'nothing lands before its time'
-    await wait(lambda: len(a.saw('kill')) > kills_before, 3, 'the bombs landing')
-    ev = a.saw('kill')[-1]
-    assert ev['w'] == 'strike' and ev['v'] == b.id and ev['k'] == a.id, ev
-    print('  ok   the airstrike lands ten seconds after the call, on the spot picked')
     a.ws.w.close(); b.ws.w.close()
 
 

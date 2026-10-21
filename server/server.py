@@ -37,7 +37,7 @@ import catalog  # noqa: E402
 import accounts  # noqa: E402
 import shop  # noqa: E402
 
-VERSION = '3.6.1'
+VERSION = '3.4.2'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -188,10 +188,10 @@ ADMIN_KILL = 'struck down'
 ARMOUR_FLAG = 1048576           # the Interceptor's bulletproof walls are up (a movement flag)      # the owner's /kill: what the kill feed calls it; it counts for nothing
 
 # -- scorestreaks: kills in one life, in Free for All, Team Deathmatch and King of the Hill --
-# Five kills: a scan that marks every enemy on the map. Ten: the door gun of a
-# helicopter circling the town. Fifteen: an airstrike on a spot you pick from above.
+# Two kills: a scan that marks every enemy on the map. Five: an airstrike on a spot you
+# pick from above. Eight: the door gun of a helicopter circling the town.
 STREAK_MODES = ('ffa', 'tdm', 'koth')
-STREAKS = ((5, 'scan'), (10, 'heli'), (15, 'strike'))
+STREAKS = ((2, 'scan'), (5, 'strike'), (8, 'heli'))
 HELI_FLAG = 2097152         # in the helicopter's door (the server sets it, like the plane's flag)
 SCAN_LIFE = 30.0            # the scan: every enemy marked, this long
 SCAN_EVERY = 2.5
@@ -201,7 +201,7 @@ HELI_MARGIN = 12.0          # its circuit runs this far outside the town walls
 HELI_CORNER = 22.0          # rounded corners of that circuit
 HELI_SPEED = 22.0           # metres a second round it
 HELI_SEAT = (1.05, -1.0, 0.2)   # the gunner's feet: left of the hub, below it, a little behind it
-STRIKE_DELAY = 10.0         # seconds from the call to the bombs landing
+STRIKE_DELAY = 5.0          # seconds from the call to the bombs landing
 STRIKE_R = 7.5              # the circle the bombs cover: fifteen metres across
 STRIKE_KILL_R = 5.0         # the middle ten metres: anyone in the open dies
 STRIKE_DMG = 50             # the rest of the circle, and anyone under a roof inside it
