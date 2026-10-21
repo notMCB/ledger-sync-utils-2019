@@ -1,7 +1,7 @@
 // Scorestreaks: what you see in the sky when someone calls one in. The scan is
 // all HUD; the helicopter is a Blackhawk-style gunship circling the town with a
-// Gatling in its left door; the airstrike is three B-1s in formation at two
-// thousand feet, and the bombs they drop. The helicopter's circuit is worked out
+// Gatling in its left door; the airstrike is a pair of F-35s on full afterburner at
+// two hundred feet, and the bombs they toss. The helicopter's circuit is worked out
 // here from the same sums the server uses (heli_path in server/server.py), so
 // everyone sees it in the same place at the same time.
 
@@ -11,7 +11,7 @@ import { addGatling } from './world.js';
 // keep every number in step with server/server.py
 export const STREAKS = [
   { k: 'scan', n: 2, name: 'Scan beacon', bind: 'streak1', what: 'Every enemy marked on the map for 30 seconds' },
-  { k: 'strike', n: 5, name: 'Airstrike', bind: 'streak2', what: 'Pick a spot from above: three bombers flatten it five seconds later' },
+  { k: 'strike', n: 5, name: 'Airstrike', bind: 'streak2', what: 'Pick a spot from above: two jets flatten it five seconds later' },
   { k: 'heli', n: 8, name: 'Helicopter gunner', bind: 'streak3', what: '45 seconds on the door gun of a helicopter over the town' },
 ];
 export const HELI_FLAG = 2097152;
@@ -20,10 +20,13 @@ export const HELI_SEAT = { left: 1.05, down: -1.0, back: 0.2 };   // the gunner'
 export const HELI_HEAT = 7.0;         // seconds of fire before the gun overheats
 export const HELI_COOL = 4.0;         // seconds to cool right down after that
 export const STRIKE_R = 7.5, STRIKE_KILL_R = 5.0, STRIKE_DELAY = 5;
-export const BOMBER_ALT = 600;        // two thousand feet
-export const BOMBER_SPEED = 120;
-export const BOMBER_OVER = 3.0;       // seconds after the call the formation is over the target
-export const BOMB_FALL = 2.0;         // and the bombs take this long to come down
+export const BOMBER_ALT = 61;         // two hundred feet
+export const BOMBER_SPEED = 175;      // full afterburner, as fast as the eye can follow
+export const BOMBER_OVER = 3.4;       // seconds after the call the pair is over the target
+export const BOMB_FALL = 1.6;         // and the bombs take this long to come down
+export const BOMB_AWAY = BOMBER_OVER - 0.55;   // when the first bomb comes off
+export const JET_BANK = 55 * Math.PI / 180;    // the pair rolls into a left turn once the bombs are away
+export const JET_TURN = 0.13;                  // radians a second, once they are banked over
 
 const lam = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
 const bx = (parent, w, h, d, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
@@ -212,41 +215,85 @@ export function poseHeli(mesh, path, s, dt, clock) {
   mesh.userData.strobe.visible = clock % 1.1 < 0.08;
 }
 
-// -- the bombers ----------------------------------------------------------------------
+// -- the jets ------------------------------------------------------------------------
 
-// A B-2: a flying wing, nothing else. A broad arrowhead with the sawtooth trailing
-// edge, a low hump in the middle for the crew and the engines, no fin or tail at all.
-// Local +x is forward. Seen from two thousand feet below it is a dark shape, so the
-// outline is what matters: fifty-odd metres across, twenty from nose to the notch.
-export function makeBomber() {
+// An F-35: a stubby single-engine fighter, fifteen metres nose to nozzle, eleven
+// across. Chined nose, a bubble canopy well forward, the big cheek intakes, a
+// trapezoid wing, small all-moving tailplanes and the two fins canted outward,
+// with one fat nozzle and the afterburner flame behind it. Local +x is forward.
+export function makeJet() {
   const g = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color: '#050506', side: THREE.DoubleSide });     // black, as they are
-  // the wing's outline in the x (forward) / z (span) plane, drawn as a flat shape
-  const half = 26, nose = 11, tail = -9, notch = -4, mid = -6;
-  const pts = [
-    [nose, 0], [tail + 3, half], [tail + 1, half],                           // nose to the wingtip
-    [mid, half * 0.72], [tail, half * 0.5], [notch, half * 0.26], [tail, 0],  // the sawtooth back edge
-    [notch, -half * 0.26], [tail, -half * 0.5], [mid, -half * 0.72], [tail + 1, -half], [tail + 3, -half],
-  ];
-  const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, z)));
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.9, bevelEnabled: false });
-  const wing = new THREE.Mesh(geo, skin);
-  wing.rotation.x = Math.PI / 2;        // the shape's y becomes world z (the span); depth goes down
-  wing.position.y = 0.45;
-  g.add(wing);
-  // the hump: the crew compartment up front, the engine bays either side of it
-  const hump = new THREE.Mesh(new THREE.SphereGeometry(4.2, 12, 8), skin);
-  hump.scale.set(1.6, 0.42, 1.0);
-  hump.position.set(1.5, 0.7, 0);
-  g.add(hump);
+  const grey = lam('#7b8189');
+  const dark = lam('#3a3d42');
+  const glass = new THREE.MeshLambertMaterial({ color: '#c9a44a', emissive: '#3a2a08', transparent: true, opacity: 0.9 });
+  // the fuselage: a long box with the top edges softened by a second, narrower box
+  bx(g, 10.5, 1.5, 2.1, grey, -0.5, 0, 0);
+  bx(g, 9.5, 0.7, 1.3, grey, -0.3, 0.95, 0);
+  // the nose: a cone sitting on the chine, pointing forward
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.95, 4.4, 10), grey);
+  nose.rotation.z = -Math.PI / 2;
+  nose.scale.set(1, 1, 0.8);
+  nose.position.set(6.9, 0.1, 0);
+  g.add(nose);
+  // the canopy, a bubble well forward
+  const can = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8), glass);
+  can.scale.set(2.2, 0.75, 0.85);
+  can.position.set(3.2, 1.15, 0);
+  g.add(can);
+  // the cheek intakes either side, with a dark mouth
   for (const side of [-1, 1]) {
-    const bay = new THREE.Mesh(new THREE.SphereGeometry(3.2, 10, 6), skin);
-    bay.scale.set(1.8, 0.32, 1.1);
-    bay.position.set(-1.5, 0.75, side * 7.5);
-    g.add(bay);
+    bx(g, 4.0, 1.3, 0.9, grey, 2.0, -0.25, side * 1.45);
+    bx(g, 0.2, 1.0, 0.7, dark, 4.05, -0.25, side * 1.45);
   }
+  // the wing: one trapezoid across the whole span, swept forward edge, straight back edge
+  const half = 5.4, root = 5.6, tip = 1.5;
+  const wingShape = new THREE.Shape([[root * 0.45, 0], [tip * 0.2 - 1.2, half], [-tip - 1.2, half], [-root * 0.55, 0], [-tip - 1.2, -half], [tip * 0.2 - 1.2, -half]].map(([x, z]) => new THREE.Vector2(x, z)));
+  const wing = new THREE.Mesh(new THREE.ExtrudeGeometry(wingShape, { depth: 0.22, bevelEnabled: false }), grey);
+  wing.rotation.x = Math.PI / 2;
+  wing.position.set(-0.4, -0.2, 0);
+  g.add(wing);
+  // the tailplanes, smaller, right at the back
+  const tailShape = new THREE.Shape([[1.2, 0], [-0.6, 2.6], [-2.0, 2.6], [-2.0, 0], [-2.0, -2.6], [-0.6, -2.6]].map(([x, z]) => new THREE.Vector2(x, z)));
+  const tail = new THREE.Mesh(new THREE.ExtrudeGeometry(tailShape, { depth: 0.16, bevelEnabled: false }), grey);
+  tail.rotation.x = Math.PI / 2;
+  tail.position.set(-4.4, 0.1, 0);
+  g.add(tail);
+  // the two fins, canted out
+  const finShape = new THREE.Shape([[2.2, 0], [0.4, 2.4], [-1.0, 2.4], [-1.4, 0]].map(([x, y]) => new THREE.Vector2(x, y)));
+  for (const side of [-1, 1]) {
+    const fin = new THREE.Mesh(new THREE.ExtrudeGeometry(finShape, { depth: 0.14, bevelEnabled: false }), grey);
+    fin.position.set(-4.0, 0.6, side * 1.0);
+    fin.rotation.x = side * 0.35;
+    g.add(fin);
+  }
+  // the nozzle and the flame behind it
+  const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.72, 1.2, 12), dark);
+  noz.rotation.z = Math.PI / 2;
+  noz.position.set(-6.2, 0, 0);
+  g.add(noz);
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.62, 7, 10, 1, true), new THREE.MeshBasicMaterial({ color: '#ff7a1e', transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide }));
+  flame.rotation.z = Math.PI / 2;
+  flame.position.set(-10.2, 0, 0);
+  g.add(flame);
+  const core = new THREE.Mesh(new THREE.ConeGeometry(0.34, 4.5, 8, 1, true), new THREE.MeshBasicMaterial({ color: '#fff3c4', transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+  core.rotation.z = Math.PI / 2;
+  core.position.set(-9.0, 0, 0);
+  g.add(core);
+  g.userData.flame = flame;
+  g.userData.core = core;
   g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
   return g;
+}
+export const makeBomber = makeJet;
+
+// the afterburner flickers: call every frame
+export function poseJet(mesh, clock) {
+  const f = mesh.userData.flame, c = mesh.userData.core;
+  if (!f) return;
+  const k = 0.85 + 0.3 * Math.abs(Math.sin(clock * 47) * Math.sin(clock * 31 + 1));
+  f.scale.set(1, k, 1);
+  f.position.x = -6.8 - 3.5 * k;
+  c.scale.set(1, 0.9 + 0.25 * Math.sin(clock * 61), 1);
 }
 
 // the ring on the ground that marks where the bombs will land
@@ -269,10 +316,11 @@ export function makeStrikeRing() {
   return g;
 }
 
-// An airstrike from the call to the last bomb: the formation crosses the town at two
-// thousand feet, over the target eight seconds in, the bombs come down two seconds
-// later and the ring on the ground burns red the whole time. The server lands the
-// damage at ten seconds; this only shows it.
+// An airstrike from the call to the last bomb: the pair comes across the town at two
+// hundred feet and full afterburner, over the target three and a bit seconds in, the
+// bombs are tossed from just short of it and come down, and the ring on the ground
+// burns red the whole time. The server lands the damage at five seconds; this only
+// shows it.
 export class StrikeShow {
   constructor(scene, fx, target, t0, heading, mine) {
     this.scene = scene;
@@ -281,14 +329,16 @@ export class StrikeShow {
     this.t0 = t0;
     this.mine = mine;
     this.done = false;
-    this.dir = new THREE.Vector3(Math.cos(heading), 0, -Math.sin(heading));
+    this.h0 = heading;
     this.yaw = heading;
+    this.dir = new THREE.Vector3(Math.cos(heading), 0, -Math.sin(heading));
+    this.bank = 0;
     this.ring = makeStrikeRing();
     this.ring.position.copy(this.p).add(new THREE.Vector3(0, 0.08, 0));
     scene.add(this.ring);
-    // lead, and one back on each side: a vic the width of a street
-    this.planes = [[0, 0], [-40, -50], [-40, 50]].map(([back, side]) => {
-      const m = makeBomber();
+    // the lead and a wingman just back on its right, a street apart
+    this.planes = [[0, 0], [-14, 16]].map(([back, side]) => {
+      const m = makeJet();
       m.visible = false;
       scene.add(m);
       return { m, back, side };
@@ -299,18 +349,44 @@ export class StrikeShow {
     const n = 8;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (STRIKE_R - 1.5);
-      const at = BOMBER_OVER - 0.4 + i * 0.12;     // released in a stick as the lead passes over
-      const land = STRIKE_DELAY + (i / n) * 0.9;
-      this.bombs.push({ x: this.p.x + Math.cos(a) * r, z: this.p.z + Math.sin(a) * r, at, land, mesh: null, hit: false });
+      const at = BOMBER_OVER - 0.55 + (i % 4) * 0.07;     // tossed in a stick from just short of the target
+      const land = STRIKE_DELAY + (i / n) * 0.7;
+      this.bombs.push({ x: this.p.x + Math.cos(a) * r, z: this.p.z + Math.sin(a) * r, at, land, from: i % 2, mesh: null, hit: false, x0: 0, y0: 0, z0: 0 });
     }
     this.whistled = false;
     this.flare = 0;
   }
 
-  // the formation's lead at time t after the call (out now = it is still in the sky)
+  // how far into the bank the pair is at t: nothing until the bombs are away, then
+  // rolled over within a second
+  bankAt(t) {
+    const s = Math.max(0, Math.min(1, (t - BOMB_AWAY) / 1.0));
+    return s * s * (3 - 2 * s);
+  }
+
+  // the lead at time t after the call: straight in until the bombs are off, then a
+  // gentle left turn that tightens as the bank comes on. Sets this.yaw and this.dir
+  // to the heading there. (Stepped, so everyone's sums come out the same.)
   leadAt(t, out) {
-    const d = (t - BOMBER_OVER) * BOMBER_SPEED;
-    return out.set(this.p.x + this.dir.x * d, BOMBER_ALT, this.p.z + this.dir.z * d);
+    const dx = Math.cos(this.h0), dz = -Math.sin(this.h0);
+    const tb = Math.min(t, BOMB_AWAY);
+    let x = this.p.x + dx * (tb - BOMBER_OVER) * BOMBER_SPEED, z = this.p.z + dz * (tb - BOMBER_OVER) * BOMBER_SPEED;
+    let h = this.h0, y = BOMBER_ALT;
+    if (t > BOMB_AWAY) {
+      const n = Math.ceil((t - BOMB_AWAY) / 0.05);
+      const step = (t - BOMB_AWAY) / n;
+      for (let i = 0; i < n; i++) {
+        const tt = BOMB_AWAY + (i + 0.5) * step;
+        h += JET_TURN * this.bankAt(tt) * step;
+        x += Math.cos(h) * BOMBER_SPEED * step;
+        z += -Math.sin(h) * BOMBER_SPEED * step;
+      }
+      y += 10 * this.bankAt(t);     // and a touch of climb as they pull
+    }
+    this.yaw = h;
+    this.dir.set(Math.cos(h), 0, -Math.sin(h));
+    this.bank = JET_BANK * this.bankAt(t);
+    return out.set(x, y, z);
   }
 
   update(dt, clock, sfx, shake) {
@@ -324,29 +400,39 @@ export class StrikeShow {
       this.flare = 0.12;
       this.fx.flare(this.p, 0xff3a2a);
     }
-    // the planes: in sight almost at once, gone a few seconds after the bombs
+    // the jets: in sight almost at once, gone a few seconds after the bombs
     const inSky = t > 0.3 && t < BOMBER_OVER + 7;
     this.leadAt(t, this.lead);
+    const rx = Math.sin(this.yaw), rz = Math.cos(this.yaw);    // right of the heading
     for (const P of this.planes) {
       P.m.visible = inSky;
       if (!inSky) continue;
-      const rx = Math.sin(this.yaw), rz = Math.cos(this.yaw);    // right of the heading
-      P.m.position.set(this.lead.x + this.dir.x * P.back + rx * P.side, BOMBER_ALT + (P.side ? 6 : 0), this.lead.z + this.dir.z * P.back + rz * P.side);
-      P.m.rotation.set(0, this.yaw, 0);
+      // the wingman keeps station in the lead's frame, so it banks and turns with it
+      const up = Math.sin(this.bank) * P.side;     // a left bank lifts the right-hand wingman
+      P.m.position.set(this.lead.x + this.dir.x * P.back + rx * P.side * Math.cos(this.bank), this.lead.y + 2 * (P.side ? 1 : 0) + up, this.lead.z + this.dir.z * P.back + rz * P.side * Math.cos(this.bank));
+      P.m.rotation.order = 'YXZ';
+      P.m.rotation.set(-this.bank, this.yaw, 0);
+      poseJet(P.m, clock);
     }
     if (inSky && sfx) sfx.jetRoar(true, this.lead);
     else if (sfx) sfx.jetRoar(false);
-    // the bombs: dropped from the lead as it passes over, down in two seconds
+    // the pass shakes the ground under it
+    if (inSky && shake && this.lead.y > 0) shake(this.lead, 110);
+    // the bombs: tossed from the jets just short of the spot, arcing on to it
     for (const b of this.bombs) {
       if (t < b.at || b.hit) continue;
       if (!b.mesh) {
         b.mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.18, 2.4, 8), new THREE.MeshLambertMaterial({ color: '#2a2d30' }));
+        const J = this.planes[b.from].m.position;
+        b.x0 = J.x; b.y0 = J.y - 0.6; b.z0 = J.z;
         this.scene.add(b.mesh);
         if (!this.whistled && sfx) { this.whistled = true; sfx.bombWhistle(this.p, b.land - t); }
       }
       const f = Math.min(1, (t - b.at) / (b.land - b.at));
-      const y = this.p.y + (BOMBER_ALT - this.p.y) * (1 - f * f);     // faster and faster, like something falling
-      b.mesh.position.set(b.x, y, b.z);
+      const y = this.p.y + (b.y0 - this.p.y) * (1 - f * f);     // faster and faster, like something falling
+      b.mesh.position.set(b.x0 + (b.x - b.x0) * f, y, b.z0 + (b.z - b.z0) * f);
+      b.mesh.rotation.z = -(1 - f) * 1.2;
+      b.mesh.rotation.y = this.yaw;
       if (t >= b.land) {
         b.hit = true;
         this.scene.remove(b.mesh);

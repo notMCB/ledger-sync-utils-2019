@@ -1242,7 +1242,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher', 'voice', 'b2'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher', 'voice', 'b2', 'jets'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1303,6 +1303,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'launcher') runLauncher();
   if (params.get('script') === 'voice') runVoice();
   if (params.get('script') === 'b2') runB2();
+  if (params.get('script') === 'jets') runJets();
   if (params.get('script') === 'looks') runLooks();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
@@ -1510,7 +1511,7 @@ async function runStreaks() {
   const S = [...game.strikes.values()][0];
   for (let i = 0; i < 3; i++) {
     await sleep(1500);
-    if (S) { const L = S.show.leadAt(game.clock - S.t0, THREE_V()); lookAt(L.x, L.y, L.z); await sleep(100); log(`bombers at ${L.toArray().map((v) => v.toFixed(0))} visible ${S.show.planes[0].m.visible}`); log(`CAPTURE strike-bombers-${i}`); }
+    if (S) { const L = S.show.leadAt(game.clock - S.t0, THREE_V()); lookAt(L.x, L.y, L.z); await sleep(100); log(`jets at ${L.toArray().map((v) => v.toFixed(0))} visible ${S.show.planes[0].m.visible}`); log(`CAPTURE strike-bombers-${i}`); }
   }
   if (target) lookAt(target.x, target.y + 1, target.z);
   const until = S ? S.t0 + 10.3 : game.clock + 3;
@@ -1560,7 +1561,7 @@ async function runLauncher() {
   log('launcher done');
 }
 
-// -- a look at the bomber, parked in the sky close by ------------------------------------
+// -- a look at the jet, parked in the sky close by ------------------------------------
 async function runB2() {
   const log = (s) => {
     fetch('/__log?m=' + encodeURIComponent('[b2] ' + s));
@@ -1571,10 +1572,11 @@ async function runB2() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   while (!game.me.alive || !game.map) await sleep(200);
   await sleep(800);
-  const { makeBomber } = await import('./streaks.js');
+  const { makeJet, poseJet } = await import('./streaks.js');
   const me = game.me;
-  for (const [i, [dx, dy, dz, yaw, pitch]] of [[0, 45, -70, 0.3, 0.55], [60, 30, -40, -0.4, 0.3], [-20, 90, 10, 0.2, 1.2]].entries()) {
-    const b = makeBomber();
+  for (const [i, [dx, dy, dz]] of [[0, 14, -26], [24, 10, -14], [-8, 30, 6]].entries()) {
+    const b = makeJet();
+    poseJet(b, 1.3);
     b.position.set(me.pos.x + dx, me.pos.y + dy, me.pos.z + dz);
     b.rotation.set(0, 0.8, 0);
     game.scene.add(b);
@@ -1586,6 +1588,46 @@ async function runB2() {
     game.scene.remove(b);
   }
   log('b2 done');
+}
+
+// -- the airstrike from the ground: call it on a spot ahead and photograph the jets coming over --
+async function runJets() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[jets] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  const lookAt = (x, y, z) => {
+    const dx = x - me.pos.x, dy = y - (me.pos.y + 1.6), dz = z - me.pos.z;
+    me.yaw = Math.atan2(-dx, -dz);
+    me.pitch = Math.max(-1.5, Math.min(1.5, Math.atan2(dy, Math.hypot(dx, dz))));
+  };
+  while (!game.me.alive || !game.map || !game.g || game.g.ph !== 'live') await sleep(200);
+  await sleep(1500);
+  const tx = me.pos.x + 30, tz = me.pos.z;
+  game.useStreak('strike', { p: [+tx.toFixed(2), +me.pos.y.toFixed(2), +tz.toFixed(2)] });
+  log(`called strike at ${tx.toFixed(1)},${tz.toFixed(1)}`);
+  const t0 = performance.now();
+  let n = 0, S = null, boom = false;
+  while (performance.now() - t0 < 14000) {
+    await sleep(120);
+    S = S || [...game.strikes.values()][0];
+    if (!S) continue;
+    const t = game.clock - S.t0;
+    const L = S.show.lead;
+    if (S.show.planes[0].m.visible && n < 8 && t > 1.2 + n * 0.8) {
+      lookAt(L.x, L.y, L.z);
+      await sleep(150);
+      log(`t=${t.toFixed(2)} lead ${L.x.toFixed(0)},${L.y.toFixed(0)},${L.z.toFixed(0)} dist ${L.distanceTo(me.pos).toFixed(0)} yaw ${S.show.yaw.toFixed(2)} bank ${(S.show.bank * 180 / Math.PI).toFixed(0)} bombs ${S.show.bombs.filter((b) => b.mesh).length} shake ${(game.fx.shake || 0).toFixed(2)}`);
+      log(`CAPTURE jets-${n}`);
+      n++;
+    }
+    if (t > 5.2 && !boom) { boom = true; lookAt(tx, me.pos.y + 1, tz); await sleep(200); log('CAPTURE jets-boom'); }
+  }
+  log(`jets done ${S ? 'show done ' + S.show.done : 'no strike'}`);
 }
 
 // -- voice chat: two of these, with Chrome's fake microphone, stand next to each other and listen --

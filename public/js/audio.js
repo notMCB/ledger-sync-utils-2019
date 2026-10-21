@@ -700,29 +700,72 @@ export function heliBeat(on, pos) {
   if (s) s.f.frequency.setTargetAtTime(140 + 400 / (1 + s.d / 60), ctx.currentTime, 0.1);
 }
 
-// the bombers: a jet roar that only really arrives once they are close to overhead
+// the jets: an afterburner's roar, heard from the ground. Far off it is a low thunder;
+// as the pair comes over at two hundred feet it opens right up into a tearing,
+// crackling scream that drops in pitch as they go away again. Loud on purpose.
 const jets = { cur: null };
 export function jetRoar(on, pos) {
   const s = flyer(jets, on, pos, (c) => {
     const src = c.createBufferSource();
     src.buffer = noiseBuf;
     src.loop = true;
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 120;
     const f = c.createBiquadFilter();
     f.type = 'lowpass';
-    f.frequency.value = 500;
+    f.frequency.value = 400;
+    f.Q.value = 0.7;
+    // the afterburner's crackle: the roar chopped by a second, very slow noise
+    const crk = c.createBufferSource();
+    crk.buffer = noiseBuf;
+    crk.loop = true;
+    crk.playbackRate.value = 0.02;
+    const crkF = c.createBiquadFilter();
+    crkF.type = 'lowpass';
+    crkF.frequency.value = 40;
+    const crkG = c.createGain();
+    crkG.gain.value = 0.6;
+    const chop = c.createGain();
+    chop.gain.value = 0.8;
+    crk.connect(crkF); crkF.connect(crkG); crkG.connect(chop.gain);
+    // the engine's thunder underneath, and a thin whine on top for the Doppler
     const o = c.createOscillator();
     o.type = 'sawtooth';
-    o.frequency.value = 55;
+    o.frequency.value = 62;
     const og = c.createGain();
-    og.gain.value = 0.25;
+    og.gain.value = 0.35;
+    const w = c.createOscillator();
+    w.type = 'sawtooth';
+    w.frequency.value = 1900;
+    const wf = c.createBiquadFilter();
+    wf.type = 'bandpass';
+    wf.frequency.value = 2200;
+    wf.Q.value = 3;
+    const wg = c.createGain();
+    wg.gain.value = 0.05;
     const g = c.createGain();
     g.gain.value = 0.0001;
-    src.connect(f); f.connect(g); o.connect(og); og.connect(f);
+    src.connect(hp); hp.connect(f); f.connect(chop); chop.connect(g);
+    o.connect(og); og.connect(f);
+    w.connect(wf); wf.connect(wg); wg.connect(g);
     g.connect(out('world'));
-    src.start(); o.start();
-    return { g, f, stop() { src.stop(); o.stop(); } };
-  }, 1.4, 500);
-  if (s) s.f.frequency.setTargetAtTime(200 + 1400 / (1 + s.d / 400), ctx.currentTime, 0.2);
+    src.start(); crk.start(); o.start(); w.start();
+    return { g, f, o, w, wg, lastD: null, lastT: 0, stop() { src.stop(); crk.stop(); o.stop(); w.stop(); } };
+  }, 4.5, 230);
+  if (!s) return;
+  const now = ctx.currentTime;
+  // the roar opens up as they close in: far off only the thunder gets through
+  s.f.frequency.setTargetAtTime(300 + 7000 / (1 + (s.d / 90) ** 2), now, 0.15);
+  // Doppler: pitch up coming at you, and down and away once they have gone past
+  if (s.lastD !== null && now > s.lastT + 0.05) {
+    const v = (s.d - s.lastD) / (now - s.lastT);        // metres a second, away from you
+    const k = Math.max(0.55, Math.min(1.5, 1 - v / SPEED_OF_SOUND));
+    s.o.frequency.setTargetAtTime(62 * k, now, 0.12);
+    s.w.frequency.setTargetAtTime(1900 * k, now, 0.12);
+    s.wg.gain.setTargetAtTime(0.02 + 0.08 / (1 + s.d / 120), now, 0.15);
+    s.lastD = s.d; s.lastT = now;
+  } else if (s.lastD === null) { s.lastD = s.d; s.lastT = now; }
 }
 
 // a bomb coming down: the whistle rises as it falls, from where it will land

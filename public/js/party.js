@@ -42,7 +42,7 @@ export function buildFacts(live) {
     `Souk Royale takes 64 players, and the plane flies at 160 metres.`,
     `The gas in Souk Royale closes six times, down to nothing.`,
     `The helicopter gunner circles at a hundred feet, for 45 seconds.`,
-    `The airstrike’s B-2s cross the town at two thousand feet, and the bombs land five seconds after the call.`,
+    `The airstrike’s F-35s come over at two hundred feet on full afterburner, and the bombs land five seconds after the call.`,
     `Two kills in a life earn the scan, five the airstrike, eight the helicopter.`,
     `Voice chat carries thirty metres, and your killer hears you three times louder.`,
     `In Rush, a bomb takes four seconds to arm and goes off forty seconds later.`,
