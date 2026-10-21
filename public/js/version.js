@@ -2,9 +2,19 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.7.0';
+export const VERSION = '3.7.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.7.1',
+    date: '22 October 2026',
+    title: 'Change your username or password',
+    notes: [
+      'Signed in? There is an Account button next to your name on the menu. From there you can change your username or your password.',
+      'Either change needs your current password, then a six-digit code we email to the address on your account. Nothing changes until you type the code in, and it only works for 15 minutes.',
+      'A new password signs you out of every other device, so if someone else had your old one they are gone.',
+    ],
+  },
   {
     version: '3.7.0',
     date: '21 October 2026',

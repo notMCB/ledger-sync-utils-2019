@@ -28,6 +28,8 @@ DATA_DIR = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(HERE), 'da
 DB_PATH = os.path.join(DATA_DIR, 'souk.db')
 PBKDF2_ROUNDS = 240_000
 SESSION_DAYS = 90
+CODE_MINUTES = 15          # how long an emailed code is good for
+CODE_TRIES = 5             # wrong guesses before the code is thrown away
 
 USERNAME_RE = re.compile(r'^[A-Za-z0-9_]{3,16}$')
 EMAIL_RE = re.compile(r'^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,24}$')
@@ -58,6 +60,14 @@ def db():
             token_hash TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL,
             expires REAL NOT NULL)""")
+        # a change of username or password waiting for its emailed code
+        _db.execute("""CREATE TABLE IF NOT EXISTS changes (
+            user_id INTEGER PRIMARY KEY,
+            kind TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            expires REAL NOT NULL,
+            tries INTEGER NOT NULL DEFAULT 0)""")
         _db.commit()
     return _db
 
@@ -159,6 +169,93 @@ def logout(token):
     with _lock:
         db().execute('DELETE FROM sessions WHERE token_hash = ?', (_token_hash(token),))
         db().commit()
+
+
+def _code_hash(user_id, code):
+    return hashlib.sha256(('%s:%s' % (user_id, code)).encode('utf-8')).hexdigest()
+
+
+def start_change(user_id, kind, value, password):
+    """Begin changing an account's username or password: check the current
+    password and the new value, park the change, and return the code to email
+    along with where to send it. Raises AuthError."""
+    if kind not in ('username', 'password'):
+        raise AuthError('Nothing to change.')
+    value = (value or '').strip() if kind == 'username' else (value or '')
+    password = password or ''
+    with _lock:
+        row = db().execute('SELECT username, email, pw_hash, salt FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not row:
+        raise AuthError('Sign in first.')
+    username, email, pw_hash, salt = row
+    if not hmac.compare_digest(_hash_pw(password, salt), pw_hash):
+        raise AuthError('Wrong password.')
+    if kind == 'username':
+        if not USERNAME_RE.match(value):
+            raise AuthError('Usernames are 3–16 letters, numbers or underscores.')
+        if value.lower() == 'player':
+            raise AuthError('Pick a name of your own: "Player" is nobody.')
+        if value == username:
+            raise AuthError('That is your username already.')
+        with _lock:
+            taken = db().execute('SELECT id FROM users WHERE username = ? AND id != ?', (value, user_id)).fetchone()
+        if taken:
+            raise AuthError('That username is taken.')
+        payload = value
+    else:
+        if len(value) < 8:
+            raise AuthError('Passwords need at least 8 characters.')
+        if len(value) > 200:
+            raise AuthError('That password is too long.')
+        if value == password:
+            raise AuthError('That is your password already.')
+        new_salt = secrets.token_hex(16)
+        payload = json.dumps({'hash': _hash_pw(value, new_salt), 'salt': new_salt})
+    code = '%06d' % secrets.randbelow(1000000)
+    with _lock:
+        db().execute('DELETE FROM changes WHERE user_id = ?', (user_id,))
+        db().execute('INSERT INTO changes (user_id, kind, payload, code_hash, expires, tries) VALUES (?, ?, ?, ?, ?, 0)',
+                     (user_id, kind, payload, _code_hash(user_id, code), time.time() + CODE_MINUTES * 60))
+        db().commit()
+    return {'code': code, 'email': email, 'username': username, 'kind': kind, 'value': value if kind == 'username' else None}
+
+
+def confirm_change(user_id, code, keep_token=None):
+    """Apply the parked change if the code is right. A new password signs every
+    other device out (keep_token stays). Returns (kind, user). Raises AuthError."""
+    code = (code or '').strip()
+    with _lock:
+        row = db().execute('SELECT kind, payload, code_hash, expires, tries FROM changes WHERE user_id = ?', (user_id,)).fetchone()
+        if not row:
+            raise AuthError('Nothing is waiting to be confirmed. Start again.')
+        kind, payload, code_hash, expires, tries = row
+        if time.time() > expires or tries >= CODE_TRIES:
+            db().execute('DELETE FROM changes WHERE user_id = ?', (user_id,))
+            db().commit()
+            raise AuthError('That code has run out. Start again and we’ll email you a new one.')
+        if not hmac.compare_digest(_code_hash(user_id, code), code_hash):
+            db().execute('UPDATE changes SET tries = tries + 1 WHERE user_id = ?', (user_id,))
+            db().commit()
+            left = CODE_TRIES - tries - 1
+            raise AuthError('Wrong code.' + (' %d more tr%s.' % (left, 'y' if left == 1 else 'ies') if left > 0 else ' Start again.'))
+        if kind == 'username':
+            try:
+                db().execute('UPDATE users SET username = ? WHERE id = ?', (payload, user_id))
+            except sqlite3.IntegrityError:
+                db().execute('DELETE FROM changes WHERE user_id = ?', (user_id,))
+                db().commit()
+                raise AuthError('Someone took that username in the meantime.')
+        else:
+            new = json.loads(payload)
+            db().execute('UPDATE users SET pw_hash = ?, salt = ? WHERE id = ?', (new['hash'], new['salt'], user_id))
+            if isinstance(keep_token, str):
+                db().execute('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?', (user_id, _token_hash(keep_token)))
+            else:
+                db().execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
+        db().execute('DELETE FROM changes WHERE user_id = ?', (user_id,))
+        db().commit()
+        urow = db().execute('SELECT id, username, email, locker FROM users WHERE id = ?', (user_id,)).fetchone()
+    return kind, _row_user(urow)
 
 
 def locker_of(user_id):

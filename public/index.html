@@ -132,6 +132,7 @@
       <div class="account-buttons">
         <button class="btn ghost" id="btn-signin">Sign in</button>
         <button class="btn ghost" id="btn-signup">Create account</button>
+        <button class="btn ghost" id="btn-account" hidden>Account</button>
         <button class="btn ghost" id="btn-signout" hidden>Sign out</button>
       </div>
     </div>
@@ -399,6 +400,38 @@
       </div>
     </form>
     <p class="auth-note">Your account keeps your dinars, skins and loadouts, on any computer.</p>
+  </div>
+</div>
+
+<!-- ============ your account: change username or password ============ -->
+<div id="account" class="overlay dim" hidden>
+  <div class="panel narrow auth-panel">
+    <div class="panel-head"><div><h2>Your account</h2><div class="lk-account" id="acct-sub"></div></div></div>
+    <div class="tabs auth-tabs" id="acct-tabs">
+      <button class="tab on" data-acct="username" type="button">Change username</button>
+      <button class="tab" data-acct="password" type="button">Change password</button>
+    </div>
+    <form id="acct-form" novalidate>
+      <label class="field" id="af-user"><span>New username</span><input id="acct-user" maxlength="16" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Current password</span><input id="acct-pass" type="password" maxlength="200" autocomplete="current-password"></label>
+      <label class="field" id="af-new" hidden><span>New password</span><input id="acct-new" type="password" maxlength="200" autocomplete="new-password"></label>
+      <label class="field" id="af-new2" hidden><span>New password again</span><input id="acct-new2" type="password" maxlength="200" autocomplete="new-password"></label>
+      <p class="auth-hint">We’ll email a six-digit code to the address on your account. Nothing changes until you type it in.</p>
+      <p class="auth-err" id="acct-err" role="alert"></p>
+      <div class="row-end">
+        <button class="btn ghost" id="acct-close" type="button">Cancel</button>
+        <button class="btn" id="acct-submit" type="submit">Email me a code</button>
+      </div>
+    </form>
+    <form id="acct-code-form" novalidate hidden>
+      <p class="auth-hint" id="acct-sent"></p>
+      <label class="field"><span>The code from the email</span><input id="acct-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" spellcheck="false" placeholder="000000"></label>
+      <p class="auth-err" id="acct-code-err" role="alert"></p>
+      <div class="row-end">
+        <button class="btn ghost" id="acct-back" type="button">Start again</button>
+        <button class="btn" id="acct-confirm" type="submit">Confirm</button>
+      </div>
+    </form>
   </div>
 </div>
 

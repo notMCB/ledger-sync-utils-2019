@@ -984,15 +984,17 @@ function showLocker() {
 function showAccount(user) {
   const name = user ? user.username : null;
   if (name === shownUser) return;
+  const renamed = !!(name && shownUser);      // signed in already, so this is a new username
   shownUser = name;
   $('name-field').hidden = !!user;
   $('signed-in').hidden = !user;
   $('btn-signin').hidden = !!user;
   $('btn-signup').hidden = !!user;
   $('btn-signout').hidden = !user;
+  $('btn-account').hidden = !user;
   if (user) {
     $('si-name').textContent = user.username;
-    toast(`Signed in as ${user.username}`);
+    toast(renamed ? `Your username is now ${user.username}` : `Signed in as ${user.username}`);
   }
   sayHello();
 }
@@ -1000,6 +1002,8 @@ auth.onChange(showAccount);
 auth.onChange((user) => game.setAdmin(!!user && String(user.username || '').toLowerCase() === 'mcb'));
 $('btn-signin').addEventListener('click', () => auth.open('login'));
 $('btn-signup').addEventListener('click', () => auth.open('signup'));
+$('btn-account').addEventListener('click', () => auth.openAccount());
+window.addEventListener('souk-toast', (e) => toast(e.detail));
 $('btn-signout').addEventListener('click', () => {
   auth.signOut();
   toast('Signed out — your guest locker is back');
