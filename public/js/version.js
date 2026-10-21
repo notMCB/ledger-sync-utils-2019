@@ -2,11 +2,11 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.8.0';
+export const VERSION = '3.7.1';
 
 export const PATCH_NOTES = [
   {
-    version: '3.8.0',
+    version: '3.7.1',
     date: '22 October 2026',
     title: 'O.G.',
     notes: [
