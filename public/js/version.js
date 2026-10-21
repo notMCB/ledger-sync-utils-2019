@@ -16,6 +16,7 @@ export const PATCH_NOTES = [
       'Breakthrough: each point is a patch of ground or a building’s ground floor, held by the defenders to start. Have more attackers than defenders on it for 25 seconds and it is yours; the defenders can take it back the same way. Hold both points of a sector at once to move on.',
       'In Breakthrough, stand on a point and a ring with its letter shows at the top of the screen: red for theirs, filling round with blue as your side takes it, spinning while it is changing hands.',
       'No scorestreaks in either mode.',
+      'The airstrike is two F-35s now, not the B-2s. They come across at two hundred feet on full afterburner, loud enough to feel, toss the bombs from just short of the spot, then roll into a bank and turn away.',
       'The line under the title on the menu is a rotating run of facts about the game now: fire rates, reload times, how many skins there are, the most played mode and the most used gun of all time, and one or two others.',
       'A new outfit, "1 Month": Standard Issue in a white T-shirt that says 1 month, with a rainbow party hat. Read on for how to get it.',
       'And one more thing: 22 October is one month since Souk Siege launched. For that day, from one minute past midnight to one minute to, every word in the game is in rainbow, every load of the page opens on "1 month of Souk Siege" across the whole screen (click to clear it), and everyone who signs in or plays that day is given the "1 Month" outfit: the white T-shirt and the party hat, in your Locker to keep.',
