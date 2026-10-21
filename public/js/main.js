@@ -8,6 +8,7 @@ import { VERSION, PATCH_NOTES } from './version.js';
 import { LOADOUTS, WEAPONS } from './weapons.js';
 import { MODE_INFO, NICHE_MODES, esc } from './hud.js';
 import { unlockAudio, uiBlip, musicOn } from './audio.js';
+import * as sfxModule from './audio.js';
 import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
 import { openLocker, lockerOpen, previewOutfit, previewGun, previewShot } from './lockerui.js';
@@ -723,6 +724,7 @@ const SLIDERS = [
   ['s-vworld', 'o-vworld', 'volWorld', (v) => `${Math.round(v * 100)}%`],
   ['s-vmusic', 'o-vmusic', 'volMusic', (v) => `${Math.round(v * 100)}%`],
   ['s-vvoice', 'o-vvoice', 'volVoice', (v) => `${Math.round(v * 100)}%`],
+  ['s-vchat', 'o-vchat', 'volChat', (v) => `${Math.round(v * 100)}%`],
 ];
 const CHECKS = [
   ['s-invert', 'invertY'], ['s-aimtoggle', 'aimToggle'], ['s-crouchtoggle', 'crouchToggle'], ['s-sprinttoggle', 'sprintToggle'],
@@ -738,6 +740,11 @@ for (const [sid, oid, key, fmt] of SLIDERS) {
     game.applySettings();
   });
 }
+$('s-voicemode').addEventListener('change', () => {
+  settings.voiceMode = $('s-voicemode').value;
+  saveSettings();
+  game.applySettings();
+});
 for (const [cid, key] of CHECKS) {
   $(cid).addEventListener('change', () => {
     settings[key] = $(cid).checked;
@@ -752,6 +759,7 @@ function openSettings() {
     $(oid).textContent = fmt(Number(settings[key]));
   }
   $('s-touchmode').value = settings.touchMode || 'auto';
+  $('s-voicemode').value = settings.voiceMode || 'push';
   for (const [cid, key] of CHECKS) $(cid).checked = !!settings[key];
   renderBinds();
   $('pause').hidden = true;
@@ -1129,7 +1137,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher', 'voice'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1188,6 +1196,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'streaks') runStreaks();
   if (params.get('script') === 'skywatch') runSkywatch();
   if (params.get('script') === 'launcher') runLauncher();
+  if (params.get('script') === 'voice') runVoice();
   if (params.get('script') === 'looks') runLooks();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
@@ -1300,9 +1309,9 @@ async function runTurret() {
   await sleep(800);
   log(`in the Interceptor: turret ${!!F().mesh.userData.turret} can ${game.canTurret()}`);
   log('CAPTURE turret-seat');
-  input.tap('KeyT');
+  input.tap('KeyI');
   await sleep(300);
-  log(`after T: turret ${game.turret} cam ${game.camera.position.toArray().map((v) => v.toFixed(2))}`);
+  log(`after I: turret ${game.turret} cam ${game.camera.position.toArray().map((v) => v.toFixed(2))}`);
   input.tap('KeyU');
   await sleep(300);
   log(`after U: armour ${game.armour} walls shown ${F().mesh.userData.armour.visible}`);
@@ -1320,9 +1329,9 @@ async function runTurret() {
   await sleep(300);
   input.hold('Mouse0', false);
   log(`fired: spin ${game.turretSpin.toFixed(2)}`);
-  input.tap('KeyT');
+  input.tap('KeyI');
   await sleep(300);
-  log(`after T again: turret ${game.turret} overlay hidden ${document.getElementById('turretcam').hidden}`);
+  log(`after I again: turret ${game.turret} overlay hidden ${document.getElementById('turretcam').hidden}`);
   me.yaw = F().yaw - Math.PI / 2;
   me.pitch = -0.05;
   await sleep(400);
@@ -1443,6 +1452,44 @@ async function runLauncher() {
   await sleep(900);
   log(`put away: slot ${me.slot} vm ${game.vm.curId}`);
   log('launcher done');
+}
+
+// -- voice chat: two of these, with Chrome's fake microphone, stand next to each other and listen --
+async function runVoice() {
+  const log = (s) => fetch('/__log?m=' + encodeURIComponent('[voice] ' + s));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  settings.voiceMode = 'open';
+  while (!game.me.alive || !game.map) await sleep(200);
+  game.voice.applySettings();
+  while (!game.g || game.g.ph !== 'live') await sleep(200);     // the match start respawns everyone: move after it
+  await sleep(1000);
+  // headless Chrome's fake microphone is silent: speak with a made-up voice instead
+  while (game.voice.mic === 'asking') await sleep(100);
+  const synth = sfxModule.synthVoice();
+  if (synth) { game.voice.replaceMic(synth); log('speaking with a synthesised voice'); }
+  await sleep(1500);
+  log(`mic ${game.voice.mic} on ${game.voice.on} peers ${game.voice.peers.size}`);
+  // the newer player walks over to stand next to the other, well inside earshot
+  for (let i = 0; i < 100; i++) {
+    const a = [...game.avatars.map.values()].find((x) => x.id !== game.myId);
+    if (a && game.myId > a.id) { game.me.pos.set(a.pos.x + 2, a.pos.y, a.pos.z); log(`moved next to ${a.id}`); break; }
+    if (a) break;
+    await sleep(200);
+  }
+  let meter = null;
+  for (let i = 0; i < 12; i++) {
+    await sleep(1000);
+    if (!meter && game.voice.stream) meter = sfxModule.streamMeter(game.voice.stream);
+    const mine = meter ? meter.level().toFixed(2) : '?';
+    const tr = game.voice.stream && game.voice.stream.getAudioTracks()[0];
+    if (i === 2 || i === 8) log(`audio ${sfxModule.audioState()} track ${tr ? `${tr.label} enabled ${tr.enabled} muted ${tr.muted} ${tr.readyState}` : 'none'}`);
+    // the newer player steps back: twenty metres at t5 (fainter), forty at t8 (gone)
+    const other = [...game.avatars.map.values()].find((x) => x.id !== game.myId);
+    if (other && game.myId > other.id && (i === 5 || i === 8)) { game.me.pos.set(other.pos.x + (i === 5 ? 20 : 40), other.pos.y, other.pos.z); log(`stepped back to ${i === 5 ? 20 : 40} m`); }
+    const rows = [...game.voice.peers.values()].map((P) => { const a = game.avatars.get(P.id); return `${P.id}:${P.pc.connectionState}/${P.pc.iceConnectionState} dist ${a ? a.pos.distanceTo(game.me.pos).toFixed(1) : '?'} gain ${P.gain.toFixed(2)} level ${P.sink ? P.sink.level().toFixed(2) : 'none'}`; });
+    log(`t${i} mic ${game.voice.mic} mine ${mine} talking ${game.voice.talking} peers [${rows.join(' | ')}]`);
+  }
+  log('voice done');
 }
 
 // -- from the ground: a second player who watches the sky and takes pictures of what goes over --

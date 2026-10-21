@@ -28,6 +28,7 @@ export const ACTIONS = [
   { id: 'loadout', label: 'Change loadout', key: 'KeyB', group: 'Other' },
   { id: 'chat', label: 'Chat to everyone', key: 'Enter', group: 'Other' },
   { id: 'teamchat', label: 'Chat to your team', key: 'KeyY', group: 'Other' },
+  { id: 'talk', label: 'Push to talk (voice chat)', key: 'KeyT', group: 'Other' },
 ];
 
 const DEFAULTS = {
@@ -44,6 +45,8 @@ const DEFAULTS = {
   volWorld: 1.0,
   volMusic: 0.45,
   volVoice: 1.0,
+  volChat: 1.0,
+  voiceMode: 'push',   // proximity voice chat: 'push' to talk, 'open' mic, or 'off'
   aimToggle: true,  // holding a two-finger click is hard on a trackpad
   crouchToggle: false,
   sprintToggle: false,

@@ -607,6 +607,7 @@ export class Avatar {
     // flying a drone: the body stands where it was, head down over the controller
     this.piloting = !!(this.flags & 2048);
     this.inHeli = !!(this.flags & 2097152);     // in a helicopter's door: sat down, like a driver
+    if (this.flags & 256) this.showName = Math.max(this.showName, 0.4);   // talking: their name shows
     this.driving = !!(this.flags & 16384) || this.inHeli;
     this.burning = !!(this.flags & 32768);
     this.aboard = !!(this.flags & 262144);

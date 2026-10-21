@@ -750,6 +750,11 @@ body.strikecam #crosshair, body.strikecam #minimap, body.strikecam #markers, bod
 #name-field.nudge { animation: nudge 0.45s; }
 #name-field.nudge input { box-shadow: 0 0 0 2px #e05a46; }
 @keyframes nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+/* voice chat: the microphone's state, above the chat log */
+#mic { position: absolute; left: 18px; bottom: 150px; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--plaster-dim); padding: 3px 8px; border-radius: 3px; background: rgba(18, 21, 28, 0.55); pointer-events: none; }
+#mic::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: #777; vertical-align: 0; }
+#mic.talking { color: #c9f7a0; }
+#mic.talking::before { background: #5ae04a; animation: recblink 0.9s steps(2) infinite; }
 /* the owner's command list */
 #adminpanel { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); display: grid; gap: 3px; padding: 8px 10px; border-radius: 4px; background: rgba(18, 21, 28, 0.55); font-size: 12px; color: var(--plaster-dim); pointer-events: none; max-width: 300px; }
 #adminpanel .ap-title { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #ffd23f; font-weight: 700; margin-bottom: 2px; }

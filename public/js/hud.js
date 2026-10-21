@@ -160,6 +160,16 @@ export class Hud {
     }
   }
 
+  // the microphone: what voice chat is doing, by the chat log
+  mic(text, talking) {
+    const el = $('mic');
+    if (this.lastMic === text + talking) return;
+    this.lastMic = text + talking;
+    el.hidden = !text;
+    el.textContent = text;
+    el.classList.toggle('talking', !!talking);
+  }
+
   // the owner's command list, down the left of the screen
   adminPanel(on, lines = []) {
     const el = $('adminpanel');

@@ -23,7 +23,7 @@ function ensure() {
   comp.ratio.value = 4;
   master.connect(comp);
   comp.connect(ctx.destination);
-  for (const k of ['guns', 'steps', 'world', 'music', 'voice']) {
+  for (const k of ['guns', 'steps', 'world', 'music', 'voice', 'chat']) {
     cats[k] = ctx.createGain();
     cats[k].connect(master);
   }
@@ -48,6 +48,90 @@ export function setVolumes() {
   cats.world.gain.value = settings.volWorld;
   cats.music.gain.value = settings.volMusic;
   cats.voice.gain.value = settings.volVoice;
+  cats.chat.gain.value = settings.volChat === undefined ? 1 : settings.volChat;
+}
+
+export function audioState() {
+  return ctx ? ctx.state : 'none';
+}
+
+// a made-up voice for the tests: a warbling tone as a microphone-like stream
+export function synthVoice() {
+  const c = ensure();
+  if (!c) return null;
+  const dest = c.createMediaStreamDestination();
+  const o = c.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.value = 180;
+  const lfo = c.createOscillator();
+  lfo.frequency.value = 3;
+  const lg = c.createGain();
+  lg.gain.value = 60;
+  lfo.connect(lg); lg.connect(o.frequency);
+  const g = c.createGain();
+  g.gain.value = 0.4;
+  o.connect(g); g.connect(dest);
+  o.start(); lfo.start();
+  return dest.stream;
+}
+
+// a meter on a stream that plays nothing: for the microphone's own level
+export function streamMeter(stream) {
+  const c = ensure();
+  if (!c) return { level: () => 0 };
+  const src = c.createMediaStreamSource(stream);
+  const an = c.createAnalyser();
+  an.fftSize = 256;
+  const buf = new Uint8Array(an.fftSize);
+  src.connect(an);
+  return {
+    level() {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+      return peak / 128;
+    },
+  };
+}
+
+// another player's voice: a stream through a muffling filter, a pan and a volume
+// that the game sets every frame from where they are
+export function voiceSink(stream) {
+  const c = ensure();
+  if (!c) return { set() {}, close() {} };
+  if (c.state === 'suspended') c.resume();
+  const src = c.createMediaStreamSource(stream);
+  const lp = c.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 20000;
+  const pan = c.createStereoPanner ? c.createStereoPanner() : null;
+  const g = c.createGain();
+  g.gain.value = 0;
+  const an = c.createAnalyser();
+  an.fftSize = 256;
+  const buf = new Uint8Array(an.fftSize);
+  src.connect(lp);
+  src.connect(an);
+  if (pan) { lp.connect(pan); pan.connect(g); } else lp.connect(g);
+  g.connect(out('chat'));
+  return {
+    // how loud the voice coming in is, before distance (0..1), for the tests and a meter
+    level() {
+      an.getByteTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+      return peak / 128;
+    },
+    set(gain, side, cutoff) {
+      const t = c.currentTime;
+      g.gain.setTargetAtTime(Math.max(0, gain), t, 0.05);
+      if (pan) pan.pan.setTargetAtTime(side, t, 0.1);
+      lp.frequency.setTargetAtTime(cutoff, t, 0.1);
+    },
+    close() {
+      try { src.disconnect(); g.disconnect(); } catch (e) { /* gone */ }
+    },
+  };
 }
 
 export function setVolume() {

@@ -2,9 +2,20 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.4.0';
+export const VERSION = '3.5.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.5.0',
+    date: '21 October 2026',
+    title: 'Proximity voice chat',
+    notes: [
+      'Voice chat, by distance. Hold T to talk and the players near you hear you: full volume within a few metres, fainter further off, muffled through a wall, and nothing at all beyond thirty metres. Enemies hear you as well as friends, so mind what you say round a corner. Voices come from the side the player is on.',
+      'Your name shows over your head while you talk. The dead can listen but not speak.',
+      'Sound settings: push to talk, open mic, or off, and a volume for other players’ voices. The browser asks for your microphone the first time you join; say no and you can still hear everyone.',
+      'The Interceptor’s turret is now I rather than T.',
+    ],
+  },
   {
     version: '3.4.0',
     date: '21 October 2026',

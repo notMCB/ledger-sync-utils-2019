@@ -17,6 +17,7 @@ import { locker } from './locker.js';
 import { tickSkins, OUTFIT, CAMO_OUTFITS, CART, sirenMaterials, chromeMaterial } from './skins.js';
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
+import { Voice, TALK_FLAG } from './voice.js';
 import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
 
 const GRAVITY = 18;
@@ -58,7 +59,7 @@ const CART_MUL = 2.0;       // a golf cart is twice as quick as the forklift, fo
 // the Derby's carts go twice as fast as golf carts anywhere else, and a crash at this speed or more kills
 const DERBY_MUL = 2.0, DERBY_CRASH = 5.0, DERBY_REACH = 2.7;
 // the Interceptor's Gatling turret: the key that mans it, how far it tips, how it shoots
-const TURRET_KEY = 'KeyT', TURRET_FLAG = 524288;
+const TURRET_KEY = 'KeyI', TURRET_FLAG = 524288;     // (T is push to talk)
 // and its bulletproof walls: the key that puts them up and down, and the flag that tells everyone
 const ARMOUR_KEY = 'KeyU', ARMOUR_FLAG = 1048576;     // keep in step with ARMOUR_FLAG in server/server.py
 const TURRET_DOWN = -0.32, TURRET_UP = 1.3;      // it can't point straight down at the cart
@@ -140,6 +141,7 @@ export class Game {
     this.strikePick = null;     // me, picking where an airstrike lands
     this.strikeRing = null;
     this.circuit = null;        // the helicopters' circuit round this map
+    this.voice = new Voice(this);   // proximity voice chat
     // the owner's tools: flying, seeing through walls, the command list on screen
     this.admin = false;
     this.fly = false;
@@ -242,6 +244,7 @@ export class Game {
     if (this.renderer.shadowMap.enabled !== settings.shadows) this.world.setShadows(settings.shadows);
     sfx.setVolume(settings.volume);
     document.getElementById('fps').hidden = !settings.showFps;
+    this.voice.applySettings();
   }
 
   // -- network ------------------------------------------------------------------
@@ -374,6 +377,7 @@ export class Game {
       case 'beacon': return this.onBeacon(m);
       case 'ping': return this.onPing(m);
       case 'streak': return this.onStreak(m);
+      case 'rtc': return this.voice.onMessage(m);
       case 'heli': return this.onHeli(m);
       case 'strike': return this.onStrike(m);
       case 'chat':
@@ -559,7 +563,7 @@ export class Game {
     me.adsK = Math.max(0, me.adsK - dt * 8);
     const derby = this.isDerby();
     if (input.pressed('interact') && !derby) { this.stopDriving(); return; }
-    // the Interceptor's Gatling: T climbs into the turret and back to the wheel
+    // the Interceptor's Gatling: I climbs into the turret and back to the wheel
     if (input.pressedCode(TURRET_KEY) && this.canTurret()) this.setTurret(!this.turret);
     else if (this.turret && !this.canTurret()) this.setTurret(false);
     if (input.pressedCode(ARMOUR_KEY) && this.canTurret()) {
@@ -641,10 +645,10 @@ export class Game {
     if (!!this.turret === on) return;
     this.turret = on;
     this.turretHeat = 0;
-    this.hud.gunCam(on, 'GUN CAM 01', 'GATLING · ∞', 'T · BACK TO THE WHEEL');
+    this.hud.gunCam(on, 'GUN CAM 01', 'GATLING · ∞', 'I · BACK TO THE WHEEL');
     if (on) {
       this.me.pitch = Math.max(TURRET_DOWN, Math.min(TURRET_UP, this.me.pitch));
-      this.hud.center('Gatling', `Mouse to aim · ${keyName(settings.binds.fire)} to fire · T to drive`, '', 2.4, 1);
+      this.hud.center('Gatling', `Mouse to aim · ${keyName(settings.binds.fire)} to fire · I to drive`, '', 2.4, 1);
     }
   }
 
@@ -1221,6 +1225,7 @@ export class Game {
     this.hud.show(true);
     this.updateTeamLook();
     this.ui.onJoined(m.room);
+    if (!this.offline) this.voice.start();
   }
 
   leave() {
@@ -1243,6 +1248,7 @@ export class Game {
     this.hill.visible = false;
     this.clearRoyale();
     this.clearStreaks();
+    this.voice.stop();
     this.me.streaks = [];
     this.me.streak = 0;
     this.hud.setStreaks(null);
@@ -1497,6 +1503,7 @@ export class Game {
   onRoster(m) {
     this.roster = new Map(m.pl.map((p) => [p.id, p]));
     this.avatars.setRoster(m.pl);
+    this.voice.sync();
     const me = this.roster.get(this.myId);
     if (me && me.tm !== this.me.team) {
       this.me.team = me.tm;
@@ -2414,6 +2421,7 @@ export class Game {
       if (this.driving) f |= 16384;
       if (this.turret) f |= TURRET_FLAG;     // on the Gatling: others see it follow my aim
       if (this.gunner) f |= HELI_FLAG;
+      if (this.voice.talking) f |= TALK_FLAG;     // others see who is talking
       if (this.armour && this.canTurret()) f |= ARMOUR_FLAG;   // the walls are up: bullets can't reach me
       // a laser on the gun in hand: everyone sees the beam
       if (ws && ws.def.laser === 'red') f |= 4096;
@@ -3976,6 +3984,7 @@ export class Game {
         ready: this.admin || me.streaks.includes(s.k), used: !this.admin && !me.streaks.includes(s.k) && me.streak >= s.n })) : null);
     }
     hud.setHP(me.alive ? me.hp : 0);
+    hud.mic(this.voice.status(), this.voice.talking);
     if (this.range) hud.rangeTop(this.range.stats);
     else hud.top(g, me.team, this.myId, this.roster, this.clock);
     // crosshair: its gap is the real spread cone at this field of view
@@ -4087,6 +4096,7 @@ export class Game {
       this.updateRoyale(dt);
       this.updateLaser();
       this.updateStreakVisuals(dt);
+      this.voice.update(dt);
       if (this.wall && this.admin) this.avatars.xray(true);
       if (this.range) this.range.update(dt);
       const me = this.me;

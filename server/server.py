@@ -36,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.4.0'
+VERSION = '3.5.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -3531,6 +3531,12 @@ class Conn:
             p.slug = bool(a.get('slug'))
         elif t == 'chat':
             p.room.handle_chat(p, m)
+        elif t == 'rtc':
+            # voice chat signalling: passed to the player it is for, if they are in this room
+            to = p.room.players.get(int(num(m.get('to'))))
+            d = m.get('d')
+            if to and to is not p and not to.bot and isinstance(d, dict) and len(json.dumps(d)) < 20000:
+                to.send({'t': 'rtc', 'from': p.id, 'd': d})
         elif t == 'perk':
             p.room.handle_perk(p, m)
         elif t == 'streak':

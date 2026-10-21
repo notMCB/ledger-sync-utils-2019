@@ -1,0 +1,265 @@
+// Proximity voice chat. Everyone in the room is joined up peer to peer (WebRTC,
+// signalled through the game's own socket), and what you hear of someone depends
+// on where they are: full volume within a few metres, gone beyond thirty, muffled
+// through a wall, and panned to the side they are on. Push to talk by default.
+//
+// Only the nearest dozen players are connected at any one time, so a 64-player
+// royale is not 63 streams; the set is looked at again every couple of seconds.
+
+import { settings } from './settings.js';
+import { input } from './input.js';
+import * as sfx from './audio.js';
+
+export const TALK_FLAG = 256;         // a movement flag: this player is transmitting
+export const VOICE_RANGE = 30;        // metres: beyond this, nothing
+export const VOICE_FULL = 4;          // metres: within this, full volume
+export const VOICE_PEERS = 12;        // the most players connected at once
+const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+
+export class Voice {
+  constructor(game) {
+    this.game = game;
+    this.peers = new Map();     // player id -> peer
+    this.stream = null;         // my microphone
+    this.mic = 'none';          // none | asking | on | denied | nomic
+    this.talking = false;
+    this.on = false;            // in a room with voice turned on
+    this.evalT = 0;
+    this.rayT = 0;
+    this.lastNote = '';
+  }
+
+  mode() {
+    return settings.voiceMode || 'push';
+  }
+
+  // joining a room: get the microphone (once) and start joining up
+  async start() {
+    if (this.mode() === 'off' || !window.RTCPeerConnection) return;
+    this.on = true;
+    if (!this.stream && this.mic !== 'denied' && this.mic !== 'nomic') await this.openMic();
+    this.sync();
+  }
+
+  async openMic() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { this.mic = 'nomic'; return; }
+    this.mic = 'asking';
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      this.mic = 'on';
+      for (const tr of this.stream.getAudioTracks()) tr.enabled = false;
+      // peers made while we waited get the track now
+      for (const P of this.peers.values()) this.attachMic(P);
+    } catch (e) {
+      this.mic = 'denied';
+      this.stream = null;
+      if (location.hostname === 'localhost') fetch('/__log?m=' + encodeURIComponent('[voice] microphone refused: ' + (e && e.name) + ' ' + (e && e.message)));
+    }
+  }
+
+  // another stream in place of the microphone (the tests use a made-up voice)
+  replaceMic(stream) {
+    this.stream = stream;
+    this.mic = 'on';
+    const track = stream.getAudioTracks()[0];
+    for (const tr of stream.getAudioTracks()) tr.enabled = this.talking;
+    for (const P of this.peers.values()) this.attachMic(P);
+  }
+
+  // leaving the room: everything down; the microphone stays granted for next time
+  stop() {
+    this.on = false;
+    this.talking = false;
+    for (const id of [...this.peers.keys()]) this.drop(id);
+    if (this.stream) for (const tr of this.stream.getAudioTracks()) tr.enabled = false;
+  }
+
+  // the settings changed: voice turned off or on
+  applySettings() {
+    if (this.mode() === 'off') { if (this.on) this.stop(); return; }
+    if (!this.on && this.game.inRoom && !this.game.offline) this.start();
+  }
+
+  // -- who to be connected to -------------------------------------------------
+
+  sync() {
+    if (!this.on) return;
+    const g = this.game;
+    const me = g.me;
+    const here = g.camera ? g.camera.position : me.pos;
+    const others = [];
+    for (const a of g.avatars.map.values()) {
+      if (a.id === g.myId) continue;
+      others.push({ id: a.id, d: Math.hypot(a.pos.x - here.x, a.pos.y - here.y, a.pos.z - here.z) });
+    }
+    others.sort((p, q) => p.d - q.d);
+    const want = new Set(others.slice(0, VOICE_PEERS).map((o) => o.id));
+    // the lower id opens the connection; the other side answers when the offer comes
+    for (const id of want) if (!this.peers.has(id) && g.myId < id) this.connect(id);
+    for (const [id, P] of this.peers) {
+      const o = others.find((x) => x.id === id);
+      // gone from the room, or well out of earshot and not among the nearest any more
+      if (!o || (!want.has(id) && o.d > VOICE_RANGE * 1.5)) this.drop(id);
+    }
+  }
+
+  connect(id, answering = false) {
+    const g = this.game;
+    const pc = new RTCPeerConnection({ iceServers: ICE });
+    // perfect negotiation: the higher id is the polite one and gives way when both offer at once
+    const P = { id, pc, polite: g.myId > id, makingOffer: false, ignoreOffer: false, sink: null, audio: null, blocked: false, gain: 0, connected: false, pending: [] };
+    this.peers.set(id, P);
+    pc.onicecandidate = (e) => { if (e.candidate) this.signal(id, { ice: e.candidate.toJSON() }); };
+    pc.onnegotiationneeded = async () => {
+      try {
+        P.makingOffer = true;
+        await pc.setLocalDescription();
+        this.signal(id, { sdp: pc.localDescription });
+      } catch (e) { /* the peer went away mid-offer */ } finally { P.makingOffer = false; }
+    };
+    pc.ontrack = (e) => {
+      const stream = e.streams[0] || new MediaStream([e.track]);
+      // Chrome only feeds WebRTC audio into an AudioContext once an element is playing it
+      if (!P.audio) {
+        P.audio = new Audio();
+        P.audio.muted = true;
+        P.audio.autoplay = true;
+      }
+      P.audio.srcObject = stream;
+      P.audio.play().catch(() => {});
+      if (P.sink) P.sink.close();
+      P.sink = sfx.voiceSink(stream);
+    };
+    pc.onconnectionstatechange = () => {
+      P.connected = pc.connectionState === 'connected';
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.drop(id);
+    };
+    // one audio channel each way from the start, so the microphone can be dropped in
+    // later with replaceTrack and nothing has to be negotiated again. An answerer's
+    // channel comes with the offer (see onMessage).
+    if (answering) return;
+    P.tr = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    this.attachMic(P);
+  }
+
+  // my microphone onto this connection's outgoing half (no renegotiation needed)
+  attachMic(P) {
+    if (!this.stream || !P.tr) return;
+    const track = this.stream.getAudioTracks()[0];
+    if (!track || P.tr.sender.track === track) return;
+    P.tr.sender.replaceTrack(track).catch(() => {});
+  }
+
+  drop(id) {
+    const P = this.peers.get(id);
+    if (!P) return;
+    this.peers.delete(id);
+    try { P.pc.close(); } catch (e) { /* already */ }
+    if (P.sink) P.sink.close();
+    if (P.audio) { P.audio.srcObject = null; P.audio = null; }
+  }
+
+  signal(id, d) {
+    if (!this.game.offline) this.game.send({ t: 'rtc', to: id, d });
+  }
+
+  // a signal from another player, relayed by the server
+  async onMessage(m) {
+    if (!this.on || this.mode() === 'off') return;
+    const id = m.from;
+    const d = m.d || {};
+    let P = this.peers.get(id);
+    if (!P) {
+      if (!d.sdp || d.sdp.type !== 'offer') return;
+      if (this.peers.size >= VOICE_PEERS + 4) return;     // more than enough voices already
+      this.connect(id, true);
+      P = this.peers.get(id);
+    }
+    const pc = P.pc;
+    try {
+      if (d.sdp) {
+        const offerCollision = d.sdp.type === 'offer' && (P.makingOffer || pc.signalingState !== 'stable');
+        P.ignoreOffer = !P.polite && offerCollision;
+        if (P.ignoreOffer) return;
+        await pc.setRemoteDescription(d.sdp);
+        // candidates that came before the description they belong to
+        for (const c of P.pending.splice(0)) await pc.addIceCandidate(c).catch(() => {});
+        if (d.sdp.type === 'offer') {
+          // the channel the offer brought: make it two-way before answering
+          const tr = pc.getTransceivers().find((t) => t.receiver && t.receiver.track && t.receiver.track.kind === 'audio');
+          if (tr && !P.tr) {
+            P.tr = tr;
+            tr.direction = 'sendrecv';
+            this.attachMic(P);
+          }
+          await pc.setLocalDescription();
+          this.signal(id, { sdp: pc.localDescription });
+        }
+      } else if (d.ice) {
+        if (!pc.remoteDescription) P.pending.push(d.ice);
+        else await pc.addIceCandidate(d.ice).catch(() => {});
+      }
+    } catch (e) {
+      /* a stale message from a connection being torn down */
+    }
+  }
+
+  // -- every frame: the key, and what each voice sounds like from here ----------
+
+  update(dt) {
+    const g = this.game;
+    if (!this.on) { this.talking = false; return; }
+    const me = g.me;
+    const mode = this.mode();
+    const can = this.mic === 'on' && me.alive && g.inRoom && !g.paused && !input.typing;
+    const want = can && (mode === 'open' || (mode === 'push' && input.down('talk')));
+    if (want !== this.talking) {
+      this.talking = want;
+      if (this.stream) for (const tr of this.stream.getAudioTracks()) tr.enabled = want;
+    }
+    this.evalT -= dt;
+    if (this.evalT <= 0) { this.evalT = 2.0; this.sync(); }
+    this.rayT -= dt;
+    const doRay = this.rayT <= 0;
+    if (doRay) this.rayT = 0.25;
+    const cam = g.camera;
+    const phys = g.world && g.world.physics;
+    for (const P of this.peers.values()) {
+      if (!P.sink) continue;
+      const a = g.avatars.get(P.id);
+      let gain = 0, pan = 0;
+      if (a && a.alive) {
+        const dx = a.pos.x - cam.position.x, dy = a.pos.y + 1.5 - cam.position.y, dz = a.pos.z - cam.position.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < VOICE_RANGE) {
+          gain = d <= VOICE_FULL ? 1 : Math.pow(1 - (d - VOICE_FULL) / (VOICE_RANGE - VOICE_FULL), 1.6);
+          const rx = Math.cos(cam.rotation.y), rz = -Math.sin(cam.rotation.y);
+          pan = d > 0.5 ? Math.max(-1, Math.min(1, (dx * rx + dz * rz) / d * 0.8)) : 0;
+          if (doRay && phys) {
+            const dir = { x: dx / d, y: dy / d, z: dz / d };
+            P.blocked = !!phys.raycast(cam.position, this.vec(dir), d);
+          }
+          if (P.blocked) gain *= 0.45;
+        } else P.blocked = false;
+      }
+      P.gain += (gain * settings.volChat - P.gain) * Math.min(1, dt * 12);
+      P.sink.set(P.gain, pan, P.blocked ? 700 : 20000);
+    }
+  }
+
+  vec(d) {
+    this._v = this._v || (this.game.camera.position.clone());
+    this._v.set(d.x, d.y, d.z);
+    return this._v;
+  }
+
+  // a line for the HUD: what the microphone is doing
+  status() {
+    if (!this.on) return '';
+    if (this.mic === 'asking') return 'Microphone: allow it to talk';
+    if (this.mic === 'denied') return 'Microphone blocked: you can hear, not talk';
+    if (this.mic === 'nomic') return 'No microphone: you can hear, not talk';
+    if (this.talking) return 'Talking';
+    return this.mode() === 'open' ? 'Open mic' : '';
+  }
+}
