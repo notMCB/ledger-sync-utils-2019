@@ -51,6 +51,10 @@ export const auth = {
   get user() {
     return user;
   },
+  // the saved session, for things bought outside the socket (the shop)
+  token() {
+    return readToken();
+  },
 
   onChange(fn) {
     listeners.add(fn);
@@ -138,7 +142,8 @@ export const auth = {
       return true;
     }
     if (m.t === 'locker') {
-      if (locker.equipEcho(m.seq)) locker.updateAccount(m.locker);
+      if (m.bought) locker.updateAccount(m.locker);     // the shop put something on the account
+      else if (locker.equipEcho(m.seq)) locker.updateAccount(m.locker);
       return true;
     }
     return false;

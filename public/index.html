@@ -146,6 +146,7 @@
     <div class="menu-foot">
       <button class="btn" id="btn-locker">Locker <span class="dinar-pill"><i class="dinar"></i><span id="menu-dinars">0</span></span></button>
       <button class="btn ghost" id="btn-pass">Battle Pass</button>
+      <button class="btn ghost" id="btn-shop" hidden>Shop</button>
       <button class="btn ghost" id="btn-stats">Stats</button>
       <button class="btn ghost" id="btn-gunstats">Gun stats</button>
       <button class="btn ghost" id="btn-loadout">Loadout</button>
@@ -418,6 +419,18 @@
     <div class="stats-grid" id="stats-grid"></div>
     <h3 class="stats-h">Kills by gun</h3>
     <div class="stats-guns" id="stats-guns"></div>
+  </div>
+</div>
+
+<!-- ============ shop ============ -->
+<div id="shop" class="overlay dim" hidden>
+  <div class="panel stats-panel">
+    <div class="panel-head">
+      <div><h2>Shop</h2><div class="lk-account" id="shop-sub"></div></div>
+      <button class="btn ghost" id="shop-close">Done</button>
+    </div>
+    <div class="shop-grid" id="shop-grid"></div>
+    <p class="panel-sub" id="shop-note"></p>
   </div>
 </div>
 

@@ -750,6 +750,15 @@ body.strikecam #crosshair, body.strikecam #minimap, body.strikecam #markers, bod
 #name-field.nudge { animation: nudge 0.45s; }
 #name-field.nudge input { box-shadow: 0 0 0 2px #e05a46; }
 @keyframes nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+/* the shop */
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.shop-card { display: grid; gap: 6px; padding: 10px; border-radius: 6px; background: rgba(239, 228, 207, 0.07); box-shadow: inset 0 0 0 1px rgba(239, 228, 207, 0.12); }
+.shop-card .sw { height: 64px; border-radius: 4px; background: #6b5d4a; }
+.shop-card b { font-size: 15px; }
+.shop-card small { color: var(--plaster-dim); font-size: 12px; }
+.shop-card .price { font-family: var(--mono); font-size: 14px; color: #ffd23f; }
+.shop-card .btn { justify-self: start; }
+.shop-card.owned { opacity: 0.6; }
 /* voice chat: the microphone's state, above the chat log */
 #mic { position: absolute; left: 18px; bottom: 150px; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--plaster-dim); padding: 3px 8px; border-radius: 3px; background: rgba(18, 21, 28, 0.55); pointer-events: none; }
 #mic::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: #777; vertical-align: 0; }

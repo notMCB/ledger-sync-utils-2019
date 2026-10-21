@@ -35,8 +35,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
+import shop  # noqa: E402
 
-VERSION = '3.5.1'
+VERSION = '3.6.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -288,6 +289,24 @@ def ban_learn(b, account_id, ip, dev):
 rooms = {}
 lobby = set()
 LIVE_LOCKERS = {}   # account id -> locker, shared by every tab signed in to that account
+
+
+def _conns_of(uid):
+    """Every connection signed in to an account."""
+    out = []
+    for r in rooms.values():
+        for q in r.players.values():
+            if q.account and q.account.get('id') == uid and not q.bot:
+                out.append(q.conn)
+    for c in lobby:
+        if c.player and c.player.account and c.player.account.get('id') == uid:
+            out.append(c)
+    return out
+
+
+# the shop grants into the live locker of anyone online, and tells their tabs
+shop.live_lookup = lambda uid: LIVE_LOCKERS.get(uid)
+shop.live_push = lambda uid: [c.send({'t': 'locker', 'locker': LIVE_LOCKERS[uid], 'seq': 0, 'bought': 1}) for c in _conns_of(uid) if uid in LIVE_LOCKERS]
 next_ids = {'p': 1, 'r': 1}
 
 
@@ -3037,6 +3056,27 @@ def admin_command(p, text):
         bans[:] = [x for x in bans if x['name'] != n]
         save_bans()
         return say('%s unbanned.' % arg if len(bans) < before else 'No ban under that name.')
+    if cmd == '/shop':
+        # /shop list · /shop add <outfit|gun|cart|dinars> <id> <price> [name…] · /shop remove <sku>
+        words = arg.split()
+        sub = words[0].lower() if words else 'list'
+        if sub == 'add' and len(words) >= 4:
+            kind, item, price = words[1].lower(), words[2], words[3]
+            name = ' '.join(words[4:]) or item
+            try:
+                cents = int(round(float(price.lstrip('$')) * 100))
+                entry = shop.add(kind, item, cents, name)
+            except ValueError as e:
+                return say('Not added: %s. Kinds: outfit, gun (smg:tiger), cart, dinars (amount). Price in dollars, e.g. 4.99.' % e)
+            return say('Listed %s as "%s" for %s (sku %s).%s' % (item, entry['name'], shop.price_text(cents), entry['sku'],
+                                                            '' if shop.enabled() else ' Payments are not switched on yet: set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET on the server.'))
+        if sub == 'remove' and len(words) >= 2:
+            return say('Removed %s.' % words[1] if shop.remove(words[1]) else 'No listing with that sku.')
+        if sub == 'list':
+            if not shop.listings:
+                return say('Nothing listed. /shop add outfit nomad 2.99 Nomad outfit')
+            return say('Shop (%s): ' % ('payments on' if shop.enabled() else 'payments OFF') + '; '.join('%s = %s %s' % (x['sku'], x['name'], shop.price_text(x['price'])) for x in shop.listings))
+        return say('/shop list · /shop add <outfit|gun|cart|dinars> <id> <price> [name] · /shop remove <sku>')
     if cmd == '/bans':
         if not bans:
             return say('Nobody is banned.')
@@ -3056,7 +3096,7 @@ def admin_command(p, text):
         if not targets:
             return say('Nobody alive by that name.' if arg and arg.lower() != 'all' else 'Nobody to kill.')
         return say('Killed %s.' % ', '.join(q.name for q in targets))
-    return say('Commands: /ban name, /unban name, /bans, /kill [name | all]. On your own screen: /fly, /wall, /panel. Scorestreaks 4 5 6 are always yours.')
+    return say('Commands: /ban name, /unban name, /bans, /kill [name | all], /shop. On your own screen: /fly, /wall, /panel. Scorestreaks 4 5 6 are always yours.')
 
 
 def room_list():
@@ -3603,6 +3643,39 @@ async def serve_http(method, target, headers, writer, body=b''):
         except Exception as e:
             print('shot error: %r' % (e,), flush=True)
         return respond(writer, 200, 'text/plain', b'ok', method)
+    if path == '/shop' and method in ('GET', 'HEAD'):
+        return respond(writer, 200, 'application/json', json.dumps(shop.public()).encode(), method, {'Cache-Control': 'no-cache'})
+    if path == '/shop/checkout' and method == 'POST':
+        # a signed-in player buying one listing: back comes the Stripe page to pay on
+        try:
+            m = json.loads(body.decode() or '{}')
+        except ValueError:
+            m = {}
+        listing = shop.find(str(m.get('sku') or ''))
+        user = accounts.resume(m.get('token')) if ACCOUNTS else None
+        err = None
+        if not listing:
+            err = 'That is not for sale.'
+        elif not user:
+            err = 'Sign in to buy things: what you buy goes on your account.'
+        elif not shop.enabled():
+            err = 'Payments are not switched on yet.'
+        elif shop.owned(LIVE_LOCKERS.get(user['id']) or user['locker'], listing):
+            err = 'You already have that.'
+        if err:
+            return respond(writer, 400, 'application/json', json.dumps({'error': err}).encode(), method)
+        try:
+            url = await asyncio.get_event_loop().run_in_executor(None, shop.checkout_session, listing, user)
+        except Exception as e:
+            print('stripe error: %r' % (e,), flush=True)
+            return respond(writer, 502, 'application/json', json.dumps({'error': 'The payment page could not be opened. Try again in a moment.'}).encode(), method)
+        return respond(writer, 200, 'application/json', json.dumps({'url': url}).encode(), method)
+    if path == '/stripe/webhook' and method == 'POST':
+        event = shop.verify_webhook(body, headers.get('stripe-signature', ''))
+        if not event:
+            return respond(writer, 400, 'text/plain', b'bad signature', method)
+        await asyncio.get_event_loop().run_in_executor(None, shop.fulfil, event)
+        return respond(writer, 200, 'text/plain', b'ok', method)
     if path in ('/healthz', '/health'):
         body = json.dumps({'ok': True, 'v': VERSION, 'rooms': len(rooms),
                            'players': sum(r.count() for r in rooms.values())}).encode()
@@ -3677,7 +3750,7 @@ async def handle_client(reader, writer):
                 conn = Conn(reader, writer, ip, deflate)
                 await conn.run()
                 return
-            if method not in ('GET', 'HEAD') and not (method == 'POST' and path == '/__shot'):
+            if method not in ('GET', 'HEAD') and not (method == 'POST' and path in ('/__shot', '/shop/checkout', '/stripe/webhook')):
                 respond(writer, 405, 'text/plain', b'Method not allowed', method)
             else:
                 await serve_http(method, target, headers, writer, body)

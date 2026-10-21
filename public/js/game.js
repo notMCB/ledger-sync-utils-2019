@@ -3944,6 +3944,11 @@ export class Game {
       const ours = D.owner === this.myId || (teamMode && D.tm === this.me.team);
       mmObj.push({ x: D.pos.x, z: D.pos.z, dot: true, color: ours ? '#7fc8ff' : '#ff4a33' });
     }
+    // the range: the targets, with how far off each one is
+    if (this.range) {
+      for (const T of this.range.targets) mmObj.push({ x: T.x, z: T.z, dot: true, color: T.down > 0 ? '#6b6b6b' : '#ff4a33' });
+      for (const d of [10, 25, 50, 75, 100]) mmObj.push({ x: 0, z: -d, label: `${d} m`, color: '#ffd23f' });
+    }
     // airstrikes on their way: everyone sees where the bombs will land
     for (const S of this.strikes.values()) {
       const left = Math.max(0, S.t0 + 10 - this.clock);

@@ -161,6 +161,18 @@ def logout(token):
         db().commit()
 
 
+def locker_of(user_id):
+    """An account's saved locker, or None if there is no such account."""
+    with _lock:
+        row = db().execute('SELECT locker FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not row:
+        return None
+    try:
+        return catalog.clean_locker(json.loads(row[0]))
+    except ValueError:
+        return catalog.new_locker()
+
+
 def save_locker(user_id, locker):
     with _lock:
         db().execute('UPDATE users SET locker = ? WHERE id = ?', (json.dumps(locker), user_id))

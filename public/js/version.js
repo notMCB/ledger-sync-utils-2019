@@ -2,9 +2,18 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.5.1';
+export const VERSION = '3.6.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.6.0',
+    date: '21 October 2026',
+    title: 'The shop, and the range map',
+    notes: [
+      'A shop, on the menu. Outfits, gun finishes, golf cart skins and dinars can be bought outright for real money, on a secure Stripe page, and go straight on your account. It opens when there is something in it.',
+      'Aim Training: the full map (M) shows the hall and every target with its distance, instead of a blank strip.',
+    ],
+  },
   {
     version: '3.5.1',
     date: '21 October 2026',

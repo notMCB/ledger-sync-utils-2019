@@ -461,7 +461,7 @@ function showMenu() {
 }
 
 function hideAll() {
-  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass', 'results', 'stats', 'gunstats']) $(id).hidden = true;
+  for (const id of ['pause', 'settings', 'loadout', 'notes', 'pass', 'results', 'stats', 'gunstats', 'shop']) $(id).hidden = true;
 }
 
 // -- the battle pass ---------------------------------------------------------------
@@ -534,6 +534,79 @@ function openStats() {
   input.unlock();
 }
 $('btn-stats').addEventListener('click', () => { uiBlip(); openStats(); });
+
+// -- the shop: skins and such for real money, paid on Stripe's page ------------------------
+let shopData = null;
+async function loadShop() {
+  try {
+    shopData = await (await fetch('/shop', { cache: 'no-store' })).json();
+  } catch (e) {
+    shopData = null;
+  }
+  // the button shows once there is something to sell (the owner always sees it, to manage it)
+  $('btn-shop').hidden = !(shopData && (shopData.items.length || game.admin));
+}
+function shopKindName(k) {
+  return { outfit: 'Outfit', gun: 'Gun finish', cart: 'Golf cart skin', dinars: 'Dinars' }[k] || k;
+}
+function shopItemSwatch(it) {
+  try {
+    if (it.kind === 'outfit' && OUTFIT[it.id]) return swatch(OUTFIT[it.id]);
+    if (it.kind === 'gun') { const f = it.id.split(':')[1]; if (FINISH[f]) return swatch(FINISH[f]); }
+    if (it.kind === 'cart' && CART[it.id]) return swatch(CART[it.id]);
+  } catch (e) { /* no swatch */ }
+  return it.kind === 'dinars' ? 'linear-gradient(135deg, #e6a23c, #8a5a1a)' : '#6b5d4a';
+}
+function renderShop() {
+  const grid = $('shop-grid');
+  const d = shopData;
+  const owned = (it) => {
+    if (it.kind === 'outfit') return locker.outfits().includes(it.id);
+    if (it.kind === 'gun') { const [w, f] = it.id.split(':'); return locker.ownsGun(w, f); }
+    if (it.kind === 'cart') return locker.carts().includes(it.id);
+    return false;
+  };
+  if (!d || !d.items.length) {
+    grid.innerHTML = '';
+    $('shop-note').textContent = 'Nothing for sale yet.';
+  } else {
+    grid.innerHTML = d.items.map((it) => `<div class="shop-card${owned(it) ? ' owned' : ''}" data-sku="${esc(it.sku)}"><div class="sw" style="background:${shopItemSwatch(it)}"></div><b>${esc(it.name)}</b><small>${esc(shopKindName(it.kind))}${it.blurb ? ' · ' + esc(it.blurb) : ''}</small><span class="price">${esc(priceText(it.price, d.currency))}</span><button class="btn small" ${owned(it) ? 'disabled' : ''}>${owned(it) ? 'Owned' : 'Buy'}</button></div>`).join('');
+    $('shop-note').textContent = !auth.user ? 'Sign in to buy: what you buy goes on your account and stays there.' : !d.on ? 'Payments are not switched on yet.' : 'Paying takes you to a secure Stripe page and brings you straight back. Prices in Australian dollars.';
+    grid.querySelectorAll('.shop-card .btn').forEach((b) => b.addEventListener('click', () => buyItem(b.closest('.shop-card').dataset.sku)));
+  }
+  $('shop-sub').textContent = auth.user ? `Buying as ${auth.user.username}` : 'Not signed in';
+}
+function priceText(cents, cur) {
+  return `${cur === 'aud' ? 'A$' : ''}${(cents / 100).toFixed(2)}`;
+}
+async function buyItem(sku) {
+  uiBlip();
+  if (!auth.user) { toast('Sign in first: what you buy goes on your account'); return; }
+  try {
+    const r = await fetch('/shop/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, token: auth.token() }) });
+    const m = await r.json();
+    if (m.url) { location.href = m.url; return; }
+    toast(m.error || 'That could not be bought just now.');
+  } catch (e) {
+    toast('The shop could not be reached.');
+  }
+}
+function openShop() {
+  renderShop();
+  loadShop().then(renderShop);
+  $('pause').hidden = true;
+  $('shop').hidden = false;
+  input.unlock();
+}
+$('btn-shop').addEventListener('click', () => { uiBlip(); openShop(); });
+$('shop-close').addEventListener('click', () => { uiBlip(); $('shop').hidden = true; if (game.inRoom) resume(); });
+if (params.get('paid')) {
+  // back from paying: the server's webhook has put it in the locker, which the sign-in brings down
+  setTimeout(() => { toast('Thank you. Your purchase is in your Locker.'); history.replaceState(null, '', location.pathname); }, 1200);
+}
+if (params.get('shop')) setTimeout(() => { openShop(); history.replaceState(null, '', location.pathname); }, 800);
+loadShop();
+auth.onChange(() => loadShop());
 // the gun stats page: from the menu or the pause menu, with the gun in hand picked
 function openGuns() {
   $('pause').hidden = true;
@@ -638,7 +711,7 @@ $('btn-pause-loadout').addEventListener('click', () => {
 $('btn-pause-settings').addEventListener('click', () => openSettings());
 $('btn-pause-notes').addEventListener('click', () => openNotes());
 canvas.addEventListener('click', () => {
-  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden && $('results').hidden && $('stats').hidden && $('gunstats').hidden) input.lock();
+  if (game.inRoom && !input.locked && $('pause').hidden && $('settings').hidden && $('loadout').hidden && $('results').hidden && $('stats').hidden && $('gunstats').hidden && $('shop').hidden) input.lock();
 });
 $('death').addEventListener('click', (e) => {
   if (e.target.closest('.ld')) return;
