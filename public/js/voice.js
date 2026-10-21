@@ -13,7 +13,9 @@ import * as sfx from './audio.js';
 export const TALK_FLAG = 256;         // a movement flag: this player is transmitting
 export const VOICE_RANGE = 30;        // metres: beyond this, nothing
 export const VOICE_FULL = 4;          // metres: within this, full volume
-export const VOICE_PEERS = 12;        // the most players connected at once
+export const VOICE_PEERS = 12;        // the most players connected at once (teammates on top)
+export const KILLER_GAIN = 3.0;       // how loud your killer hears you while you wait to respawn
+export const DEAD_TALK = 8;           // seconds after dying that your killer can hear you
 const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
 export class Voice {
@@ -27,6 +29,24 @@ export class Voice {
     this.evalT = 0;
     this.rayT = 0;
     this.lastNote = '';
+    this.victims = new Map();   // player id -> until when I hear them, having just killed them
+    this.deadTalkUntil = 0;     // while I'm dead, my killer hears me until this
+  }
+
+  // in a team mode (and not the warm-up), the whole team is one channel
+  teamMode() {
+    const g = this.game;
+    return g.isTeamMode() && !g.warmup();
+  }
+
+  // I killed them: for a few seconds I hear whatever they have to say about it
+  killed(victimId) {
+    this.victims.set(victimId, { until: this.game.clock + DEAD_TALK, sawDead: false });
+  }
+
+  // they killed me: they can hear me for a few seconds
+  died(killerId) {
+    this.deadTalkUntil = killerId && killerId !== this.game.myId ? this.game.clock + DEAD_TALK : 0;
   }
 
   mode() {
@@ -87,19 +107,25 @@ export class Voice {
     const g = this.game;
     const me = g.me;
     const here = g.camera ? g.camera.position : me.pos;
+    const team = this.teamMode();
     const others = [];
+    const want = new Set();
     for (const a of g.avatars.map.values()) {
       if (a.id === g.myId) continue;
-      others.push({ id: a.id, d: Math.hypot(a.pos.x - here.x, a.pos.y - here.y, a.pos.z - here.z) });
+      const r = g.avatars.roster.get(a.id);
+      if (r && r.bot) continue;      // bots have nothing to say, and no way to answer
+      // teammates always, whoever I just killed, and whoever just killed me
+      if ((team && a.team === me.team) || this.victims.has(a.id) || (this.deadTalkUntil > g.clock && a.id === me.killerId)) want.add(a.id);
+      else others.push({ id: a.id, d: Math.hypot(a.pos.x - here.x, a.pos.y - here.y, a.pos.z - here.z) });
     }
     others.sort((p, q) => p.d - q.d);
-    const want = new Set(others.slice(0, VOICE_PEERS).map((o) => o.id));
+    for (const o of others.slice(0, Math.max(0, VOICE_PEERS - want.size))) want.add(o.id);
     // the lower id opens the connection; the other side answers when the offer comes
     for (const id of want) if (!this.peers.has(id) && g.myId < id) this.connect(id);
     for (const [id, P] of this.peers) {
       const o = others.find((x) => x.id === id);
       // gone from the room, or well out of earshot and not among the nearest any more
-      if (!o || (!want.has(id) && o.d > VOICE_RANGE * 1.5)) this.drop(id);
+      if (!g.avatars.get(id) || (!want.has(id) && o && o.d > VOICE_RANGE * 1.5)) this.drop(id);
     }
   }
 
@@ -211,7 +237,10 @@ export class Voice {
     if (!this.on) { this.talking = false; return; }
     const me = g.me;
     const mode = this.mode();
-    const can = this.mic === 'on' && me.alive && g.inRoom && !g.paused && !input.typing;
+    // alive, or just killed (your killer hears you for a few seconds)
+    const deadTalk = !me.alive && this.deadTalkUntil > g.clock;
+    if (me.alive) this.deadTalkUntil = 0;
+    const can = this.mic === 'on' && (me.alive || deadTalk) && g.inRoom && !g.paused && !input.typing;
     const want = can && (mode === 'open' || (mode === 'push' && input.down('talk')));
     if (want !== this.talking) {
       this.talking = want;
@@ -224,11 +253,26 @@ export class Voice {
     if (doRay) this.rayT = 0.25;
     const cam = g.camera;
     const phys = g.world && g.world.physics;
+    const team = this.teamMode();
+    // whoever I just killed: until they are back on their feet, or a few seconds at most
+    for (const [id, v] of this.victims) {
+      const a = g.avatars.get(id);
+      if (a && !a.alive) v.sawDead = true;
+      if (v.until < g.clock || (a && a.alive && v.sawDead)) this.victims.delete(id);
+    }
     for (const P of this.peers.values()) {
       if (!P.sink) continue;
       const a = g.avatars.get(P.id);
       let gain = 0, pan = 0;
-      if (a && a.alive) {
+      if (a && this.victims.has(P.id)) {
+        // the one I just killed: loud and clear, wherever they are
+        gain = KILLER_GAIN;
+        P.blocked = false;
+      } else if (a && a.alive && team && a.team === me.team) {
+        // my team: the whole team, at full volume, from everywhere
+        gain = 1;
+        P.blocked = false;
+      } else if (a && a.alive) {
         const dx = a.pos.x - cam.position.x, dy = a.pos.y + 1.5 - cam.position.y, dz = a.pos.z - cam.position.z;
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (d < VOICE_RANGE) {
@@ -259,7 +303,8 @@ export class Voice {
     if (this.mic === 'asking') return 'Microphone: allow it to talk';
     if (this.mic === 'denied') return 'Microphone blocked: you can hear, not talk';
     if (this.mic === 'nomic') return 'No microphone: you can hear, not talk';
-    if (this.talking) return 'Talking';
+    if (this.talking && !this.game.me.alive) return 'Your killer can hear you';
+    if (this.talking) return this.teamMode() ? 'Talking to your team' : 'Talking';
     return this.mode() === 'open' ? 'Open mic' : '';
   }
 }

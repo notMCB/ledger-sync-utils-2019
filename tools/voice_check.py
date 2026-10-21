@@ -65,9 +65,10 @@ async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8782)
     ap.add_argument('--log', default='/tmp/souk-34/server.log')
+    ap.add_argument('--mode', default='ffa', help='tdm needs the server started with SOUK_DUMMIES=1, which puts both players on one team')
     args = ap.parse_args()
     origin = 'http://localhost:%d' % args.port
-    url = origin + '/?autotest=ffa&script=voice&map=town'
+    url = origin + '/?autotest=%s&script=voice&map=town' % args.mode
     n0 = sum(1 for _ in open(args.log)) if os.path.exists(args.log) else 0
     procs = []
     for i, dbg in enumerate((9331, 9332)):
@@ -88,7 +89,14 @@ async def main():
             if 'refused' in l or ' t1 ' in l or ' t6 ' in l or ' t11 ' in l:
                 print(l)
         ok = [l for l in lines if ' t11 ' in l and 'mic on' in l and 'connected/connected' in l and 'level 0.00' not in l and 'level none' not in l]
-        print('\nRESULT: %s' % ('both hear each other' if len(ok) >= 2 else 'FAILED'))
+        if args.mode == 'ffa':
+            # the killer hears the dead at three times the volume; the victim is still talking
+            ok = [l for l in ok if 'gain 3.00' in l or ('talking true' in l and 'gain 0.00' in l)]
+            want = 'both hear each other, and the killer hears the dead'
+        else:
+            ok = [l for l in ok if 'gain 1.00' in l]      # teammates at full volume, forty metres apart
+            want = 'teammates hear each other at full volume across the map'
+        print('\nRESULT: %s' % (want if len(ok) >= 2 else 'FAILED'))
         return 0 if len(ok) >= 2 else 1
     finally:
         for p in procs:

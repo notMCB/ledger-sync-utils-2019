@@ -36,7 +36,7 @@ import mapgen  # noqa: E402
 import catalog  # noqa: E402
 import accounts  # noqa: E402
 
-VERSION = '3.5.0'
+VERSION = '3.5.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -2963,7 +2963,7 @@ class Room:
         return snap
 
     def roster(self):
-        return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths, 'a': p.assists,
+        return {'t': 'roster', 'pl': [{'id': p.id, 'n': p.name, 'tm': p.team, 'k': p.kills, 'd': p.deaths, 'a': p.assists, 'bot': 1 if p.bot else 0,
                                        's': p.score, 'ping': p.ping, 'ld': p.loadout, 'cs': self.cos_of(p), 'pw': self.arms(p)[0] or '', 'sw': self.arms(p)[1] or '',
                                        'lv': p.lives if self.mode == 'oitc' else -1, 'pl': p.place if self.mode == 'royale' else 0}
                                       for p in self.players.values()]}

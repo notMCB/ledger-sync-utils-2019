@@ -1137,7 +1137,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher', 'voice'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher', 'voice', 'b2'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1197,6 +1197,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'skywatch') runSkywatch();
   if (params.get('script') === 'launcher') runLauncher();
   if (params.get('script') === 'voice') runVoice();
+  if (params.get('script') === 'b2') runB2();
   if (params.get('script') === 'looks') runLooks();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
@@ -1454,6 +1455,34 @@ async function runLauncher() {
   log('launcher done');
 }
 
+// -- a look at the bomber, parked in the sky close by ------------------------------------
+async function runB2() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[b2] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.72) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  while (!game.me.alive || !game.map) await sleep(200);
+  await sleep(800);
+  const { makeBomber } = await import('./streaks.js');
+  const me = game.me;
+  for (const [i, [dx, dy, dz, yaw, pitch]] of [[0, 45, -70, 0.3, 0.55], [60, 30, -40, -0.4, 0.3], [-20, 90, 10, 0.2, 1.2]].entries()) {
+    const b = makeBomber();
+    b.position.set(me.pos.x + dx, me.pos.y + dy, me.pos.z + dz);
+    b.rotation.set(0, 0.8, 0);
+    game.scene.add(b);
+    const ox = b.position.x - me.pos.x, oy = b.position.y - (me.pos.y + 1.6), oz = b.position.z - me.pos.z;
+    me.yaw = Math.atan2(-ox, -oz);
+    me.pitch = Math.atan2(oy, Math.hypot(ox, oz));
+    await sleep(500);
+    log(`CAPTURE b2-${i}`);
+    game.scene.remove(b);
+  }
+  log('b2 done');
+}
+
 // -- voice chat: two of these, with Chrome's fake microphone, stand next to each other and listen --
 async function runVoice() {
   const log = (s) => fetch('/__log?m=' + encodeURIComponent('[voice] ' + s));
@@ -1486,6 +1515,11 @@ async function runVoice() {
     // the newer player steps back: twenty metres at t5 (fainter), forty at t8 (gone)
     const other = [...game.avatars.map.values()].find((x) => x.id !== game.myId);
     if (other && game.myId > other.id && (i === 5 || i === 8)) { game.me.pos.set(other.pos.x + (i === 5 ? 20 : 40), other.pos.y, other.pos.z); log(`stepped back to ${i === 5 ? 20 : 40} m`); }
+    // at t9, pretend the older player just killed the newer one: the victim keeps talking, only the killer hears, three times louder
+    if (other && i === 9 && game.room && game.room.mode === 'ffa') {
+      if (game.myId < other.id) { game.voice.killed(other.id); log('pretend: I killed them'); }
+      else { game.me.alive = false; game.me.killerId = other.id; game.voice.died(other.id); log('pretend: they killed me'); }
+    }
     const rows = [...game.voice.peers.values()].map((P) => { const a = game.avatars.get(P.id); return `${P.id}:${P.pc.connectionState}/${P.pc.iceConnectionState} dist ${a ? a.pos.distanceTo(game.me.pos).toFixed(1) : '?'} gain ${P.gain.toFixed(2)} level ${P.sink ? P.sink.level().toFixed(2) : 'none'}`; });
     log(`t${i} mic ${game.voice.mic} mine ${mine} talking ${game.voice.talking} peers [${rows.join(' | ')}]`);
   }

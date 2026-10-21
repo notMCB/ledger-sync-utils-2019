@@ -214,27 +214,37 @@ export function poseHeli(mesh, path, s, dt, clock) {
 
 // -- the bombers ----------------------------------------------------------------------
 
-// A B-1: a long blended fuselage, wings swept right back, four engines paired under
-// the wing roots, a tall fin. Local +x is forward. It is only ever seen from two
-// thousand feet below, so it is a shape, not a model.
+// A B-2: a flying wing, nothing else. A broad arrowhead with the sawtooth trailing
+// edge, a low hump in the middle for the crew and the engines, no fin or tail at all.
+// Local +x is forward. Seen from two thousand feet below it is a dark shape, so the
+// outline is what matters: fifty-odd metres across, twenty from nose to the notch.
 export function makeBomber() {
   const g = new THREE.Group();
-  const skin = lam('#2c3136');
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.0, 44, 10), skin);
-  body.rotation.z = Math.PI / 2;
-  g.add(body);
-  const noseCone = new THREE.Mesh(new THREE.ConeGeometry(1.6, 6, 10), skin);
-  noseCone.rotation.z = -Math.PI / 2;
-  noseCone.position.x = 25;
-  g.add(noseCone);
+  const skin = new THREE.MeshLambertMaterial({ color: '#23262a', side: THREE.DoubleSide });
+  // the wing's outline in the x (forward) / z (span) plane, drawn as a flat shape
+  const half = 26, nose = 11, tail = -9, notch = -4, mid = -6;
+  const pts = [
+    [nose, 0], [tail + 3, half], [tail + 1, half],                           // nose to the wingtip
+    [mid, half * 0.72], [tail, half * 0.5], [notch, half * 0.26], [tail, 0],  // the sawtooth back edge
+    [notch, -half * 0.26], [tail, -half * 0.5], [mid, -half * 0.72], [tail + 1, -half], [tail + 3, -half],
+  ];
+  const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, z)));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.9, bevelEnabled: false });
+  const wing = new THREE.Mesh(geo, skin);
+  wing.rotation.x = Math.PI / 2;        // the shape's y becomes world z (the span); depth goes down
+  wing.position.y = 0.45;
+  g.add(wing);
+  // the hump: the crew compartment up front, the engine bays either side of it
+  const hump = new THREE.Mesh(new THREE.SphereGeometry(4.2, 12, 8), skin);
+  hump.scale.set(1.6, 0.42, 1.0);
+  hump.position.set(1.5, 0.7, 0);
+  g.add(hump);
   for (const side of [-1, 1]) {
-    const wing = bx(g, 6, 0.3, 17, skin, -6, 0, side * 9);
-    wing.rotation.y = side * 0.95;
-    const nac = bx(g, 7, 1.6, 3.2, skin, -8, -0.8, side * 3.2);
-    nac.visible = true;
+    const bay = new THREE.Mesh(new THREE.SphereGeometry(3.2, 10, 6), skin);
+    bay.scale.set(1.8, 0.32, 1.1);
+    bay.position.set(-1.5, 0.75, side * 7.5);
+    g.add(bay);
   }
-  bx(g, 6, 0.25, 11, skin, -19, 0.6, 0);                 // the tailplane
-  bx(g, 5, 6.5, 0.4, skin, -19, 3.0, 0, 0, 0, 0.35);     // the fin
   g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
   return g;
 }

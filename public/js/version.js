@@ -2,9 +2,19 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.5.0';
+export const VERSION = '3.5.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.5.1',
+    date: '21 October 2026',
+    title: 'Team voice, B-2s, last words',
+    notes: [
+      'Team voice chat. In Team Deathmatch, King of the Hill and Bomb Defusal your whole team is one channel: you hear every teammate at full volume wherever they are on the map, clear, with no walls in the way. Enemies you still hear by distance, so they can hear you coming too.',
+      'Last words. Kill someone and, until they respawn, you hear their mic at three times the volume, wherever they are, in every mode. Everyone else hears nothing from the dead. So go on, say what you think of them.',
+      'The airstrike’s bombers are B-2 flying wings now.',
+    ],
+  },
   {
     version: '3.5.0',
     date: '21 October 2026',

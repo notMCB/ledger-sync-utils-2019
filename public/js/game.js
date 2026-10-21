@@ -1437,6 +1437,7 @@ export class Game {
     if (this.driving) this.stopDriving(false);
     me.deathPos.copy(me.pos);
     me.killerId = m.by;
+    this.voice.died(m.by);
     me.respawnAt = m.rs >= 0 ? this.clock + m.rs : -1;
     me.interacting = false;
     me.slide = null;
@@ -1538,6 +1539,7 @@ export class Game {
         }
         if (m.v === this.myId && !this.warmup()) locker.stat('deaths');
         if (m.k === this.myId && m.v !== this.myId && typeof m.ks === 'number') this.me.streak = m.ks;
+        if (m.k === this.myId && m.v !== this.myId) this.voice.killed(m.v);
         m.kc = this.colorOf(m.k);
         m.vc = this.colorOf(m.v);
         this.hud.feedKill(m, this.myId);
