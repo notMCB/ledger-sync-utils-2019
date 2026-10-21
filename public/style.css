@@ -751,6 +751,17 @@ body.strikecam #crosshair, body.strikecam #minimap, body.strikecam #markers, bod
 #name-field.nudge { animation: nudge 0.45s; }
 #name-field.nudge input { box-shadow: 0 0 0 2px #e05a46; }
 @keyframes nudge { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+/* Breakthrough: the point you are standing on, a ring that fills with your colour as it is taken */
+#capring { position: absolute; left: 50%; top: 84px; width: 104px; height: 104px; margin-left: -52px; pointer-events: none; --fill: 0%; --ours: #4aa3ff; --theirs: #ff4a33; }
+#capring .cr-ring { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--ours) 0 var(--fill), var(--theirs) var(--fill) 100%);
+  -webkit-mask: radial-gradient(circle, transparent 36px, #000 37px, #000 50px, transparent 51px); mask: radial-gradient(circle, transparent 36px, #000 37px, #000 50px, transparent 51px);
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6)); transition: --fill 0.1s linear; }
+#capring .cr-spin { position: absolute; inset: -8px; border-radius: 50%; border: 3px dashed rgba(255, 255, 255, 0.55); opacity: 0; }
+#capring.moving .cr-spin { opacity: 1; animation: crspin 2.4s linear infinite; }
+#capring.contested .cr-spin { border-color: rgba(255, 210, 63, 0.9); animation-duration: 0.9s; }
+#capring .cr-letter { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 44px; color: var(--plaster); text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8); }
+#capring .cr-sub { position: absolute; left: 50%; top: 108px; transform: translateX(-50%); white-space: nowrap; font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--plaster); text-shadow: 0 0 4px rgba(0, 0, 0, 0.8); }
+@keyframes crspin { to { transform: rotate(360deg); } }
 /* Attack and Defend: the points in the top bar, and the spawn choice on the death card */
 #topbar .time b { font-weight: 700; margin: 0 2px; }
 #topbar .time b.took { color: #7fc47a; }

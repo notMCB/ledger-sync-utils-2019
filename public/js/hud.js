@@ -164,6 +164,21 @@ export class Hud {
     }
   }
 
+  // Breakthrough: the ring for the point you are on. fill is how much of it is yours, 0..1
+  capRing(on, letter = '', fill = 0, text = '', moving = false, contested = false) {
+    const el = $('capring');
+    if (el.hidden !== !on) el.hidden = !on;
+    if (!on) return;
+    const k = `${letter}|${Math.round(fill * 200)}|${text}|${moving}|${contested}`;
+    if (this.lastCap === k) return;
+    this.lastCap = k;
+    el.style.setProperty('--fill', `${(fill * 100).toFixed(1)}%`);
+    el.querySelector('.cr-letter').textContent = letter;
+    el.querySelector('.cr-sub').textContent = text;
+    el.classList.toggle('moving', moving);
+    el.classList.toggle('contested', contested);
+  }
+
   // the microphone: what voice chat is doing, by the chat log
   mic(text, talking) {
     const el = $('mic');

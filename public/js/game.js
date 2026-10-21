@@ -619,6 +619,40 @@ export class Game {
     }
   }
 
+  // is this position inside a point's zone? (the same sums the server does)
+  inZone(pos, z) {
+    if (pos.y < z.y0 || pos.y > z.y1) return false;
+    const dx = pos.x - z.x, dz = pos.z - z.z;
+    if (z.k === 'circle') return Math.hypot(dx, dz) <= z.r;
+    const c = Math.cos(z.yaw), s = Math.sin(z.yaw);
+    const lx = c * dx - s * dz, lz = s * dx + c * dz;
+    return Math.abs(lx) <= z.hw && Math.abs(lz) <= z.hd;
+  }
+
+  // Breakthrough: the ring at the top of the screen while you stand on a point
+  updateCapRing() {
+    const g = this.g, me = this.me;
+    if (!this.isAD() || !g || g.mode !== 'breakthrough' || !g.ad || g.ph !== 'live' || !me.alive) { this.hud.capRing(false); return; }
+    const sec = this.adSectors()[g.ad.sec];
+    if (!sec) { this.hud.capRing(false); return; }
+    const i = sec.pts.findIndex((P) => this.inZone(me.pos, P.zone));
+    if (i < 0) { this.hud.capRing(false); return; }
+    const st = g.ad.pts[i];
+    const attacking = g.att === me.team;
+    // c is the attackers' share of the point; mine is however much of it is my side's
+    const mine = attacking ? st.c : 1 - st.c;
+    const ours = st.o === me.team;
+    const a = st.a || 0, d = st.d || 0, us = attacking ? a : d, them = attacking ? d : a;
+    const moving = us !== them && mine > 0 && mine < 1;
+    const contested = us > 0 && them > 0;
+    let text = ours ? 'Yours' : 'Theirs';
+    if (contested && us === them) text = `${us} v ${them} · stand-off`;
+    else if (us > them && mine < 1) text = `${us} v ${them} · taking`;
+    else if (them > us && mine > 0) text = `${us} v ${them} · losing it`;
+    else if (ours) text = 'Yours · hold it';
+    this.hud.capRing(true, sec.pts[i].id, mine, text, moving, contested);
+  }
+
   clearAD() {
     for (const m of this.adMeshes) this.scene.remove(m);
     this.adMeshes = [];
@@ -4169,6 +4203,7 @@ export class Game {
     }
     hud.setHP(me.alive ? me.hp : 0);
     hud.mic(this.voice.status(), this.voice.talking);
+    this.updateCapRing();
     if (this.range) hud.rangeTop(this.range.stats);
     else hud.top(g, me.team, this.myId, this.roster, this.clock);
     // crosshair: its gap is the real spread cone at this field of view
