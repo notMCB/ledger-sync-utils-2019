@@ -705,7 +705,12 @@ class Room:
         # night falls on four matches in ten, on every map but the royale's and the Manor
         self.night = self.mode != 'royale' and self.map_kind not in ('manor', 'front') and random.random() < NIGHT_CHANCE
         self.map['night'] = self.night
-        self.solid = mapgen.Solid(self.map['boxes'])
+        boxes = self.map['boxes']
+        if self.mode == 'rush' and self.map.get('ad'):
+            # the bombs stand solid: grenades and the strike's bombs don't reach through them
+            boxes = boxes + [[P['x'], P['y'] + 1.15, P['z'], 0.65, 1.15, 0.55, P.get('face', 0.0), 'car', 0]
+                             for S in self.ad_sectors() for P in S['pts']]
+        self.solid = mapgen.Solid(boxes)
         # forklifts: driveable, so the server keeps their pose and who is at the wheel
         self.forklifts = {}
         for d in self.map['deco']:
@@ -1293,9 +1298,14 @@ class Room:
         self.attackers = 0
         self.ad = {'sector': 0, 'tickets': AD_TICKETS, 'pts': self.ad_points(0)}
 
+    def ad_sectors(self):
+        """The sectors this mode plays: Rush has one more, a single bomb in the back corner."""
+        A = self.map['ad']
+        return A['sectors'] + ([A['rush_extra']] if self.mode == 'rush' and A.get('rush_extra') else [])
+
     def ad_points(self, i):
         out = []
-        for _ in self.map['ad']['sectors'][i]['pts']:
+        for _ in self.ad_sectors()[i]['pts']:
             if self.mode == 'rush':
                 out.append({'s': 'idle', 'planter': None, 'plant_t': 0.0, 'defuser': None, 'defuse_t': 0.0, 'explode': 0.0})
             else:
@@ -1303,7 +1313,7 @@ class Room:
         return out
 
     def ad_point_pos(self, i, j):
-        P = self.map['ad']['sectors'][i]['pts'][j]
+        P = self.ad_sectors()[i]['pts'][j]
         return [P['x'], P['y'], P['z']]
 
     def ad_inside(self, pos, zone):
@@ -1361,7 +1371,7 @@ class Room:
             return
         A = self.ad
         i = A['sector']
-        secs = self.map['ad']['sectors']
+        secs = self.ad_sectors()
         if self.mode == 'rush':
             for j, S in enumerate(A['pts']):
                 pos = self.ad_point_pos(i, j)
@@ -1431,7 +1441,7 @@ class Room:
     def ad_advance(self, t):
         """Both points taken: on to the next sector, with a fresh set of lives; the last one won is the match."""
         A = self.ad
-        if A['sector'] >= len(self.map['ad']['sectors']) - 1:
+        if A['sector'] >= len(self.ad_sectors()) - 1:
             return self.end_match(self.attackers)
         A['sector'] += 1
         A['tickets'] = AD_TICKETS
@@ -3149,7 +3159,7 @@ class Room:
                 else:
                     d = {'o': S['owner'], 'c': round(S['cap'], 3), 'a': S['a'], 'd': S['d']}
                 pts.append(d)
-            g['ad'] = {'sec': A['sector'], 'n': len(self.map['ad']['sectors']), 'tk': A['tickets'], 'pts': pts}
+            g['ad'] = {'sec': A['sector'], 'n': len(self.ad_sectors()), 'tk': A['tickets'], 'pts': pts}
             g['att'] = self.attackers
         if self.mode == 'royale':
             g['al'] = sum(1 for p in self.players.values() if p.alive and not p.late)

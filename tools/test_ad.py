@@ -44,7 +44,10 @@ async def setup(mode):
 async def test_rush():
     a, att, dfn = await setup('rush')
     A = a.map['ad']
-    assert ad(a)['sec'] == 0 and ad(a)['n'] == 3 and ad(a)['tk'] == int(os.environ.get('SOUK_AD_TICKETS') or 2)
+    assert ad(a)['sec'] == 0 and ad(a)['n'] == 4 and ad(a)['tk'] == int(os.environ.get('SOUK_AD_TICKETS') or 2)
+    extra = A['rush_extra']['pts']
+    assert len(extra) == 1 and extra[0]['x'] > 110 and extra[0]['z'] < -20, 'the fourth sector: one bomb in the back corner, on the left: %r' % (extra,)
+    assert all('face' in p for s in A['sectors'] for p in s['pts'])
     assert att.pos[0] < -110 and -45 < dfn.pos[0] < 45, 'attackers start at the west end, defenders at the second sector: %r %r' % (att.pos, dfn.pos)
     print('  ok   the Long Souk: fixed, twice as long, attackers west and defenders a sector ahead')
     pts = A['sectors'][0]['pts']
@@ -107,6 +110,7 @@ async def test_breakthrough():
     a, att, dfn = await setup('breakthrough')
     A = a.map['ad']
     pts = A['sectors'][0]['pts']
+    assert ad(a)['n'] == 3, 'Breakthrough plays three sectors'
     assert all(p['o'] == dfn.team for p in ad(a)['pts']), 'the defenders own both points to begin with'
     att.move([pts[0]['x'], pts[0]['y'], pts[0]['z']])
     await wait(lambda: ad(a)['pts'][0]['a'] == 1 and ad(a)['pts'][0]['c'] > 0, 3, 'the capture starting')

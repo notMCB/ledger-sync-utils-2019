@@ -145,6 +145,7 @@ export class Game {
     this.voice = new Voice(this);   // proximity voice chat
     this.adSector = -1;             // Attack and Defend: the sector whose points are drawn
     this.adMeshes = [];             // the bombs or zones of that sector
+    this.adBoxes = [];              // the bombs' solid boxes
     this.side = 0;                  // which point I come back at (0 left, 1 right)
     // the owner's tools: flying, seeing through walls, the command list on screen
     this.admin = false;
@@ -547,6 +548,13 @@ export class Game {
     return !!(this.room && AD_MODES.includes(this.room.mode));
   }
 
+  // the sectors this mode plays: Rush has a fourth, one bomb in the back corner
+  adSectors() {
+    const A = this.map && this.map.ad;
+    if (!A) return [];
+    return A.sectors.concat(this.room && this.room.mode === 'rush' && A.rush_extra ? [A.rush_extra] : []);
+  }
+
   // -- Attack and Defend -------------------------------------------------------
 
   pickSide(s) {
@@ -575,13 +583,17 @@ export class Game {
     if (sec !== this.adSector) {
       this.clearAD();
       this.adSector = sec;
-      if (sec >= 0) {
-        for (const P of this.map.ad.sectors[sec].pts) {
+      const secs = this.adSectors();
+      if (sec >= 0 && secs[sec]) {
+        for (const P of secs[sec].pts) {
           let mesh;
           if (this.room.mode === 'rush') {
             mesh = makeTowerBomb();
             mesh.position.set(P.x, P.y, P.z);
-            mesh.rotation.y = P.x < 0 ? -Math.PI / 2 : Math.PI / 2;
+            mesh.rotation.y = P.face !== undefined ? P.face : 0;
+            // solid and bulletproof: a box the size of the rack, for walking into and shooting at
+            const box = this.world.physics.add([P.x, P.y + 1.15, P.z, 0.65, 1.15, 0.55, P.face || 0, 'car']);
+            this.adBoxes.push(box);
           } else mesh = makeZone(P.zone);
           this.scene.add(mesh);
           this.adMeshes.push(mesh);
@@ -610,6 +622,8 @@ export class Game {
   clearAD() {
     for (const m of this.adMeshes) this.scene.remove(m);
     this.adMeshes = [];
+    if (this.world && this.world.physics) for (const b of this.adBoxes || []) this.world.physics.remove(b);
+    this.adBoxes = [];
     this.adSector = -1;
   }
 
@@ -3828,7 +3842,8 @@ export class Game {
     const me = this.me;
     if (g && g.mode === 'rush' && g.ph === 'live' && g.ad && me.alive && this.map && this.map.ad) {
       const attacking = g.att === me.team;
-      const pts = this.map.ad.sectors[g.ad.sec].pts;
+      const sec = this.adSectors()[g.ad.sec];
+      const pts = sec ? sec.pts : [];
       for (const [i, P] of pts.entries()) {
         const st = g.ad.pts[i];
         if (!st || Math.hypot(me.pos.x - P.x, me.pos.z - P.z) > AD_REACH || Math.abs(me.pos.y - P.y) > 1.6) continue;
@@ -4087,8 +4102,8 @@ export class Game {
       mmObj.push({ x: D.pos.x, z: D.pos.z, dot: true, color: ours ? '#7fc8ff' : '#ff4a33' });
     }
     // Attack and Defend: the sector's two points, with what state they are in
-    if (this.isAD() && g && g.ad && this.map && this.map.ad && g.ph !== 'ended') {
-      const pts = this.map.ad.sectors[g.ad.sec].pts;
+    if (this.isAD() && g && g.ad && this.map && this.map.ad && g.ph !== 'ended' && this.adSectors()[g.ad.sec]) {
+      const pts = this.adSectors()[g.ad.sec].pts;
       for (const [i, P] of pts.entries()) {
         const st = g.ad.pts[i] || {};
         const [sx, sy] = project(P.x, P.y + 2.6, P.z);

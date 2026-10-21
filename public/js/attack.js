@@ -132,7 +132,7 @@ export function makeZone(zone) {
     frame.position.y = zone.y0 + 1.0 + h / 2;
     g.add(frame);
     g.position.set(zone.x, 0, zone.z);
-    g.rotation.y = -zone.yaw;
+    g.rotation.y = zone.yaw;      // the same turn the town's boxes get
   }
   g.userData = { mats: [mat, edge] };
   return g;

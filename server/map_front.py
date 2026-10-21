@@ -64,28 +64,59 @@ class Front(Town):
     # -- the sectors --------------------------------------------------------------
 
     def inside_spot(self, sx, sz):
-        """A roomy building near (sx, sz): its footprint, and a clear spot on its ground floor."""
+        """A roomy building near (sx, sz): its footprint, a clear spot on its ground floor up
+        against a wall, and the way the thing standing there should face (into the room)."""
         best = None
         for rc in sorted(self.rects, key=lambda r: math.hypot(r[0] - sx, r[1] - sz)):
             x, z, hw, hd, yaw = rc
             if hw < 3.6 or hd < 3.4 or abs(x - sx) > 30:
                 continue
+            # candidates run along each wall first, a metre or so in, then further into the room
+            cands = []
+            for inset in (1.1, 1.5, 2.0, 2.8):
+                along = [0.0, 1.2, -1.2, 2.4, -2.4, 3.6, -3.6]
+                for a in along:
+                    if abs(a) < hd - 1.4:
+                        cands.append((-hw + inset, a, 0.0))      # the west wall: faces +x
+                        cands.append((hw - inset, a, math.pi))   # the east wall: faces -x
+                    if abs(a) < hw - 1.4:
+                        cands.append((a, -hd + inset, math.pi / 2))   # the north wall of the room: faces +z
+                        cands.append((a, hd - inset, -math.pi / 2))
             spot = None
-            for lx in [0.0, 1.2, -1.2, 2.4, -2.4]:
-                for lz in [0.0, 1.2, -1.2, 2.4, -2.4]:
-                    if abs(lx) > hw - 1.4 or abs(lz) > hd - 1.4:
-                        continue
-                    wx, wz = rot(lx, lz, yaw)
-                    px, pz = x + wx, z + wz
-                    if self.clear_here(px, pz, 0.9, 0.1, 2.2):
-                        spot = (px, pz)
-                        break
-                if spot:
+            for (lx, lz, lface) in cands:
+                wx, wz = rot(lx, lz, yaw)
+                px, pz = x + wx, z + wz
+                if self.clear_here(px, pz, 0.62, 0.1, 2.2):
+                    spot = (px, pz, lface)
                     break
             if spot:
                 best = (rc, spot)
                 break
         return best
+
+    def gap_rect(self, ox, oz):
+        """The ground between the buildings either side of (ox, oz): a rectangle running
+        wall to wall across the narrower of the two gaps, twelve metres the other way."""
+        def reach(dx, dz):
+            d = 0.0
+            while d < 40.0:
+                d += 0.5
+                x, z = ox + dx * d, oz + dz * d
+                if abs(x) > self.bx - 1.0 or abs(z) > self.bz - 1.0:
+                    return d - 0.5
+                if any(point_in_rect(x, z, rc, 0.0) for rc in self.rects):
+                    return d - 0.5
+            return 40.0
+        gx = (reach(-1, 0), reach(1, 0))
+        gz = (reach(0, -1), reach(0, 1))
+        sx, sz = gx[0] + gx[1], gz[0] + gz[1]
+        if min(sx, sz) >= 36.0:
+            return None
+        if sx <= sz:
+            cx = ox + (gx[1] - gx[0]) / 2
+            return {'k': 'rect', 'x': round(cx, 2), 'z': round(oz, 2), 'hw': round(sx / 2 - 0.1, 2), 'hd': 6.0, 'yaw': 0.0}
+        cz = oz + (gz[1] - gz[0]) / 2
+        return {'k': 'rect', 'x': round(ox, 2), 'z': round(cz, 2), 'hw': 6.0, 'hd': round(sz / 2 - 0.1, 2), 'yaw': 0.0}
 
     def outside_spot(self, sx, sz):
         """The most open patch of ground near (sx, sz): well clear of every building and prop."""
@@ -103,7 +134,7 @@ class Front(Town):
                     best, best_d = (x, z), d
         return best
 
-    def spawn_spots(self, cx, cz, n, rmin=7.0, rmax=22.0, side=None):
+    def spawn_spots(self, cx, cz, n, rmin=7.0, rmax=22.0, side=None, away=None):
         """Open ground around a point to come back to life on, never inside a building."""
         rng = self.rng
         out = []
@@ -114,6 +145,8 @@ class Front(Town):
             r = rng.uniform(rmin, rmax)
             x, z = cx + math.cos(a) * r, cz + math.sin(a) * r
             if side is not None and (z < 0) != (side == 0):
+                continue
+            if away and math.hypot(x - away[0], z - away[1]) < away[2]:
                 continue
             if not self.free(x, z, 0.7, 0.9, 0.5):
                 continue
@@ -134,22 +167,31 @@ class Front(Town):
                 if inside:
                     found = self.inside_spot(sx, sz)
                     if found:
-                        (x, z, hw, hd, yaw), (px, pz) = found
+                        (x, z, hw, hd, yaw), (px, pz, lface) = found
                         p = {'id': 'AB'[side], 'x': round(px, 2), 'y': round(self.base_y, 2), 'z': round(pz, 2), 'in': 1,
+                             'face': round(lface + yaw, 4),
                              'zone': {'k': 'rect', 'x': round(x, 2), 'z': round(z, 2), 'hw': round(hw, 2), 'hd': round(hd, 2), 'yaw': round(yaw, 4),
                                       'y0': round(self.base_y - 1.0, 2), 'y1': round(self.base_y + FLOOR_H, 2)}}
                 if p is None:
                     ox, oz = self.outside_spot(sx, sz) or (sx, sz)
-                    p = {'id': 'AB'[side], 'x': round(ox, 2), 'y': round(self.base_y, 2), 'z': round(oz, 2), 'in': 0,
-                         'zone': {'k': 'circle', 'x': round(ox, 2), 'z': round(oz, 2), 'r': ZONE_R, 'y0': round(self.base_y - 1.0, 2), 'y1': round(self.base_y + FLOOR_H, 2)}}
+                    zone = self.gap_rect(ox, oz) or {'k': 'circle', 'x': round(ox, 2), 'z': round(oz, 2), 'r': ZONE_R}
+                    zone.update({'y0': round(self.base_y - 1.0, 2), 'y1': round(self.base_y + FLOOR_H, 2)})
+                    p = {'id': 'AB'[side], 'x': round(ox, 2), 'y': round(self.base_y, 2), 'z': round(oz, 2), 'in': 0, 'face': round(-math.pi / 2, 4), 'zone': zone}
                 p['spawns'] = self.spawn_spots(p['x'], p['z'], SPAWNS_PER_POINT)
                 pts.append(p)
             sectors.append({'x': round(sx, 2), 'pts': pts})
+        # Rush goes one further: a single bomb in the back corner of the town, on the attackers'
+        # left (the south side, looking east from where they start)
+        ex, ez = self.outside_spot(L - 18, -self.bz + 16) or (L - 18, -self.bz + 16)
+        extra = {'id': 'A', 'x': round(ex, 2), 'y': round(self.base_y, 2), 'z': round(ez, 2), 'in': 0, 'face': round(-math.pi / 2, 4),
+                 'zone': {'k': 'circle', 'x': round(ex, 2), 'z': round(ez, 2), 'r': ZONE_R, 'y0': round(self.base_y - 1.0, 2), 'y1': round(self.base_y + FLOOR_H, 2)},
+                 'spawns': self.spawn_spots(ex, ez, SPAWNS_PER_POINT)}
         start = [self.spawn_spots(-L + 16, -self.bz * 0.45, SPAWNS_PER_POINT, 0.0, 12.0, side=0),
                  self.spawn_spots(-L + 16, self.bz * 0.45, SPAWNS_PER_POINT, 0.0, 12.0, side=1)]
-        end = [self.spawn_spots(L - 16, -self.bz * 0.45, SPAWNS_PER_POINT, 0.0, 12.0, side=0),
-               self.spawn_spots(L - 16, self.bz * 0.45, SPAWNS_PER_POINT, 0.0, 12.0, side=1)]
-        self.ad = {'sectors': sectors, 'start': start, 'end': end}
+        keep_off = (ex, ez, 18.0)      # the defenders of the last bomb never come back on top of it
+        end = [self.spawn_spots(L - 14, -8.0, SPAWNS_PER_POINT, 0.0, 14.0, side=0, away=keep_off),
+               self.spawn_spots(L - 14, self.bz * 0.45, SPAWNS_PER_POINT, 0.0, 12.0, side=1, away=keep_off)]
+        self.ad = {'sectors': sectors, 'rush_extra': {'x': round(L - 18, 2), 'pts': [extra]}, 'start': start, 'end': end}
         # the plain modes' records, should anyone ever use them here
         self.spawn_w = (-L + 16, 0.0)
         self.spawn_e = (L - 16, 0.0)
