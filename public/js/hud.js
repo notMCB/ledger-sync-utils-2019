@@ -19,6 +19,7 @@ export const MODE_INFO = {
   oitc: { name: 'One in the Chamber', short: 'OITC', desc: 'A pistol with one round, a knife, three lives. A hit kills and gives you another round; a miss leaves you the knife. Most kills wins.' },
   derby: { name: 'Derby', short: 'Derby', desc: 'Golf carts round a race track on the Dockyard, up to 12. Crash into people or grenade them: any grenade damage kills. First to 20.' },
   royale: { name: 'Souk Royale', short: 'Royale', desc: 'Battle royale, up to 64, one match at a time. Jump from the plane over Downtown and all four maps, loot the chests, stay out of the gas. Last one standing.' },
+  og: { name: 'O.G.', short: 'O.G.', desc: 'Souk Siege as it was on launch day: the 1.0 town, the four original guns, nothing since. Free for All, up to 8.' },
   ad: { name: 'Attack and Defend', short: 'A&D', desc: 'Rush and Breakthrough on the Long Souk: attackers push through three sectors of two points, defenders hold them. Up to 10 a side.' },
   rush: { name: 'Rush', short: 'Rush', desc: 'Attackers arm the two bombs in each sector (hold E), defenders disarm them before they go off. 40 lives a sector for the attackers; blow the last pair to win.' },
   breakthrough: { name: 'Breakthrough', short: 'Break', desc: 'Attackers take each sector’s two points by outnumbering the defenders on them, and must hold both at once to move on. Defenders can take them back. 40 lives a sector.' },

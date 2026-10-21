@@ -42,8 +42,9 @@ import catalog  # noqa: E402
 import accounts  # noqa: E402
 import shop  # noqa: E402
 import mailer  # noqa: E402
+from og import game as og  # noqa: E402
 
-VERSION = '3.7.1'
+VERSION = '3.8.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -3421,7 +3422,8 @@ def admin_command(p, text):
 
 
 def room_list():
-    return {'t': 'rooms', 'v': VERSION, 'list': [r.summary() for r in sorted(rooms.values(), key=lambda r: r.id)]}
+    return {'t': 'rooms', 'v': VERSION, 'list': [r.summary() for r in sorted(rooms.values(), key=lambda r: r.id)],
+            'og': og.player_count()}
 
 
 def ensure_rooms():
@@ -4054,7 +4056,7 @@ async def serve_http(method, target, headers, writer, body=b''):
         return respond(writer, 200, 'text/plain', b'ok', method)
     if path in ('/healthz', '/health'):
         body = json.dumps({'ok': True, 'v': VERSION, 'rooms': len(rooms),
-                           'players': sum(r.count() for r in rooms.values())}).encode()
+                           'players': sum(r.count() for r in rooms.values()), 'og': og.player_count()}).encode()
         return respond(writer, 200, 'application/json', body, method)
     if path.endswith('/'):
         path += 'index.html'
@@ -4126,6 +4128,15 @@ async def handle_client(reader, writer):
                 conn = Conn(reader, writer, ip, deflate)
                 await conn.run()
                 return
+            if path == '/og/ws' and 'websocket' in headers.get('upgrade', '').lower():
+                # O.G.: the 1.1.0 game, plain frames as it always had
+                key = headers.get('sec-websocket-key', '')
+                accept = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
+                writer.write(('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n'
+                              'Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n' % accept).encode())
+                conn = og.Conn(reader, writer)
+                await conn.run()
+                return
             if method not in ('GET', 'HEAD') and not (method == 'POST' and path in ('/__shot', '/shop/checkout', '/stripe/webhook')):
                 respond(writer, 405, 'text/plain', b'Method not allowed', method)
             else:
@@ -4183,6 +4194,8 @@ async def main():
     server = await asyncio.start_server(handle_client, '0.0.0.0', port, limit=64 * 1024)
     print('Souk Siege %s — http://localhost:%d' % (VERSION, port), flush=True)
     asyncio.ensure_future(ticker())
+    og.ensure_rooms()
+    asyncio.ensure_future(og.ticker())
     async with server:
         await server.serve_forever()
 

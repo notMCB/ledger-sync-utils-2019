@@ -1,0 +1,267 @@
+// Tracers, muzzle flashes, impacts, bullet holes, grenades and explosions.
+
+import * as THREE from 'three';
+import { flashTex, softDot, holeTex } from './textures.js';
+
+const TRACER_SPEED = 320; // m/s — slow enough to see, fast enough to feel like a bullet
+
+export class Effects {
+  constructor(scene) {
+    this.scene = scene;
+    this.group = new THREE.Group();
+    scene.add(this.group);
+
+    // tracers: a bright core and a softer glow, both stretched along the path
+    this.tracerGeo = new THREE.BoxGeometry(1, 1, 1);
+    this.tracerGeo.translate(0, 0, -0.5);
+    this.tracers = [];
+
+    // world muzzle flashes (for other players) and lights for all flashes
+    this.flashMat = new THREE.SpriteMaterial({ map: flashTex(), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+    this.flashes = [];
+    this.lights = [];
+    for (let i = 0; i < 4; i++) {
+      const l = new THREE.PointLight('#ffb15a', 0, 9, 2);
+      this.group.add(l);
+      this.lights.push({ l, t: 0 });
+    }
+    this.lightI = 0;
+
+    this.puffTex = softDot('rgba(235,215,180,0.9)', 'rgba(235,215,180,0)');
+    this.sparkTex = softDot('rgba(255,230,160,1)', 'rgba(255,160,60,0)');
+    this.bloodTex = softDot('rgba(150,20,15,0.95)', 'rgba(120,10,10,0)');
+    this.smokeTex = softDot('rgba(90,80,70,0.8)', 'rgba(90,80,70,0)');
+    this.fireTex = softDot('rgba(255,220,140,1)', 'rgba(255,90,20,0)');
+    this.particles = [];
+
+    this.holeMat = new THREE.MeshBasicMaterial({ map: holeTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 });
+    this.holeGeo = new THREE.PlaneGeometry(0.13, 0.13);
+    this.holes = [];
+
+    this.nadeGeo = new THREE.SphereGeometry(0.06, 10, 8);
+    this.nadeMat = new THREE.MeshStandardMaterial({ color: '#4a5236', roughness: 0.7, metalness: 0.2 });
+    this.nades = [];
+    this.shake = 0;
+  }
+
+  clear() {
+    for (const t of this.tracers) this.group.remove(t.mesh);
+    for (const p of this.particles) this.group.remove(p.s);
+    for (const h of this.holes) this.group.remove(h);
+    for (const n of this.nades) this.group.remove(n.mesh);
+    for (const f of this.flashes) this.group.remove(f.s);
+    this.tracers = []; this.particles = []; this.holes = []; this.nades = []; this.flashes = [];
+  }
+
+  tracer(from, to, color = 0xffd27a, width = 1) {
+    const dir = new THREE.Vector3().subVectors(to, from);
+    const dist = dir.length();
+    if (dist < 0.5) return;
+    dir.multiplyScalar(1 / dist);
+    const mat = new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.95, depthWrite: false, fog: false });
+    const mesh = new THREE.Mesh(this.tracerGeo, mat);
+    mesh.position.copy(from);
+    mesh.lookAt(to);
+    const glowMat = new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.25, depthWrite: false, fog: false });
+    const glow = new THREE.Mesh(this.tracerGeo, glowMat);
+    mesh.add(glow);
+    glow.scale.set(3, 3, 1);
+    this.group.add(mesh);
+    this.tracers.push({ mesh, from: from.clone(), dir, dist, t: 0, width: 0.018 * width });
+  }
+
+  light(pos, intensity = 6, color = 0xffb15a, dur = 0.06) {
+    const L = this.lights[this.lightI++ % this.lights.length];
+    L.l.position.copy(pos);
+    L.l.color.set(color);
+    L.l.intensity = intensity;
+    L.max = intensity;
+    L.t = dur;
+    L.dur = dur;
+  }
+
+  muzzleFlash(pos, scale = 0.6) {
+    const s = new THREE.Sprite(this.flashMat);
+    s.position.copy(pos);
+    s.scale.set(scale, scale, 1);
+    this.group.add(s);
+    this.flashes.push({ s, t: 0.05 });
+    this.light(pos, 5);
+  }
+
+  particle(tex, pos, vel, size, grow, life, gravity = 0, opacity = 1, additive = false) {
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
+    const s = new THREE.Sprite(mat);
+    s.position.copy(pos);
+    s.scale.set(size, size, 1);
+    mat.rotation = Math.random() * Math.PI * 2;
+    this.group.add(s);
+    this.particles.push({ s, vel: vel.clone(), size, grow, life, t: 0, gravity, opacity });
+  }
+
+  impact(point, normal, mat) {
+    const n = normal || new THREE.Vector3(0, 1, 0);
+    const r = () => (Math.random() - 0.5);
+    const dusty = mat !== 'car';
+    for (let i = 0; i < (dusty ? 4 : 2); i++) {
+      const v = n.clone().multiplyScalar(0.6 + Math.random() * 1.2).add(new THREE.Vector3(r(), r() * 0.5 + 0.3, r()));
+      this.particle(this.puffTex, point.clone().addScaledVector(n, 0.05), v, 0.12, 1.4, 0.45 + Math.random() * 0.3, 1.5, 0.7);
+    }
+    for (let i = 0; i < 3; i++) {
+      const v = n.clone().multiplyScalar(2 + Math.random() * 3).add(new THREE.Vector3(r() * 4, r() * 4, r() * 4));
+      this.particle(this.sparkTex, point.clone().addScaledVector(n, 0.03), v, 0.05, -0.05, 0.15 + Math.random() * 0.1, 9, 1, true);
+    }
+    this.hole(point, n);
+  }
+
+  hole(point, normal) {
+    const m = new THREE.Mesh(this.holeGeo, this.holeMat);
+    m.position.copy(point).addScaledVector(normal, 0.004);
+    m.lookAt(point.clone().add(normal));
+    m.rotateZ(Math.random() * Math.PI);
+    const s = 0.7 + Math.random() * 0.5;
+    m.scale.set(s, s, 1);
+    this.group.add(m);
+    this.holes.push(m);
+    if (this.holes.length > 180) this.group.remove(this.holes.shift());
+  }
+
+  blood(point, dir) {
+    for (let i = 0; i < 5; i++) {
+      const v = dir.clone().multiplyScalar(1 + Math.random() * 2).add(new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.5, (Math.random() - 0.5) * 2));
+      this.particle(this.bloodTex, point, v, 0.14, 1.2, 0.35 + Math.random() * 0.2, 6, 0.9);
+    }
+  }
+
+  explosion(pos) {
+    this.light(pos.clone().add(new THREE.Vector3(0, 0.6, 0)), 40, 0xffa050, 0.35);
+    for (let i = 0; i < 14; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).multiplyScalar(9);
+      this.particle(this.fireTex, pos.clone().add(new THREE.Vector3(0, 0.3, 0)), v, 0.9, 3.5, 0.35 + Math.random() * 0.25, -1, 1, true);
+    }
+    for (let i = 0; i < 16; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.6 + 0.3, Math.random() - 0.5).multiplyScalar(4);
+      this.particle(this.smokeTex, pos.clone().add(new THREE.Vector3(0, 0.5, 0)), v, 1.4, 3.2, 1.6 + Math.random() * 1.2, -0.4, 0.75);
+    }
+    for (let i = 0; i < 18; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.9, Math.random() - 0.5).multiplyScalar(16);
+      this.particle(this.sparkTex, pos.clone().add(new THREE.Vector3(0, 0.3, 0)), v, 0.08, 0, 0.5 + Math.random() * 0.4, 14, 1, true);
+    }
+  }
+
+  // grenades are simulated the same way on every screen from the thrower's
+  // starting point and velocity; the thrower's copy decides where it goes off
+  throwNade(owner, nid, origin, vel, local, onBoom) {
+    const mesh = new THREE.Mesh(this.nadeGeo, this.nadeMat);
+    mesh.position.copy(origin);
+    mesh.castShadow = false;
+    this.group.add(mesh);
+    this.nades.push({ owner, nid, mesh, pos: origin.clone(), vel: vel.clone(), t: 0, local, onBoom, rest: false });
+  }
+
+  removeNade(owner, nid) {
+    const i = this.nades.findIndex((n) => n.owner === owner && n.nid === nid);
+    if (i >= 0) {
+      this.group.remove(this.nades[i].mesh);
+      const p = this.nades[i].pos.clone();
+      this.nades.splice(i, 1);
+      return p;
+    }
+    return null;
+  }
+
+  update(dt, physics, camera, fuse) {
+    // tracers
+    for (let i = this.tracers.length - 1; i >= 0; i--) {
+      const tr = this.tracers[i];
+      tr.t += dt;
+      const raw = tr.t * TRACER_SPEED;
+      const head = Math.min(tr.dist, raw);
+      const tail = Math.max(0, raw - 4.5);
+      if (tail >= tr.dist) {
+        this.group.remove(tr.mesh);
+        tr.mesh.material.dispose();
+        tr.mesh.children[0].material.dispose();
+        this.tracers.splice(i, 1);
+        continue;
+      }
+      tr.mesh.position.copy(tr.from).addScaledVector(tr.dir, head);
+      // keep a tracer a pixel or two wide however far away it is
+      const w = Math.max(tr.width, tr.mesh.position.distanceTo(camera.position) * 0.0016);
+      tr.mesh.scale.set(w, w, Math.max(0.01, head - tail));
+    }
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      const f = this.flashes[i];
+      f.t -= dt;
+      if (f.t <= 0) {
+        this.group.remove(f.s);
+        this.flashes.splice(i, 1);
+      }
+    }
+    for (const L of this.lights) {
+      if (L.t > 0) {
+        L.t -= dt;
+        L.l.intensity = Math.max(0, (L.t / L.dur) * L.max);
+      } else L.l.intensity = 0;
+    }
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.t += dt;
+      const k = p.t / p.life;
+      if (k >= 1) {
+        this.group.remove(p.s);
+        p.s.material.dispose();
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.vel.y -= p.gravity * dt;
+      p.vel.multiplyScalar(1 - Math.min(1, dt * 1.5));
+      p.s.position.addScaledVector(p.vel, dt);
+      const s = Math.max(0.01, p.size * (1 + p.grow * k));
+      p.s.scale.set(s, s, 1);
+      p.s.material.opacity = p.opacity * (1 - k);
+    }
+    // grenades
+    const d = new THREE.Vector3();
+    for (let i = this.nades.length - 1; i >= 0; i--) {
+      const n = this.nades[i];
+      n.t += dt;
+      if (!n.rest) {
+        const sub = 3;
+        for (let s = 0; s < sub; s++) {
+          const h = dt / sub;
+          n.vel.y -= 16 * h;
+          const step = n.vel.length() * h;
+          if (step > 1e-5) {
+            d.copy(n.vel).normalize();
+            const hit = physics.raycast(n.pos, d, step + 0.06);
+            if (hit) {
+              n.pos.copy(hit.point).addScaledVector(hit.normal, 0.065);
+              const vn = n.vel.dot(hit.normal);
+              n.vel.addScaledVector(hit.normal, -vn * 1.45);
+              n.vel.multiplyScalar(0.55);
+              if (hit.normal.y > 0.6 && n.vel.length() < 1.0) {
+                n.rest = true;
+                n.vel.set(0, 0, 0);
+              }
+            } else {
+              n.pos.addScaledVector(n.vel, h);
+            }
+          }
+        }
+        n.mesh.position.copy(n.pos);
+        n.mesh.rotation.x += dt * 8;
+      }
+      if (n.local && n.t >= fuse) {
+        this.group.remove(n.mesh);
+        this.nades.splice(i, 1);
+        if (n.onBoom) n.onBoom(n.pos.clone());
+      } else if (!n.local && n.t > fuse + 1.5) {
+        this.group.remove(n.mesh);
+        this.nades.splice(i, 1);
+      }
+    }
+    this.shake = Math.max(0, this.shake - dt * 2.5);
+  }
+}
