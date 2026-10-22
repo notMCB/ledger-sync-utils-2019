@@ -168,7 +168,10 @@ class GeoBuilder {
   // oriented box with world-scaled UVs (scale = metres per texture repeat)
   box(cx, cy, cz, hx, hy, hz, yaw, color, scale, opts = {}) {
     const c = Math.cos(yaw), s = Math.sin(yaw);
-    const W = (lx, ly, lz) => [cx + c * lx + s * lz, cy + ly, cz - s * lx + c * lz];
+    // corners snapped to a millimetre, so two boxes that meet share the exact same
+    // edge and no hairline of what is behind shows through the seam
+    const q = (v) => Math.round(v * 1000) / 1000;
+    const W = (lx, ly, lz) => [q(cx + c * lx + s * lz), q(cy + ly), q(cz - s * lx + c * lz)];
     const Nv = (lx, ly, lz) => [c * lx + s * lz, ly, -s * lx + c * lz];
     // a stable frame for UVs so neighbouring wall pieces line up
     const ox = c * cx - s * cz;
@@ -727,8 +730,10 @@ export class World {
     ground.receiveShadow = true;
     root.add(ground);
     if (map.height) this.addHeightfield(map, root, tx, gkind);
+    if (gkind === 'snow' || gkind === 'ground') this.addDrifts(map, root, tx, gkind);
 
     this.buildDeco(map, root, tx);
+    this.buildDoors(map, root, tx);
     this.setIndoor(!!map.indoor, root, map);
     this.scene.add(root);
     this.renderer.shadowMap.needsUpdate = true;
@@ -1515,6 +1520,229 @@ export class World {
   }
 
   // a broadleaf garden tree: a trunk and a round canopy
+  // -- doors that open and glass that breaks (the Manor) ------------------------
+
+  // every door hung in its opening (a wide one as a pair of leaves) and every
+  // window pane, each with its collision box so you walk into them until a door
+  // is opened or a pane broken
+  buildDoors(map, root, tx) {
+    this.doors = new Map();
+    this.panes = new Map();
+    this.doorRoot = new THREE.Group();
+    root.add(this.doorRoot);
+    const wood = new THREE.MeshLambertMaterial({ map: tx.wood, color: '#c89a68' });
+    const dark = new THREE.MeshLambertMaterial({ color: '#7a5636' });
+    const brass = new THREE.MeshPhongMaterial({ color: '#c9a040', shininess: 80, specular: '#fff2c0' });
+    for (const d of map.doors || []) {
+      const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+      const along = new THREE.Vector3(c, 0, -s), normal = new THREE.Vector3(s, 0, c);
+      const double = d.w > 2.1;
+      const leaves = [];
+      for (const hinge of double ? [-1, 1] : [-1]) {
+        const lw = double ? d.w / 2 : d.w;
+        const hx = d.x + along.x * hinge * d.w / 2, hz = d.z + along.z * hinge * d.w / 2;   // the hinge, at the end of the opening
+        const pivot = new THREE.Group();
+        pivot.position.set(hx, d.y, hz);
+        const leaf = new THREE.Group();
+        // the leaf grows from the hinge towards the middle of the opening
+        const dirIn = -hinge;
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(lw - 0.03, d.h - 0.02, 0.08), wood);
+        panel.position.set(dirIn * lw / 2, d.h / 2, 0);
+        leaf.add(panel);
+        for (const [py, ph] of [[d.h * 0.28, d.h * 0.36], [d.h * 0.7, d.h * 0.3]]) {
+          for (const side of [-1, 1]) {
+            const inset = new THREE.Mesh(new THREE.BoxGeometry(lw * 0.62, ph, 0.02), dark);
+            inset.position.set(dirIn * lw / 2, py, side * 0.045);
+            leaf.add(inset);
+          }
+        }
+        const knob = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), brass);
+        knob.position.set(dirIn * (lw - 0.14), 1.0, 0.07);
+        leaf.add(knob);
+        const knob2 = knob.clone();
+        knob2.position.z = -0.07;
+        leaf.add(knob2);
+        leaf.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        pivot.add(leaf);
+        pivot.rotation.y = d.yaw;
+        this.doorRoot.add(pivot);
+        // the leaf's box when shut, and when swung open (always away from the hinge, to the +normal side)
+        const shut = [hx + along.x * dirIn * lw / 2, d.y + d.h / 2, hz + along.z * dirIn * lw / 2, lw / 2, d.h / 2, 0.06, d.yaw, 'door'];
+        const open = [hx + normal.x * lw / 2, d.y + d.h / 2, hz + normal.z * lw / 2, 0.06, d.h / 2, lw / 2, d.yaw, 'door'];
+        const box = this.physics.add(shut);
+        box.door = d.id;
+        leaves.push({ pivot, hinge, dirIn, shut, open, box, angle: 0 });
+      }
+      this.doors.set(d.id, { d, leaves, open: false, along, normal });
+    }
+    const glass = new THREE.MeshPhongMaterial({ color: '#dbe9f1', transparent: true, opacity: 0.32, shininess: 90, specular: '#ffffff', side: THREE.DoubleSide, depthWrite: false });
+    const mullion = new THREE.MeshLambertMaterial({ color: '#e8e4da' });
+    for (const p of map.panes || []) {
+      const g = new THREE.Group();
+      g.position.set(p.x, p.y + p.h / 2, p.z);
+      g.rotation.y = p.yaw;
+      const sheet = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.h), glass);
+      g.add(sheet);
+      const bars = new THREE.Group();
+      bars.add(new THREE.Mesh(new THREE.BoxGeometry(0.04, p.h, 0.05), mullion));
+      const hbar = new THREE.Mesh(new THREE.BoxGeometry(p.w, 0.04, 0.05), mullion);
+      hbar.position.y = p.h * 0.1;
+      bars.add(hbar);
+      g.add(bars);
+      this.doorRoot.add(g);
+      const box = this.physics.add([p.x, p.y + p.h / 2, p.z, p.w / 2, p.h / 2, 0.03, p.yaw, 'pane']);
+      box.pane = p.id;
+      this.panes.set(p.id, { p, group: g, sheet, bars, box, broken: false });
+    }
+  }
+
+  // a door swings: its leaves turn over a third of a second and the collision box
+  // moves at once, so a door you open is a door you can walk through
+  setDoor(id, open) {
+    const D = this.doors && this.doors.get(id);
+    if (!D || D.open === open) return false;
+    D.open = open;
+    for (const L of D.leaves) {
+      this.physics.remove(L.box);
+      L.box = this.physics.add(open ? L.open : L.shut);
+      L.box.door = id;
+    }
+    return true;
+  }
+
+  updateDoors(dt) {
+    if (!this.doors) return;
+    for (const D of this.doors.values()) {
+      for (const L of D.leaves) {
+        // a leaf on the far hinge swings the other way to open towards +normal too
+        const want = D.open ? -L.dirIn * Math.PI / 2 * 0.95 : 0;
+        if (Math.abs(L.angle - want) < 1e-3) continue;
+        L.angle += (want - L.angle) * Math.min(1, dt * 9);
+        if (Math.abs(L.angle - want) < 0.01) L.angle = want;
+        L.pivot.rotation.y = D.d.yaw + L.angle;
+      }
+    }
+  }
+
+  // the door nearest to a point within reach, with how far it is
+  doorNear(pos, reach = 2.2) {
+    if (!this.doors) return null;
+    let best = null;
+    for (const D of this.doors.values()) {
+      const d = D.d;
+      if (Math.abs(d.y - pos.y) > 1.6) continue;
+      const dist = Math.hypot(pos.x - d.x, pos.z - d.z) - d.w * 0.3;
+      if (dist < reach && (!best || dist < best.dist)) best = { id: d.id, open: D.open, dist, D };
+    }
+    return best;
+  }
+
+  // the pane a body (a cylinder: feet at pos, radius r, height h) is pushing into
+  paneHit(pos, r, h) {
+    if (!this.panes) return null;
+    for (const P of this.panes.values()) {
+      if (P.broken) continue;
+      const b = P.box;
+      if (b.maxY < pos.y + 0.1 || b.minY > pos.y + h) continue;
+      if (Physics.overlapsCircle(b, pos.x, pos.z, r)) return P.p.id;
+    }
+    return null;
+  }
+
+  // a pane shatters: the glass goes, the bars stay, and nothing stops you now
+  breakPane(id) {
+    const P = this.panes && this.panes.get(id);
+    if (!P || P.broken) return null;
+    P.broken = true;
+    P.group.remove(P.sheet);
+    this.physics.remove(P.box);
+    return new THREE.Vector3(P.p.x, P.p.y + P.p.h / 2, P.p.z);
+  }
+
+  // drifts of snow (or sand) banked against the outside walls of buildings: a low
+  // wedge along every outward-facing wall, its height wandering along the length,
+  // in the ground's own material so it reads as the ground piled up. A face is
+  // outward if the ground just in front of it is open: not inside another wall, a
+  // floor slab or any other box.
+  addDrifts(map, root, tx, kind) {
+    const phys = this.physics, S = this.surface;
+    const groundAt = (x, z) => (S ? S(x, z) : 0);
+    const pos = [], uv = [], idx = [];
+    const near = [];
+    const open = (x, z, y) => {
+      phys.query(x - 0.3, z - 0.3, x + 0.3, z + 0.3, near);
+      for (const b of near) {
+        if (b.mat === 'inv' || b.mat === 'terrain') continue;
+        if (b.maxY < y + 0.05 || b.minY > y + 0.6) continue;
+        if (Physics.overlapsCircle(b, x, z, 0.12)) return false;
+      }
+      return true;
+    };
+    const walls = new Set(['wall', 'concrete', 'stone', 'marble']);
+    const scale = kind === 'snow' ? 1.2 : 0.8;
+    for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of map.boxes) {
+      if (!walls.has(mat) || hy * 2 < 1.8 || hx > 60 || hz > 60) continue;
+      const base = cy - hy, g0 = groundAt(cx, cz);
+      if (Math.abs(base - g0) > 0.35) continue;        // not standing on the ground here
+      const c = Math.cos(yaw), s = Math.sin(yaw);
+      // the four faces: normal (local), the axis the face runs along, its half length
+      for (const [fnx, fnz, ax, az, half] of [[1, 0, 0, 1, hz], [-1, 0, 0, 1, hz], [0, 1, 1, 0, hx], [0, -1, 1, 0, hx]]) {
+        if (half < 0.9) continue;
+        const nx = c * fnx + s * fnz, nz = -s * fnx + c * fnz;
+        const dx = c * ax + s * az, dz = -s * ax + c * az;
+        const fx = cx + nx * (fnx ? hx : hz), fz = cz + nz * (fnx ? hx : hz);   // the face's centre
+        const step = 0.5, n = Math.max(2, Math.round(2 * half / step));
+        const seed = Math.round(fx * 7 + fz * 13);
+        // a run of open ground along the face becomes one wedge: three vertices per
+        // sample (at the wall, halfway out, on the ground), shared between samples
+        const flush = (i0, i1) => {
+          if (i1 - i0 < 3) return;
+          const first = pos.length / 3;
+          for (let i = i0; i <= i1; i++) {
+            const t = -half + (2 * half * i) / n;
+            const px = fx + dx * t, pz = fz + dz * t;
+            const edge = i === i0 || i === i1;
+            const h = edge ? 0 : (0.16 + 0.22 * jit(Math.round(px * 10), 0, Math.round(pz * 10), seed)) * scale;
+            const out = edge ? 0.3 : 0.7 + 0.5 * jit(Math.round(pz * 10), 1, Math.round(px * 10), seed);
+            const pts = [
+              [px - nx * 0.02, groundAt(px, pz) + h, pz - nz * 0.02],
+              [px + nx * out * 0.5, groundAt(px + nx * out * 0.5, pz + nz * out * 0.5) + h * 0.42, pz + nz * out * 0.5],
+              [px + nx * out, groundAt(px + nx * out, pz + nz * out) + 0.01, pz + nz * out],
+            ];
+            for (const v of pts) { pos.push(v[0], v[1], v[2]); uv.push(v[0] / 9, v[2] / 9); }
+          }
+          for (let i = 0; i < i1 - i0; i++) {
+            const a = first + i * 3, b = a + 3;
+            for (let k = 0; k < 2; k++) {
+              // wound so the face points up and out, whichever way the run goes
+              const flip = (dx * nz - dz * nx) > 0;
+              if (flip) idx.push(a + k, b + k + 1, b + k, a + k, a + k + 1, b + k + 1);
+              else idx.push(a + k, b + k, b + k + 1, a + k, b + k + 1, a + k + 1);
+            }
+          }
+        };
+        let runStart = null;
+        for (let i = 0; i <= n; i++) {
+          const t = -half + (2 * half * i) / n;
+          const px = fx + dx * t + nx * 0.55, pz = fz + dz * t + nz * 0.55;
+          const ok = open(px, pz, groundAt(px, pz)) && Math.abs(groundAt(px, pz) - base) < 0.5;
+          if (ok && runStart === null) runStart = i;
+          if ((!ok || i === n) && runStart !== null) { flush(runStart, ok ? i : i - 1); runStart = null; }
+        }
+      }
+    }
+    if (!idx.length) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    // any triangle wound the wrong way still shows: both sides are drawn
+    const mesh = new THREE.Mesh(g, groundMat(tx, kind, { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }));
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+
   // the ground of a map with a height grid (Ridgeline) as one smooth surface: the
   // cell heights interpolated on a metre grid, snow on it, the steep bits turning to
   // rock through the vertex colour. The stepped terrain boxes still come in the map
@@ -1579,7 +1807,7 @@ export class World {
         const crag = (j === R ? 0.22 : j === 0 ? 0.45 : 0.75) * (c === undefined ? 1 : c);
         col.push([x + (mid ? (h1 - 0.5) * 0.4 : 0), y0 + (mid ? (h2 - 0.5) * 0.7 : 0), z + h3 * crag]);
       }
-      col.back = r - 0.4;
+      col.back = r - 1.3;      // past the drop the smooth ground makes just behind the riser
       return col;
     });
     for (let i = 0; i + 1 < V.length; i++) {
@@ -1826,6 +2054,9 @@ export class World {
     if (d.solid) return;      // a solid road is built from its boxes; this entry is for the map
     const pos = [], uv = [], idx = [];
     const pts = d.pts;
+    // on smooth ground every vertex is laid on the surface, five across, so the
+    // strip follows the land instead of cutting into it
+    const S = this.surface, across = S ? 5 : 2;
     let along = 0;
     for (let i = 0; i < pts.length; i++) {
       const [x, z, ry] = pts[i];
@@ -1836,11 +2067,15 @@ export class World {
       tx /= L; tz /= L;
       const nx = -tz * d.w / 2, nz = tx * d.w / 2;
       if (i) along += Math.hypot(x - pts[i - 1][0], z - pts[i - 1][1]);
-      pos.push(x + nx, y, z + nz, x - nx, y, z - nz);
-      uv.push(0, along / 5, 1, along / 5);
+      for (let k = 0; k < across; k++) {
+        const f = 1 - 2 * k / (across - 1);
+        const vx = x + nx * f, vz = z + nz * f;
+        pos.push(vx, S ? S(vx, vz) + 0.05 + (d.h || 0) : y, vz);
+        uv.push(k / (across - 1), along / 5);
+      }
       if (i) {
-        const a = (i - 1) * 2;
-        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+        const a = (i - 1) * across, b = i * across;
+        for (let k = 0; k + 1 < across; k++) idx.push(a + k, a + k + 1, b + k, a + k + 1, b + k + 1, b + k);
       }
     }
     const g = new THREE.BufferGeometry();

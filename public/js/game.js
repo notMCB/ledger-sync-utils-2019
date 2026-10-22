@@ -374,6 +374,8 @@ export class Game {
         return;
       case 'supply': return this.onCrate(m);
       case 'wall': return this.onWall(m);
+      case 'door': return this.onDoor(m);
+      case 'pane': return this.onPane(m);
       case 'drone': return this.onDrone(m);
       case 'fire':
         if (!m.off && m.p) this.fx.fireZone(new THREE.Vector3(...m.p), m.life || 15);
@@ -2144,6 +2146,64 @@ export class Game {
 
   // -- cover walls --
 
+  // -- doors and windows (the Manor) --
+
+  // each frame: the doors swing, the nearest door is found for the prompt, a sprint
+  // into a shut door opens it, and a jump into a window breaks it
+  updateDoors(dt) {
+    const W = this.world;
+    if (!W || !W.doors) { this.doorNear = null; return; }
+    W.updateDoors(dt);
+    const me = this.me;
+    if (!me.alive || me.aboard || me.falling) { this.doorNear = null; return; }
+    this.doorNear = W.doorNear(me.pos, 2.2);
+    const speed = Math.hypot(me.vel.x, me.vel.z);
+    if (me.sprinting && me.grounded && speed > 4.5 && this.clock - (this.doorT || -9) > 0.7) {
+      const dn = W.doorNear(me.pos, 1.3);
+      if (dn && !dn.open) {
+        // only a door ahead of you: the way you are moving points at it
+        const dx = dn.D.d.x - me.pos.x, dz = dn.D.d.z - me.pos.z, L = Math.hypot(dx, dz) || 1;
+        if ((dx / L) * (me.vel.x / speed) + (dz / L) * (me.vel.z / speed) > 0.3) this.toggleDoor(dn);
+      }
+    }
+    if (!me.grounded) {
+      const pid = W.paneHit(me.pos, 0.42, 1.7);
+      if (pid) this.breakPane(pid);
+    }
+  }
+
+  toggleDoor(dn) {
+    if (this.offline) return;
+    this.doorT = this.clock;
+    const open = !dn.open;
+    this.send({ t: 'door', id: dn.id, open: open ? 1 : 0 });
+    if (this.world.setDoor(dn.id, open)) sfx.doorCreak(new THREE.Vector3(dn.D.d.x, dn.D.d.y + 1, dn.D.d.z), open);
+  }
+
+  onDoor(m) {
+    const D = this.world && this.world.doors && this.world.doors.get(m.id);
+    if (!D) return;
+    if (this.world.setDoor(m.id, !!m.open)) sfx.doorCreak(new THREE.Vector3(D.d.x, D.d.y + 1, D.d.z), !!m.open);
+  }
+
+  // a pane goes: the glass is gone for everyone, with the crash and a spray of shards
+  shatter(pos) {
+    sfx.glassBreak(pos);
+    for (let i = 0; i < 3; i++) this.fx.impact(pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 0.8)), new THREE.Vector3(0, -0.3, 0), 'car');
+  }
+
+  breakPane(id) {
+    const pos = this.world.breakPane(id);
+    if (!pos) return;
+    this.shatter(pos);
+    if (!this.offline) this.send({ t: 'pane', id });
+  }
+
+  onPane(m) {
+    const pos = this.world && this.world.breakPane(m.id);
+    if (pos) this.shatter(pos);
+  }
+
   onWall(m) {
     const phys = this.world.physics;
     let W = this.walls.get(m.id);
@@ -2613,6 +2673,7 @@ export class Game {
     } else if (act) {
       this.updateMovement(dt);
       this.updateWeapons(dt);
+      this.updateDoors(dt);
       this.updateInteract();
     } else {
       me.adsK = Math.max(0, me.adsK - dt * 8);
@@ -3321,6 +3382,7 @@ export class Game {
     this.brPrompt = prompt;
     if (act && input.pressed('interact')) act();
     else if (!act && input.pressed('interact') && !this.drone) {
+      if (this.doorNear && this.doorNear.dist < 2.2) { this.toggleDoor(this.doorNear); return; }
       const fk = this.forkliftNear();
       if (fk) this.enterForklift(fk);
     }
@@ -3764,6 +3826,7 @@ export class Game {
       const t = Math.tan(ang);
       const dir = fwd.clone().addScaledVector(right, Math.cos(th) * t).addScaledVector(up, Math.sin(th) * t).normalize();
       const wh = phys.raycast(origin, dir, d.range);
+      if (wh && wh.box && wh.box.pane) this.breakPane(wh.box.pane);
       const wt = wh ? wh.t : d.range;
       let ph = this.avatars.raycast(origin, dir, wt, skip);
       const dh = this.droneRaycast(origin, dir, ph ? ph.t : wt);
@@ -3913,6 +3976,7 @@ export class Game {
       const t = i === 0 ? 0 : Math.tan(THREE.MathUtils.degToRad(9));
       const dir = fwd.clone().addScaledVector(right, Math.cos(a) * t).addScaledVector(up, Math.sin(a) * t).normalize();
       const wh = phys.raycast(origin, dir, d.range + 0.5);
+      if (wh && wh.box && wh.box.pane) this.breakPane(wh.box.pane);
       const wt = wh ? wh.t : d.range + 0.5;
       const ph = this.avatars.raycast(origin, dir, wt, skip);
       if (ph && !seen.has(ph.id) && hits.length < 3) {
@@ -3970,6 +4034,7 @@ export class Game {
     const opt = this.interactOption();
     const held = input.down('interact');
     if (!opt && input.pressed('interact') && !this.drone) {
+      if (this.doorNear && this.doorNear.dist < 2.2) { this.toggleDoor(this.doorNear); return; }
       const fk = this.forkliftNear();
       if (fk) { this.enterForklift(fk); return; }
     }
@@ -4296,6 +4361,7 @@ export class Game {
       else {
         const fk = !this.driving && me.alive && !this.drone ? this.forkliftNear() : null;
         if (fk) hud.prompt(`${keyName(settings.binds.interact)} to drive the ${fk.kind === 'golfcart' ? 'golf cart' : 'forklift'}`, undefined);
+        else if (this.doorNear && this.doorNear.dist < 2.2 && me.alive) hud.prompt(`${keyName(settings.binds.interact)} to ${this.doorNear.open ? 'close' : 'open'} the door`, undefined);
         else hud.prompt(null);
       }
       const pt = document.getElementById('prompt-text');
@@ -4314,6 +4380,7 @@ export class Game {
       else if (opt && opt.kind === 'disarm') hud.prompt(`Hold ${keyName(settings.binds.interact)} to disarm bomb ${'AB'[opt.pt]}`, undefined);
       else if (opt) hud.prompt(opt.kind === 'plant' ? `Hold ${keyName(settings.binds.interact)} to plant at ${opt.site}` : `Hold ${keyName(settings.binds.interact)} to defuse`, undefined);
       else if (fk) hud.prompt(`${keyName(settings.binds.interact)} to drive the ${fk.kind === 'golfcart' ? 'golf cart' : 'forklift'}`, undefined);
+      else if (this.doorNear && this.doorNear.dist < 2.2 && me.alive && !this.driving) hud.prompt(`${keyName(settings.binds.interact)} to ${this.doorNear.open ? 'close' : 'open'} the door`, undefined);
       else if (b && b.dt !== undefined && b.df !== this.myId && g.att !== me.team) hud.prompt(`${this.nameOf(b.df)} is defusing`, b.dt);
       else if (b && b.pt !== undefined && b.pl !== this.myId && g.att === me.team) hud.prompt(`${this.nameOf(b.pl)} is planting`, b.pt);
       else hud.prompt(null);

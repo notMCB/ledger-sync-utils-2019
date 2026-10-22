@@ -887,6 +887,11 @@ class Room:
         self.walls = {}
         self.drones = {}
         self.fires = {}
+        # the Manor's doors and windows: which doors stand open, which panes are gone
+        self.door_open = set()
+        self.panes_broken = set()
+        self.door_index = {d['id']: d for d in self.map.get('doors', [])}
+        self.pane_index = {d['id']: d for d in self.map.get('panes', [])}
         # loot chests, closed, where the map put them
         self.chests = {i + 1: {'p': [c[0], c[1], c[2]], 'open': False, 'gold': len(c) > 4 and bool(c[4])} for i, c in enumerate(self.map.get('chests', []))}
         self.items = {}
@@ -930,6 +935,10 @@ class Room:
             p.send({'t': 'supply', 'id': cid, 'k': C['k'], 'p': C['p'], 'tm': C['team'], 'owner': C['owner']})
         for wid, W in self.walls.items():
             p.send({'t': 'wall', 'id': wid, 'p': W['p'], 'y': W['y'], 'hp': int(W['hp']), 'tm': W['team'], 'owner': W['owner']})
+        for did in getattr(self, 'door_open', ()):
+            p.send({'t': 'door', 'id': did, 'open': 1})
+        for pid in getattr(self, 'panes_broken', ()):
+            p.send({'t': 'pane', 'id': pid, 'broken': 1})
         for oid, D in self.drones.items():
             p.send({'t': 'drone', 'id': oid, 'p': D['p'], 'tm': D['team'], 'life': round(D['until'] - now(), 1), 'hp': D['hp']})
         for fid in self.forklifts:
@@ -2330,6 +2339,43 @@ class Room:
         else:
             p.send({'t': 'perkleft', 'k': k, 'n': p.perk_left})
 
+    def handle_door(self, p, m):
+        """A door swung open or shut by someone next to it (or a bot)."""
+        did = str(m.get('id', ''))
+        D = self.door_index.get(did)
+        if not D or not p.alive:
+            return
+        if dist2([D['x'], 0, D['z']], p.pos) > 3.5 + D['w'] / 2 or abs(D['y'] - p.pos[1]) > 2.5:
+            return
+        want = m.get('open')
+        opening = (did not in self.door_open) if want is None else bool(want)
+        if opening == (did in self.door_open):
+            return
+        if opening:
+            self.door_open.add(did)
+        else:
+            self.door_open.discard(did)
+        self.broadcast({'t': 'door', 'id': did, 'open': 1 if opening else 0, 'by': p.id})
+
+    def handle_pane(self, p, m):
+        """A window pane broken: by a bullet or by someone going through it."""
+        pid = str(m.get('id', ''))
+        if pid not in self.pane_index or pid in self.panes_broken:
+            return
+        self.panes_broken.add(pid)
+        self.broadcast({'t': 'pane', 'id': pid, 'broken': 1, 'by': p.id})
+
+    def bot_doors(self, b):
+        """A bot opens any closed door it is about to walk into."""
+        if not self.door_index:
+            return
+        for did, D in self.door_index.items():
+            if did in self.door_open or abs(D['y'] - b.pos[1]) > 2.0:
+                continue
+            if dist2([D['x'], 0, D['z']], b.pos) < 1.6 + D['w'] / 2:
+                self.door_open.add(did)
+                self.broadcast({'t': 'door', 'id': did, 'open': 1, 'by': b.id})
+
     def hurt_wall(self, wid, dmg):
         W = self.walls.get(wid)
         if not W or dmg <= 0:
@@ -2857,6 +2903,7 @@ class Room:
                     ai['state'] = 'loot'
                 continue
             # on the ground: out of the gas first, then loot, then wander; shoot at anyone close
+            self.bot_doors(b)
             g = self.gas
             goal = None
             if g and math.hypot(b.pos[0] - g['c'][0], b.pos[2] - g['c'][1]) > g['r'] - 6:
@@ -4156,6 +4203,10 @@ class Conn:
             p.room.handle_jump(p)
         elif t == 'open':
             p.room.handle_open(p, m)
+        elif t == 'door':
+            p.room.handle_door(p, m)
+        elif t == 'pane':
+            p.room.handle_pane(p, m)
         elif t == 'pick':
             p.room.handle_pick(p, m)
         elif t == 'vest':
