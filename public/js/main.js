@@ -1703,11 +1703,15 @@ async function runCarpet() {
   };
   while (!game.me.alive || !game.map || !game.g || game.g.ph !== 'live') await sleep(200);
   await sleep(1500);
-  game.useStreak('carpet');
+  game.callIn('carpet');
   log('called carpet');
+  await sleep(700);
+  log('CAPTURE carpet-radio');
+  await sleep(500);
+  log('CAPTURE carpet-radio2');
   const t0 = performance.now();
   let n = 0, S = null, stripShot = false;
-  while (performance.now() - t0 < 26000) {
+  while (performance.now() - t0 < 34000) {
     await sleep(120);
     S = S || [...game.strikes.values()].find((x) => x.show.strip);
     if (!S) continue;
@@ -1724,7 +1728,7 @@ async function runCarpet() {
       log('CAPTURE carpet-strip');
     }
     const L = sh.lead;
-    if (sh.planes[0].m.visible && n < 9 && t > -1.5 + n * 1.3) {
+    if (sh.planes[0].m.visible && n < 12 && t > -1.5 + n * 1.6) {
       lookAt(L.x, L.y, L.z);
       await sleep(150);
       log(`t=${t.toFixed(2)} lead ${L.x.toFixed(0)},${L.y.toFixed(0)},${L.z.toFixed(0)} dist ${L.distanceTo(me.pos).toFixed(0)} yaw ${sh.yaw.toFixed(2)} bank ${(sh.bank * 180 / Math.PI).toFixed(0)} burn ${sh.burn.toFixed(2)} falling ${sh.bombs.filter((b) => b.mesh).length} hit ${sh.bombs.filter((b) => b.hit).length}`);

@@ -823,6 +823,36 @@ export function streakReady() {
   });
 }
 
+// a walkie-talkie keyed: the squelch of the push-to-talk and a short tone
+export function radioKey(end = false) {
+  const c = ensure();
+  if (!c) return;
+  const t = c.currentTime;
+  const src = c.createBufferSource();
+  src.buffer = noiseBuf;
+  const bp = c.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 2100;
+  bp.Q.value = 1.2;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(end ? 0.12 : 0.2, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + (end ? 0.07 : 0.11));
+  src.connect(bp); bp.connect(g); g.connect(out('voice'));
+  src.start(t); src.stop(t + 0.15);
+  if (!end) {
+    const o = c.createOscillator();
+    o.type = 'square';
+    o.frequency.value = 1400;
+    const og = c.createGain();
+    og.gain.setValueAtTime(0.0001, t + 0.09);
+    og.gain.exponentialRampToValueAtTime(0.05, t + 0.1);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+    o.connect(og); og.connect(out('voice'));
+    o.start(t + 0.09); o.stop(t + 0.2);
+  }
+}
+
 // a firework going up and bursting
 export function firework(pos) {
   const c = ensure();

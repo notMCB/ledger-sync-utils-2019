@@ -1105,6 +1105,24 @@ function buildKnife(sleeve) {
   };
 }
 
+// a hand holding a walkie-talkie: the handset, its stubby antenna, the speaker
+// grille and the push-to-talk, for calling in an airstrike or the carpet bombing
+function buildRadioHand(sleeve) {
+  const g = new THREE.Group();
+  box(g, 0.05, 0.06, 0.07, MAT.glove, 0, 0, 0);
+  box(g, 0.07, 0.07, 0.34, sleeve, 0.02, -0.04, 0.2, 0.25, 0.1, 0);
+  const set = new THREE.Group();
+  box(set, 0.036, 0.12, 0.028, MAT.dark, 0, 0, 0);
+  box(set, 0.026, 0.034, 0.004, MAT.steel, 0, 0.03, -0.016);        // the grille
+  box(set, 0.006, 0.014, 0.004, MAT.dark, 0.021, 0.01, 0, 0, 0, 0);  // the push-to-talk, on the side
+  box(set, 0.008, 0.004, 0.004, LENS.red, -0.008, 0.055, -0.016);    // the light
+  const ant = cyl(set, 0.0035, 0.09, MAT.dark, 0.011, 0.1, 0.004, 8);
+  ant.rotation.x = 0;
+  set.position.set(0, 0.05, -0.012);
+  g.add(set);
+  return g;
+}
+
 function buildNadeHand(sleeve) {
   const g = new THREE.Group();
   box(g, 0.05, 0.06, 0.07, MAT.glove, 0, 0, 0);
@@ -1201,6 +1219,11 @@ export class ViewModel {
     this.nadeHand = buildNadeHand(this.sleeve);
     this.nadeHand.visible = false;
     this.root.add(this.nadeHand);
+    this.radioHand = buildRadioHand(this.sleeve);
+    this.radioHand.visible = false;
+    this.root.add(this.radioHand);
+    this.radioAnim = -1;
+    this.radioDur = 1.8;
 
     this.cur = null;
     this.curId = null;
@@ -1322,6 +1345,12 @@ export class ViewModel {
     this.jetT = 0.06;
   }
 
+  // the walkie-talkie comes up to the mouth, a word is said, and it goes away again
+  radio(dur = 1.8) {
+    this.radioAnim = 0;
+    this.radioDur = dur;
+  }
+
   throwNade(kind = 'frag') {
     this.nadeAnim = 0;
     const K = this.nadeHand.kinds;
@@ -1434,6 +1463,22 @@ export class ViewModel {
       nh.position.set(0.12 - fling * 0.08, -0.25 + wind * 0.25 - fling * 0.05, -0.28 + wind * 0.08 - fling * 0.25);
       nh.rotation.set(-0.2 + wind * 0.9 - fling * 1.6, 0, 0);
       if (t >= 1) { this.nadeAnim = -1; nh.visible = false; }
+    }
+    // calling it in: the gun drops to the right, the handset comes up to the mouth
+    // from down on the left, sits there while the call goes out, then goes away
+    if (this.radioAnim >= 0) {
+      this.radioAnim += dt / this.radioDur;
+      const t = this.radioAnim;
+      const low = seg(t, 0, 0.16) * (1 - seg(t, 0.82, 1));
+      pos.y -= low * 0.28; pos.x += low * 0.06;
+      rx -= low * 0.4; ry -= low * 0.35; rz -= low * 0.3;
+      const rh = this.radioHand;
+      rh.visible = t < 0.98;
+      const up = seg(t, 0.02, 0.26) * (1 - seg(t, 0.74, 0.96));
+      rh.position.set(-0.2 + up * 0.13, -0.32 + up * 0.23, -0.34 + up * 0.15);
+      rh.rotation.set(-0.4 + up * 1.0, 0.25 + up * 0.45, 0.35 - up * 0.5);
+      if (up > 0.98) rh.position.y += Math.sin(t * 60) * 0.0025;   // talking into it
+      if (t >= 1) { this.radioAnim = -1; rh.visible = false; }
     }
     // knife jab: a short cock of the wrist, then the blade snaps straight
     // out and straight back, all along the line of sight, over a third of a second

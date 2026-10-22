@@ -1016,8 +1016,8 @@ export class Game {
         if (this.driving || this.drone || this.gunner || me_busy(this)) return;
         this.startStrikePick();
       } else if (s.k === 'carpet') {
-        if (this.strikePick) return;
-        this.useStreak('carpet');
+        if (this.strikePick || this.driving || this.drone || this.gunner || me_busy(this) || this.vm.radioAnim >= 0) return;
+        this.callIn('carpet');
       }
       return;
     }
@@ -1026,6 +1026,16 @@ export class Game {
   useStreak(k, extra = {}) {
     if (this.offline) return;
     this.send({ t: 'streak', k, ...extra });
+  }
+
+  // calling in the jets: the walkie-talkie comes up, the call goes out once it is at
+  // the mouth, and it goes away again
+  callIn(k, extra = {}) {
+    this.vm.radio(1.8);
+    sfx.radioKey(false);
+    const sc = this.me.sc;
+    setTimeout(() => { if (this.me.alive && this.me.sc === sc && this.inRoom) this.useStreak(k, extra); }, 550);
+    setTimeout(() => sfx.radioKey(true), 1350);
   }
 
   onStreak(m) {
@@ -1256,8 +1266,8 @@ export class Game {
     sp.y = hit ? hit.point.y : 0;
     this.hud.strikeCam(true, sp.px, sp.py, `CLICK TO CALL IT IN · ${keyName(settings.binds.streak3)} TO CANCEL`);
     if (input.pressed('fire')) {
-      this.useStreak('strike', { p: [+sp.x.toFixed(2), +sp.y.toFixed(2), +sp.z.toFixed(2)] });
       this.cancelStrikePick();
+      this.callIn('strike', { p: [+sp.x.toFixed(2), +sp.y.toFixed(2), +sp.z.toFixed(2)] });
       this.hud.center('Airstrike called in', 'Bombs on target in five seconds', 'gold', 2.5, 2);
     } else if (input.pressed('perk') || input.pressed('interact')) this.cancelStrikePick();
   }

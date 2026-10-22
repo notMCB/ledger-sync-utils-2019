@@ -28,9 +28,9 @@ export const BOMB_FALL = 1.6;         // and the bombs take this long to come do
 export const BOMB_AWAY = BOMBER_OVER - 0.55;   // when the first bomb comes off
 export const JET_BANK = 55 * Math.PI / 180;    // the pair rolls into a left turn once the bombs are away
 export const JET_TURN = 0.13;                  // radians a second, once they are banked over
-export const CARPET_WARN = 4, CARPET_W = 9;    // keep in step with the server: the warning, half the swath
+export const CARPET_WARN = 4, CARPET_W = 14;   // keep in step with the server: the warning, half the swath
 export const CARPET_FALL = 1.7;                // the bombs take this long to come down from two hundred feet
-export const CARPET_DROP = 0.32;               // seconds between one jet's bombs
+export const CARPET_DROP = 0.4;                // seconds between one jet's bombs
 
 const lam = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
 const bx = (parent, w, h, d, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
@@ -514,12 +514,13 @@ export class CarpetShow {
     this.stripMat = mat;
     this.edgeMat = edge;
     scene.add(strip);
-    // the four: lead on the left, three stepped back to its right
-    this.planes = [[0, -21], [-7, -7], [-14, 7], [-21, 21]].map(([back, side]) => {
+    // the four: lead on the left, three stepped back to its right, each with its own
+    // moment to break off at the end, its own bank, rate of turn and climb
+    this.planes = [[0, -30, 0.0], [-8, -10, 1.5], [-16, 10, 0.6], [-24, 30, 2.4]].map(([back, side, delay]) => {
       const m = makeJet();
       m.visible = false;
       scene.add(m);
-      return { m, back, side };
+      return { m, back, side, delay, bank: JET_BANK * (0.85 + 0.3 * Math.random()), turn: JET_TURN * (1.2 + 0.7 * Math.random()), climb: 6 + 7 * Math.random(), free: null, burn: 0 };
     });
     // every bomb, worked out now: from the first that lands at a to the last past b
     this.bombs = [];
@@ -529,7 +530,7 @@ export class CarpetShow {
       for (let tr = tFirst + i * (CARPET_DROP / 4) + (P.back / speed); ; tr += CARPET_DROP) {
         const sLand = (tr + CARPET_FALL - t0) * speed;
         if (sLand > this.L + 2) break;
-        const lat = P.side * 0.3 + (Math.random() - 0.5) * 5;
+        const lat = P.side * 0.38 + (Math.random() - 0.5) * 5;
         const p = this.a.clone().addScaledVector(this.dir, sLand).addScaledVector(this.right, lat);
         const y = groundAt ? groundAt(p.x, p.z) : 0;
         this.bombs.push({ x: p.x, y, z: p.z, at: tr, land: tr + CARPET_FALL, from: i, mesh: null, hit: false, x0: 0, y0: 0, z0: 0, loud: this.bombs.length % 3 === 0 });
@@ -539,35 +540,41 @@ export class CarpetShow {
     this.roared = false;
   }
 
-  // the bank, nothing until the last bomb is away, then rolled over inside a second
-  bankAt(t) {
-    const s = Math.max(0, Math.min(1, (t - this.tEnd) / 1.0));
-    return s * s * (3 - 2 * s);
-  }
-
-  // the lead at t: steady down the line at the bombing speed, ahead of the blasts by
-  // the fall time; past the end the throttle goes up, and it turns left as it banks
-  leadAt(t, out) {
-    const tb = Math.min(t, this.tEnd);
-    let s = (tb - this.t0 + CARPET_FALL) * this.v - this.carry;
-    let x = this.a.x + this.dir.x * s, z = this.a.z + this.dir.z * s, y = BOMBER_ALT, h = this.h0;
-    if (t > this.tEnd) {
-      const n = Math.ceil((t - this.tEnd) / 0.05), step = (t - this.tEnd) / n;
-      for (let i = 0; i < n; i++) {
-        const tt = this.tEnd + (i + 0.5) * step;
-        const k = Math.min(1, (tt - this.tEnd) / 2.2);
-        const v = this.v + (BOMBER_SPEED - this.v) * k;      // the afterburners, pushed up over two seconds
-        h += JET_TURN * 1.3 * this.bankAt(tt) * step;
-        x += Math.cos(h) * v * step;
-        z += -Math.sin(h) * v * step;
-        y += 9 * k * step;                                   // and climbing out
+  // where a jet is at t: steady down the line at the bombing speed, ahead of the
+  // blasts by the fall time, in its place in the formation; once its own moment to
+  // break comes, the throttle goes up and it rolls left and climbs on its own, so the
+  // four peel off one after another rather than turning as one
+  placeJet(P, t, dt) {
+    const tBreak = this.tEnd + P.delay;
+    if (t <= tBreak || !P.free) {
+      const tb = Math.min(t, tBreak);
+      const s = (tb - this.t0 + CARPET_FALL) * this.v - this.carry + P.back;
+      const x = this.a.x + this.dir.x * s + this.right.x * P.side, z = this.a.z + this.dir.z * s + this.right.z * P.side;
+      const y = BOMBER_ALT + (P.side > -30 ? 1.5 : 0);
+      if (t > tBreak) P.free = { x, y, z, h: this.h0, t: tBreak, bk: 0 };
+      else {
+        P.m.position.set(x, y, z);
+        P.m.rotation.order = 'YXZ';
+        P.m.rotation.set(0, this.h0, 0);
+        P.burn = 0;
+        return;
       }
     }
-    this.yaw = h;
-    this.dir.set(Math.cos(h), 0, -Math.sin(h));
-    this.bank = JET_BANK * this.bankAt(t);
-    this.burn = t > this.tEnd ? Math.min(1, (t - this.tEnd) / 1.5) : 0;
-    return out.set(x, y, z);
+    const F = P.free;
+    const step = Math.min(0.1, Math.max(0, t - F.t));
+    F.t = t;
+    const k = Math.min(1, (t - tBreak) / 2.2);                 // the afterburner, pushed up over two seconds
+    const v = this.v + (BOMBER_SPEED - this.v) * k;
+    const sb = Math.max(0, Math.min(1, (t - tBreak) / 1.1));   // rolled over inside a second
+    F.bk = sb * sb * (3 - 2 * sb);
+    F.h += P.turn * F.bk * step;
+    F.x += Math.cos(F.h) * v * step;
+    F.z += -Math.sin(F.h) * v * step;
+    F.y += P.climb * k * step;
+    P.burn = Math.min(1, (t - tBreak) / 1.5);
+    P.m.position.set(F.x, F.y, F.z);
+    P.m.rotation.order = 'YXZ';
+    P.m.rotation.set(-P.bank * F.bk, F.h, 0);
   }
 
   update(dt, clock, sfx, shake) {
@@ -588,23 +595,22 @@ export class CarpetShow {
       const s = Math.max(0, Math.min(this.L, 6));
       this.fx.flare(this.a.clone().addScaledVector(this.dir, s), 0xff3a2a);
     }
-    const inSky = t > this.t0 - CARPET_FALL - 3.0 && t < this.tEnd + 9;
-    this.leadAt(t, this.lead);
-    const dirSave = this.dir;
-    const rx = Math.sin(this.yaw), rz = Math.cos(this.yaw);
+    const inSky = t > this.t0 - CARPET_FALL - 3.0 && t < this.tEnd + 12;
     for (const P of this.planes) {
       P.m.visible = inSky;
       if (!inSky) continue;
-      const up = Math.sin(this.bank) * P.side;
-      P.m.position.set(this.lead.x + dirSave.x * P.back + rx * P.side * Math.cos(this.bank), this.lead.y + 1.5 * (P.side !== -21 ? 1 : 0) + up, this.lead.z + dirSave.z * P.back + rz * P.side * Math.cos(this.bank));
-      P.m.rotation.order = 'YXZ';
-      P.m.rotation.set(-this.bank, this.yaw, 0);
+      this.placeJet(P, t, dt);
       poseJet(P.m, clock);
       // the afterburner flame short on the run in, full once they push it up
       const f = P.m.userData.flame, c = P.m.userData.core;
-      const k = 0.45 + 0.55 * this.burn;
+      const k = 0.45 + 0.55 * P.burn;
       f.scale.x = k; c.scale.x = k;
     }
+    const lead = this.planes[0];
+    this.lead.copy(lead.m.position);
+    this.yaw = lead.free ? lead.free.h : this.h0;
+    this.bank = lead.free ? lead.bank * lead.free.bk : 0;
+    this.burn = lead.burn;
     if (inSky && sfx) sfx.jetRoar(true, this.lead);
     else if (sfx) sfx.jetRoar(false);
     if (inSky && shake && this.burn > 0) shake(this.lead, 140);
@@ -633,7 +639,7 @@ export class CarpetShow {
         if (shake) shake(at, 90);
       }
     }
-    if (t > this.tEnd + 9) this.end();
+    if (t > this.tEnd + 12) this.end();
   }
 
   end() {
