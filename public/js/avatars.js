@@ -190,6 +190,7 @@ function bakedGun(gunId, finish, quiet, muzzleStyle) {
     const mesh = new THREE.Mesh(mergeGeometries(geos), worldMaterial(mat));
     mesh.castShadow = false;
     mesh.userData.shared = true;
+    mesh.userData.gun = true;
     g.add(mesh);
     for (const x of geos) x.dispose();
   }
@@ -290,10 +291,152 @@ function teeWrap(printMat) {
   for (const u of [0.25, 0.75]) g.drawImage(img, u * 1024 - 88, 300, 176, 118);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  m = new THREE.MeshLambertMaterial({ map: tex });
+  const t = clothTextures('cloth', 7, 3);
+  m = new THREE.MeshPhongMaterial({ map: tex, bumpMap: t.bump, bumpScale: 0.004, shininess: 4, specular: '#141414' });
   teeWrapCache.set(img, m);
   return m;
 }
+
+// -- cloth ---------------------------------------------------------------------------
+// Clothes are drawn as fabric: a woven or twill or knitted surface (a colour map
+// and a bump map, made once on a canvas) on garments cut a little loose, with
+// folds rippled into the shape. Everything here is shared between avatars.
+const CLOTH_CANVAS = new Map();
+function clothCanvases(kind) {
+  let hit = CLOTH_CANVAS.get(kind);
+  if (hit) return hit;
+  const S = 128;
+  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return c; };
+  const cm = mk(), cb = mk();
+  const gm = cm.getContext('2d'), gb = cb.getContext('2d');
+  const im = gm.createImageData(S, S), ib = gb.createImageData(S, S);
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      let v;
+      if (kind === 'twill') v = 0.5 + 0.11 * Math.sin((x + y) * Math.PI / 3) + 0.04 * Math.sin(x * 1.7);          // diagonal ribs
+      else if (kind === 'knit') v = 0.5 + 0.13 * Math.sin(x * Math.PI / 4 + Math.sin(y * Math.PI / 5) * 1.6);    // rows of stitches
+      else if (kind === 'canvas') v = ((x >> 2) & 1) ^ ((y >> 2) & 1) ? 0.57 : 0.43;                              // a coarse weave
+      else if (kind === 'leather') v = 0.5 + 0.06 * Math.sin(x * 0.9 + y * 1.3) * Math.sin(x * 0.4 - y * 0.7);     // grain
+      else v = ((x >> 1) & 1) ^ ((y >> 1) & 1) ? 0.56 : 0.44;                                                       // plain weave
+      v += (rnd() - 0.5) * 0.07;
+      const i = (y * S + x) * 4;
+      const b = Math.round(Math.max(0, Math.min(1, v)) * 255);
+      ib.data[i] = ib.data[i + 1] = ib.data[i + 2] = b; ib.data[i + 3] = 255;
+      const m = Math.round(225 + (v - 0.5) * 70);
+      im.data[i] = im.data[i + 1] = im.data[i + 2] = m; im.data[i + 3] = 255;
+    }
+  }
+  gm.putImageData(im, 0, 0);
+  gb.putImageData(ib, 0, 0);
+  hit = { map: cm, bump: cb };
+  CLOTH_CANVAS.set(kind, hit);
+  return hit;
+}
+const CLOTH_TEX = new Map();
+function clothTextures(kind, rx, ry) {
+  const key = `${kind}|${rx}|${ry}`;
+  let hit = CLOTH_TEX.get(key);
+  if (hit) return hit;
+  const c = clothCanvases(kind);
+  const mk = (canvas, srgb) => {
+    const t = new THREE.CanvasTexture(canvas);
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(rx, ry);
+    return t;
+  };
+  hit = { map: mk(c.map, true), bump: mk(c.bump, false) };
+  CLOTH_TEX.set(key, hit);
+  return hit;
+}
+// a patterned cloth (camo, stripes): the pattern with the weave multiplied in
+const COMPOSITE = new Map();
+function patternedCanvas(tex, kind) {
+  const img = tex.image;
+  const key = `${tex.uuid}|${kind}`;
+  let hit = COMPOSITE.get(key);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0, 512, 512);
+  g.globalCompositeOperation = 'multiply';
+  const w = clothCanvases(kind).map;
+  for (let y = 0; y < 512; y += 128) for (let x = 0; x < 512; x += 128) g.drawImage(w, x, y);
+  g.globalCompositeOperation = 'source-over';
+  COMPOSITE.set(key, c);
+  return c;
+}
+const CLOTH_MAT = new Map();
+// a garment's material from an outfit's plain one: the same colour or pattern, as fabric
+function clothMaterial(base, kind, rx, ry) {
+  if (!base) return null;
+  const key = `${base.uuid}|${kind}|${rx}|${ry}`;
+  let m = CLOTH_MAT.get(key);
+  if (m) return m;
+  const t = clothTextures(kind, rx, ry);
+  let map = t.map;
+  if (base.map) {
+    map = new THREE.CanvasTexture(patternedCanvas(base.map, kind));
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(Math.max(1, Math.round(rx / 3)), Math.max(1, Math.round(ry / 3)));
+  }
+  m = new THREE.MeshPhongMaterial({ color: base.map ? '#ffffff' : base.color, map, bumpMap: t.bump, bumpScale: 0.004,
+    shininess: 4, specular: '#141414', emissive: base.emissive || 0x000000, side: base.side });
+  CLOTH_MAT.set(key, m);
+  return m;
+}
+// a material of the avatar's own (the team-tinted wrap): fabric whose colour we keep changing
+function ownCloth(kind, rx, ry) {
+  const t = clothTextures(kind, rx, ry);
+  return new THREE.MeshPhongMaterial({ color: '#888888', map: t.map, bumpMap: t.bump, bumpScale: 0.004, shininess: 4, specular: '#141414' });
+}
+
+// folds: push the surface in and out round the shape, so the light finds creases
+function ripple(geo, amp, freq, yfreq, phase = 0) {
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const r = Math.hypot(x, z);
+    if (r < 1e-4) continue;
+    const a = Math.atan2(x, z);
+    const k = 1 + amp * Math.sin(a * freq + y * yfreq + phase) * (0.6 + 0.4 * Math.sin(a * 2.3 + y * 5 + 1.3));
+    p.setXYZ(i, x * k, y, z * k);
+  }
+  p.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+// the profile of a loose limb of a garment: rounded at both ends, the radii given
+// top to bottom, built standing on y from -len/2 to len/2
+function limbProfile(len, radii) {
+  const n = radii.length;
+  const r0 = radii[0], r1 = radii[n - 1];
+  const pts = [[0, -len / 2]];
+  for (let i = 1; i <= 3; i++) { const t = i / 3 * Math.PI / 2; pts.push([r1 * Math.sin(t), -len / 2 + r1 * (1 - Math.cos(t))]); }
+  for (let i = n - 2; i >= 1; i--) pts.push([radii[i], -len / 2 + r1 + (len - r0 - r1) * (1 - i / (n - 1))]);
+  for (let i = 2; i >= 0; i--) { const t = i / 3 * Math.PI / 2; pts.push([r0 * Math.sin(t), len / 2 - r0 * (1 - Math.cos(t))]); }
+  return pts;
+}
+const GARMENT_GEO = new Map();
+function garmentGeometry(key, make) {
+  let g = GARMENT_GEO.get(key);
+  if (!g) { g = make(); GARMENT_GEO.set(key, g); }
+  return g;
+}
+function garment(parent, key, make, mat, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(garmentGeometry(key, make), mat);
+  m.position.set(x, y, z);
+  m.castShadow = false;
+  m.userData.shared = true;
+  parent.add(m);
+  return m;
+}
+const latheGeo = (profile, seg = 20, phiStart = Math.PI / 2, phiLength = Math.PI * 2) =>
+  new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), seg, phiStart, phiLength);
 
 const PRONE_LEN = 1.45;
 const GRIP_AT = new THREE.Vector3(), TMP_V = new THREE.Vector3();
@@ -337,9 +480,9 @@ export class Avatar {
 
     const g = new THREE.Group();
     this.group = g;
-    this.body = lam('#888');   // vest: always the team / player colour
-    this.wrap = lam('#888');   // team-tinted default for headgear
-    this.parts = { pants: [], boots: [], shirt: [], wrap: [] };
+    this.body = lam('#888');   // the team / player colour: armbands
+    this.wrap = ownCloth('knit', 3, 2);   // team-tinted default for headgear and scarves
+    this.parts = { pants: [], boots: [], shirt: [], sleeve: [], wrap: [] };
     const part = (role, m) => {
       this.parts[role].push(m);
       return m;
@@ -362,10 +505,11 @@ export class Avatar {
     this.legs = [];
     for (const sx of [-0.11, 0.11]) {
       const leg = new THREE.Group();
-      part('pants', capsule(leg, 0.088, 0.6, SHARED.pants, 0, -0.22, 0));       // thigh, from inside the hip to the knee
+      // the trouser leg: loose round the thigh, creased, gathered over the boot
+      part('pants', garment(leg, 'thigh' + sx, () => ripple(latheGeo(limbProfile(0.6, [0.1, 0.1, 0.096, 0.09, 0.088])), 0.028, 6, 10, sx * 2), SHARED.pants, 0, -0.22, 0));
       const shin = new THREE.Group();
-      part('pants', capsule(shin, 0.068, 0.5, SHARED.pants, 0, -0.18, 0));      // shin, knee to ankle
-      part('pants', cy(shin, 0.078, 0.082, 0.05, SHARED.pants, 0, -0.35, 0, 12));   // the trouser cuff over the boot
+      part('pants', garment(shin, 'shin' + sx, () => ripple(latheGeo(limbProfile(0.5, [0.088, 0.086, 0.082, 0.078, 0.07])), 0.022, 5, 12, sx), SHARED.pants, 0, -0.18, 0));
+      part('pants', cy(shin, 0.08, 0.086, 0.045, SHARED.pants, 0, -0.355, 0, 12));   // the cuff, bloused over the boot
       const pad = sp(shin, 0.058, SHARED.strap, 0, -0.03, -0.045, 10);              // a knee pad, for the outfits that wear them
       pad.scale.set(1, 1.25, 0.6);
       this.pads = this.pads || [];
@@ -387,9 +531,9 @@ export class Avatar {
     // the torso is round in section: a pelvis the legs grow out of, a chest that
     // widens to the shoulders, and the vest in the team colour over the chest
     part('pants', lathe(upper, [[0.05, -0.12], [0.17, -0.1], [0.205, -0.02], [0.205, 0.08], [0.19, 0.18], [0.185, 0.22]], SHARED.pants));
-    this.chest = part('shirt', lathe(upper, [[0.185, 0.21], [0.195, 0.3], [0.225, 0.42], [0.24, 0.52], [0.235, 0.58], [0.205, 0.63], [0.13, 0.665], [0.07, 0.68], [0.0, 0.685]], this.body));
-    // the shirt hangs over the trousers: a hem that stands a touch proud of the hips
-    part('shirt', lathe(upper, [[0.188, 0.17], [0.2, 0.19], [0.2, 0.25], [0.19, 0.27]], this.body));
+    // the shirt: cut loose over the chest, hanging past the hips, creased down the sides
+    this.chest = part('shirt', garment(upper, 'shirt', () => ripple(latheGeo([[0.19, 0.16], [0.206, 0.19], [0.206, 0.26], [0.208, 0.33], [0.232, 0.42], [0.25, 0.52], [0.245, 0.58], [0.215, 0.63], [0.135, 0.665], [0.07, 0.68], [0.0, 0.685]]), 0.028, 7, 9), this.body));
+    this.chest.scale.z = 0.64;
     // a collar at the neck, and buttons down the front
     this.collar = part('shirt', new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.02, 8, 20), this.body));
     this.collar.rotation.x = Math.PI / 2;
@@ -425,8 +569,8 @@ export class Avatar {
     // over a T-shirt, with a stripe down each front edge
     this.jacket = new THREE.Group();
     upper.add(this.jacket);
-    this.jacketBox = lathe(this.jacket, [[0.2, 0.19], [0.215, 0.3], [0.245, 0.42], [0.262, 0.52], [0.256, 0.58], [0.226, 0.63], [0.15, 0.665]], this.body, 18, Math.PI + 0.6, Math.PI * 2 - 1.2);
-    this.jacketBox.material.side = THREE.DoubleSide;
+    this.jacketBox = garment(this.jacket, 'jacket', () => ripple(latheGeo([[0.205, 0.17], [0.22, 0.3], [0.25, 0.42], [0.268, 0.52], [0.262, 0.58], [0.232, 0.63], [0.15, 0.665]], 18, Math.PI + 0.6, Math.PI * 2 - 1.2), 0.025, 6, 8), this.body);
+    this.jacketBox.scale.z = 0.64;
     this.web = [];
     for (const sx of [-1, 1]) {
       this.web.push(bx(this.jacket, 0.012, 0.4, 0.012, lam('#1f6b3a'), sx * 0.118, 0.44, -0.142));
@@ -437,7 +581,7 @@ export class Avatar {
     bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, -0.153).rotation.z = 0.28;    // the sling, over one shoulder and across
     bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, 0.153).rotation.z = -0.28;
     // the shoulders: a ball at each top corner of the chest, which the arm grows out of
-    for (const sx of [-1, 1]) part('shirt', sp(upper, 0.082, this.body, sx * 0.205, 0.59, 0));
+    for (const sx of [-1, 1]) part('sleeve', sp(upper, 0.086, this.body, sx * 0.205, 0.59, 0));
     cy(upper, 0.052, 0.06, 0.16, SHARED.skin, 0, 0.7, 0.01);                                   // the neck
     const head = new THREE.Group();
     head.position.y = 0.82;
@@ -570,9 +714,9 @@ export class Avatar {
         pole: new THREE.Vector3(sx * 0.4, -0.7, -0.05),
         upper: capsule(arms, 0.05, ARM_UPPER + 0.06, SHARED.skin),
         fore: capsule(arms, 0.044, ARM_FORE + 0.05, SHARED.skin),
-        sleeveU: part('shirt', capsule(arms, 0.063, ARM_UPPER + 0.04, this.body)),
-        sleeveF: part('shirt', capsule(arms, 0.055, ARM_FORE - 0.02, this.body)),
-        cuff: part('shirt', cy(arms, 0.066, 0.066, 0.03, this.body, 0, 0, 0, 10)),
+        sleeveU: part('sleeve', garment(arms, 'sleeveU' + sx, () => ripple(latheGeo(limbProfile(ARM_UPPER + 0.05, [0.074, 0.072, 0.07, 0.068, 0.066]), 14), 0.02, 5, 14, sx), this.body)),
+        sleeveF: part('sleeve', garment(arms, 'sleeveF' + sx, () => ripple(latheGeo(limbProfile(ARM_FORE - 0.01, [0.066, 0.064, 0.06, 0.057, 0.054]), 14), 0.018, 5, 14, sx + 1), this.body)),
+        cuff: part('sleeve', cy(arms, 0.058, 0.062, 0.03, this.body, 0, 0, 0, 10)),
         band: cy(arms, 0.071, 0.073, 0.05, this.body, 0, 0, 0, 10),        // armband in the team colour
         hand: sp(arms, 0.046, SHARED.glove, 0, 0, 0, 10),
         E: new THREE.Vector3(), H: new THREE.Vector3(), T: new THREE.Vector3(),
@@ -775,14 +919,23 @@ export class Avatar {
   setOutfit(id) {
     this.outfit = id || 'standard';
     const m = outfitMaterials(this.outfit);
-    for (const x of this.parts.pants) x.material = m.pants;
-    for (const x of this.parts.boots) x.material = m.boots;
-    for (const x of this.parts.shirt) x.material = m.shirt || SHARED.shirt;
-    for (const x of this.parts.wrap) x.material = m.wrap || this.wrap;
+    const o = OUTFIT[this.outfit];
+    // the animated outfits keep their changing materials; everything else is cut from cloth
+    const cloth = !(o && o.anim);
+    const shirtBase = m.shirt || SHARED.shirt;
+    const C = cloth ? {
+      shirt: clothMaterial(shirtBase, 'cloth', 7, 3), sleeve: clothMaterial(shirtBase, 'cloth', 3, 2),
+      pants: clothMaterial(m.pants, 'twill', 3, 3), wrap: m.wrap ? clothMaterial(m.wrap, 'knit', 3, 2) : this.wrap,
+      boots: clothMaterial(m.boots, 'leather', 2, 2),
+    } : { shirt: shirtBase, sleeve: shirtBase, pants: m.pants, wrap: m.wrap || this.wrap, boots: m.boots };
+    for (const x of this.parts.pants) x.material = C.pants;
+    for (const x of this.parts.boots) x.material = C.boots;
+    for (const x of this.parts.shirt) x.material = C.shirt;
+    for (const x of this.parts.sleeve) x.material = C.sleeve;
+    for (const x of this.parts.wrap) x.material = C.wrap;
     for (const k in this.heads) this.heads[k].visible = k === (m.head || 'wrap') && this.gearLd !== 3;
     this.visor.visible = !!m.glow;
     if (m.glow) this.visor.material = m.glow;
-    const o = OUTFIT[this.outfit];
     const shape = (o && o.shape) || '';
     const garb = { sleeves: 'long', rig: false, pads: false, scarf: false, ...(GARB[this.outfit] || {}) };
     this.sleeves = garb.sleeves;
@@ -791,15 +944,15 @@ export class Avatar {
     const wrapMat = printed && teeWrap(m.tee[4]);
     const jacket = !!(o && o.jacket) && !printed;
     this.jacket.visible = jacket;
-    this.jacketBox.material = m.shirt || SHARED.shirt;
+    this.jacketBox.material = cloth ? clothMaterial(shirtBase, 'cloth', 7, 3) : shirtBase;
     if (wrapMat) this.chest.material = wrapMat;
-    else if (jacket) this.chest.material = TEE_YELLOW;
+    else if (jacket) this.chest.material = clothMaterial(TEE_YELLOW, 'cloth', 7, 3);
     this.collar.visible = !jacket && !printed && !shape;
     for (const b of this.buttons) b.visible = !jacket && !printed && !shape && !garb.rig;
     this.rig.visible = garb.rig && !shape;
     for (const pd of this.pads) pd.visible = garb.pads;
     this.scarf.visible = garb.scarf && !shape;
-    for (const x of this.scarfMeshes) x.material = m.wrap || this.wrap;
+    for (const x of this.scarfMeshes) x.material = C.wrap;
     if (this.armsOf) this.poseArms();
     this.logOn = !!shape;              // any of the shaped bodies: the head is inside it
     this.log.visible = shape === 'log';
@@ -1215,7 +1368,7 @@ export class Avatars {
       if (a._xray === on) continue;
       a._xray = on;
       a.group.traverse((o) => {
-        if (!o.isMesh || o.userData.shared) return;
+        if (!o.isMesh || o.userData.gun) return;
         o.renderOrder = on ? 999 : 0;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const mt of mats) { mt.depthTest = !on; mt.needsUpdate = true; }
