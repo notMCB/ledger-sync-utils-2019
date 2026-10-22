@@ -430,7 +430,7 @@ export class StrikeShow {
         const J = this.planes[b.from].m.position;
         b.x0 = J.x; b.y0 = J.y - 0.6; b.z0 = J.z;
         this.scene.add(b.mesh);
-        if (!this.whistled && sfx) { this.whistled = true; sfx.bombWhistle(this.p, b.land - t); }
+        if (!this.whistled && sfx) { this.whistled = true; sfx.bombWhistle(this.p, Math.max(0.2, b.land - t)); }
       }
       const f = Math.min(1, (t - b.at) / (b.land - b.at));
       const y = this.p.y + (b.y0 - this.p.y) * (1 - f * f);     // faster and faster, like something falling
@@ -514,9 +514,10 @@ export class CarpetShow {
     this.stripMat = mat;
     this.edgeMat = edge;
     scene.add(strip);
-    // the four: lead on the left, three stepped back to its right, each with its own
-    // moment to break off at the end, its own bank, rate of turn and climb
-    this.planes = [[0, -30, 0.0], [-8, -10, 1.5], [-16, 10, 0.6], [-24, 30, 2.4]].map(([back, side, delay]) => {
+    // the four in a finger four: the lead, its wingman back on the left, the second
+    // element's lead back on the right and that one's wingman further back and out,
+    // each with its own moment to break off at the end, its own bank, rate of turn and climb
+    this.planes = [[0, 0, 0.0], [-10, -16, 1.4], [-10, 16, 0.7], [-20, 32, 2.3]].map(([back, side, delay]) => {
       const m = makeJet();
       m.visible = false;
       scene.add(m);
@@ -530,7 +531,7 @@ export class CarpetShow {
       for (let tr = tFirst + i * (CARPET_DROP / 4) + (P.back / speed); ; tr += CARPET_DROP) {
         const sLand = (tr + CARPET_FALL - t0) * speed;
         if (sLand > this.L + 2) break;
-        const lat = P.side * 0.38 + (Math.random() - 0.5) * 5;
+        const lat = (P.side - 8) * 0.5 + (Math.random() - 0.5) * 5;
         const p = this.a.clone().addScaledVector(this.dir, sLand).addScaledVector(this.right, lat);
         const y = groundAt ? groundAt(p.x, p.z) : 0;
         this.bombs.push({ x: p.x, y, z: p.z, at: tr, land: tr + CARPET_FALL, from: i, mesh: null, hit: false, x0: 0, y0: 0, z0: 0, loud: this.bombs.length % 3 === 0 });
@@ -550,7 +551,7 @@ export class CarpetShow {
       const tb = Math.min(t, tBreak);
       const s = (tb - this.t0 + CARPET_FALL) * this.v - this.carry + P.back;
       const x = this.a.x + this.dir.x * s + this.right.x * P.side, z = this.a.z + this.dir.z * s + this.right.z * P.side;
-      const y = BOMBER_ALT + (P.side > -30 ? 1.5 : 0);
+      const y = BOMBER_ALT + (P.side !== 0 ? 1.5 : 0);
       if (t > tBreak) P.free = { x, y, z, h: this.h0, t: tBreak, bk: 0 };
       else {
         P.m.position.set(x, y, z);
@@ -621,7 +622,7 @@ export class CarpetShow {
         const J = this.planes[b.from].m.position;
         b.x0 = J.x; b.y0 = J.y - 0.6; b.z0 = J.z;
         this.scene.add(b.mesh);
-        if (b.loud && sfx) sfx.bombWhistle(new THREE.Vector3(b.x, b.y, b.z), b.land - t);
+        if (b.loud && sfx) sfx.bombWhistle(new THREE.Vector3(b.x, b.y, b.z), Math.max(0.2, b.land - t));
       }
       const f = Math.min(1, (t - b.at) / (b.land - b.at));
       const y = b.y + (b.y0 - b.y) * (1 - f * f);

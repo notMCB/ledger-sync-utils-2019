@@ -771,6 +771,7 @@ export function jetRoar(on, pos) {
 // a bomb coming down: the whistle rises as it falls, from where it will land
 export function bombWhistle(pos, secs = 2) {
   if (!ensure()) return;
+  secs = Math.max(0.15, secs);     // a bomb that is all but down still gets a short one
   const sp = spatial(pos, 400);
   if (!sp) return;
   sp.input.gain.value = sp.gain;
