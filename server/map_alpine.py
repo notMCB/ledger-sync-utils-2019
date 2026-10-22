@@ -25,7 +25,7 @@ CELL = 2.0             # the terrain grid
 QUANT = 0.4            # each step of ground
 BASE = 2.0             # the lowest ground, above the world's floor plane
 RIDGE = 5.5            # the ridge shelf above the ground at its foot
-TERRACE = 0.4          # each rock step of a ramp: under the physics step limit with margin
+RAMP_SLOPE = 0.36      # the ridge ramps fall this much per metre: about twenty degrees
 
 
 def bump(r):
@@ -72,9 +72,22 @@ class Alpine(Town):
         return (max(0, min(self.nx - 1, int((x + self.bx) / CELL))), max(0, min(self.nz - 1, int((z + self.bz) / CELL))))
 
     def ground(self, x, z):
-        """The stepped ground height at a point."""
+        """The stepped ground height at a point (the cells; what pads and buildings use)."""
         ix, iz = self.cell(x, z)
         return self.h[ix][iz]
+
+    def height_grid(self):
+        """The cell heights as the client gets them, for the smooth ground."""
+        return {'x0': -self.bx, 'z0': -self.bz, 'cell': CELL, 'nx': self.nx, 'nz': self.nz,
+                'h': [[round(v, 2) for v in col] for col in self.h]}
+
+    def surface(self, x, z):
+        """The smooth ground a player actually walks on, for anything that sits on it.
+        (The grid is rebuilt whenever a cell has changed since the last call.)"""
+        key = sum(map(sum, self.h))
+        if getattr(self, '_grid_key', None) != key:
+            self._grid_key, self._grid = key, self.height_grid()
+        return mapgen.surface_at(self._grid, x, z)
 
     def make_ground(self):
         q = lambda v: round(v / QUANT) * QUANT
@@ -162,41 +175,38 @@ class Alpine(Town):
         return BASE + 1.4 + RIDGE
 
     def ramps(self):
-        """Stepped rock terraces down the ridge face at two places."""
+        """Two ways down the ridge face: a slope cut into the cliff at each, twelve
+        metres wide, falling from the shelf to the ground below at about twenty
+        degrees. The smooth ground does the rest; a few boulders line the edges."""
         top = self.ridge_top()
         self.ramp_pts = []
         self.base_y = 0.0
         rng = self.rng
+        fz = self.z_face
         for rx in (-40.0, 40.0):
-            # the cliff is flat and the shelf level for the ramp's width, so the steps meet it cleanly
-            fz = self.z_face
-            for ix in range(*[self.cell(rx - 6, 0)[0], self.cell(rx + 6, 0)[0] + 1]):
+            foot = self.ground(rx, fz + 22)
+            length = (top - foot) / RAMP_SLOPE
+            ix0, ix1 = self.cell(rx - 6, 0)[0], self.cell(rx + 6, 0)[0]
+            for ix in range(ix0, ix1 + 1):
                 for iz in range(self.nz):
                     z = -self.bz + (iz + 0.5) * CELL
                     if z < fz:
                         self.h[ix][iz] = top
-                    elif z < fz + 2.5:
-                        self.h[ix][iz] = round(self.smooth_height(rx, fz + 3) / QUANT) * QUANT
-            foot = self.ground(rx, fz + 20)
-            n = int((top - foot) / TERRACE)
-            depth = 0.0
-            for i in range(n):
-                hgt = top - (i + 1) * TERRACE
-                depth += rng.uniform(1.0, 1.6)
-                wobble = rng.uniform(-0.5, 0.5)
-                half = rng.uniform(2.2, 3.4)
-                # each terrace runs from the face out to its own edge, so every
-                # step lands on the one behind it; widths and offsets wander like rock
-                self.rock(rx + wobble, hgt / 2, fz + depth / 2, half, hgt / 2, depth / 2 + 0.02, rng.uniform(-0.04, 0.04))
-                # loose rock either side instead of a flat wall
-                if i % 2 == 0:
-                    for side in (-1, 1):
-                        s = rng.uniform(0.5, 1.1)
-                        self.rock(rx + side * (half + s * 0.6 + 0.2), hgt + s * 0.3, fz + depth - 0.6, s, s * 0.55, s * 0.7, rng.uniform(0, 3))
-            # a level pad at the foot so the last step lands on the ground
-            self.flatten(rx, fz + depth + 2.0, 4.0, 2.5, round(foot / QUANT) * QUANT)
-            self.ramp_pts.append((rx, fz + depth + 1.5))
-            self.rects.append((rx, fz + depth / 2, 4.6, depth / 2 + 1.0, 0.0))
+                    elif z < fz + length:
+                        self.h[ix][iz] = round((top - (z - fz) * RAMP_SLOPE) / QUANT) * QUANT
+                        self.fixed.add((ix, iz))
+            # a level pad at the foot so the slope runs out onto flat ground
+            self.flatten(rx, fz + length + 2.0, 6.0, 2.5, round(foot / QUANT) * QUANT)
+            # boulders down either edge, on the slope
+            for side in (-1, 1):
+                z = fz + 1.5
+                while z < fz + length - 1.0:
+                    s_ = rng.uniform(0.5, 0.9)
+                    bx_ = rx + side * (6.0 + rng.uniform(0.2, 0.8))
+                    self.box(bx_, self.surface(bx_, z) + s_ * 0.4, z, s_, s_ * 0.5, s_ * 0.7, rng.uniform(0, 3), 'rock', 0)
+                    z += rng.uniform(2.5, 4.5)
+            self.ramp_pts.append((rx, fz + length + 1.5))
+            self.rects.append((rx, fz + length / 2, 6.6, length / 2 + 1.0, 0.0))
             self.areas.append({'n': 'Ridge Ramp', 'x': rx, 'z': fz + 5, 'r': 5})
 
     def cliff(self):
@@ -224,16 +234,24 @@ class Alpine(Town):
         for i in range(len(xs)):
             w = [env[max(0, min(len(xs) - 1, i + d))] for d in range(-4, 5)]            # +-1 m
             smooth.append(sum(w) / len(w))
+        # the face in runs, broken where a ramp comes down through it
+        in_ramp = lambda x: any(abs(x - rx) < 6.5 for rx, _ in self.ramp_pts)
         pts = []
-        for i in range(0, len(xs), 2):
-            x = xs[i]
+        for i in range(0, len(xs) + 2, 2):
+            x = xs[i] if i < len(xs) else None
+            if x is None or in_ramp(x):
+                if len(pts) > 1:
+                    self.deco.append({'k': 'cliff', 'top': round(top, 2), 'pts': pts})
+                pts = []
+                continue
             g = min(foot[cell(x + d * step)] for d in range(-5, 6))
             dr = min(abs(x - rx) for rx, _ in self.ramp_pts) if self.ramp_pts else 99.0
-            crag = max(0.0, min(1.0, (dr - 5.0) / 3.0))
+            crag = max(0.0, min(1.0, (dr - 6.5) / 3.0))
             pts.append([round(x, 2), round(smooth[i], 2), round(g, 2), round(riser[cell(x)], 2), round(crag, 2)])
-        self.deco.append({'k': 'cliff', 'top': round(top, 2), 'pts': pts})
         for i in range(2, len(xs) - 2, 4):
             x, zs = xs[i], smooth[i]
+            if in_ramp(x):
+                continue
             self.box(x, top / 2, zs - 0.8, 0.5, top / 2, 0.8, 0.0, 'inv', 0)
 
     def parapet(self):
@@ -393,7 +411,8 @@ class Alpine(Town):
             if y1 > y0 + 0.2:
                 for k in range(2):
                     self.box(x, (y0 + y1) / 2, z, r, (y1 - y0) / 2, r * 0.62, k * math.pi / 4, 'inv')
-        self.deco.append({'k': 'pine', 'x': round(x, 2), 'y': round(y, 2), 'z': round(z, 2), 'h': round(h, 2), 's': self.rng.randrange(3)})
+        # on the smooth ground where the map has one (the royale's seams borrow this and have none)
+        self.deco.append({'k': 'pine', 'x': round(x, 2), 'y': round(self.surface(x, z) if hasattr(self, 'surface') else y, 2), 'z': round(z, 2), 'h': round(h, 2), 's': self.rng.randrange(3)})
         self.props.append((x, z, 0.5))
 
     def wood(self, cx, cz, rx, rz, n):
@@ -467,7 +486,7 @@ class Alpine(Town):
                     self.flatten(ax, cz, w / 2 + 0.5, 0.01, self.ground(ax, cz))
 
     def spawn_y(self, pts):
-        return [[p[0], p[1], round(self.ground(p[0], p[1]), 2)] for p in pts]
+        return [[p[0], p[1], round(self.surface(p[0], p[1]), 2)] for p in pts]
 
     # -- the station ---------------------------------------------------------
 
@@ -505,7 +524,7 @@ class Alpine(Town):
         for (x, z, w, d) in ((38.0, -8.0, 12.0, 9.0), (-46.0, 32.0, 11.0, 8.0), (12.0, 30.0, 12.0, 9.0)):
             self.flatten(x, z, w / 2 + 2.0, d / 2 + 2.0)                   # the bunkers
         for (x, z) in ((-56.0, 14.0), (58.0, -2.0), (-12.0, 40.0)):
-            self.flatten(x, z, 4.5, 2.0)                                   # the trucks
+            self.flatten(x, z, 5.5, 3.0)                                   # the trucks, with a metre to spare so the smooth ground's blend starts past the wheels
         self.relax()
         # then the roads: the main road first, and the side tracks keep out of its
         # band, so every road is one level across its width and steps only along it
@@ -612,22 +631,13 @@ class Alpine(Town):
                 for k in range(n + 1):
                     t = k / n
                     x, z = ax + (bx2 - ax) * t, az + (bz2 - az) * t
-                    cell = self.cell(x, z)
-                    g = self.ground(x, z)
+                    # the road lies on the smooth ground: a point every metre, and over a lid
+                    g = self.surface(x, z)
                     for (lx0, lx1, lz0, lz1, top) in self.lids:
                         if lx0 <= x <= lx1 and lz0 <= z <= lz1:
                             g = max(g, top)
-                    if last_cell is not None and cell != last_cell and out and abs(out[-1][2] - (g + 0.03)) > 0.01:
-                        # step: close the old level exactly at the cell edge and open the new one
-                        if cell[0] != last_cell[0]:
-                            ex, ez = -self.bx + max(cell[0], last_cell[0]) * CELL, z
-                        else:
-                            ex, ez = x, -self.bz + max(cell[1], last_cell[1]) * CELL
-                        out.append([round(ex, 2), round(ez, 2), out[-1][2]])
-                        out.append([round(ex, 2), round(ez, 2), round(g + 0.03, 2)])
-                    elif last_cell is None or cell != last_cell or k == n:
+                    if k % 4 == 0 or k == n:
                         out.append([round(x, 2), round(z, 2), round(g + 0.03, 2)])
-                    last_cell = cell
             self.deco.append({'k': 'road', 'w': w, 'c': 'snow', 'pts': out})
             self.roads.append({'w': w, 'pts': [(p[0], p[1]) for p in out]})
         for (pts, w) in self.road_lines:
@@ -640,7 +650,7 @@ class Alpine(Town):
             self.portal(px, pz, yaw, 6.0 if abs(pz - 6.0) < 0.1 else 4.4, 4.2)
         self.base_y = 0.0
         for label, (sx, sz) in (('A', self.site_a), ('B', self.site_b)):
-            self.deco.append({'k': 'site', 'x': round(sx, 2), 'y': round(self.ground(sx, sz), 2), 'z': round(sz, 2), 'r': 4.5, 'l': label})
+            self.deco.append({'k': 'site', 'x': round(sx, 2), 'y': round(self.surface(sx, sz), 2), 'z': round(sz, 2), 'r': 4.5, 'l': label})
         self.areas.append({'n': 'West Gate', 'x': self.spawn_w[0], 'z': round(self.spawn_w[1], 1), 'r': 10})
         self.areas.append({'n': 'East Gate', 'x': self.spawn_e[0], 'z': round(self.spawn_e[1], 1), 'r': 10})
         if not self.open:
@@ -654,7 +664,7 @@ class Alpine(Town):
                 a, r = rng.uniform(0, math.tau), rng.uniform(2.0, 4.0)
                 x, z = d['x'] + math.cos(a) * r, d['z'] + math.sin(a) * r
                 if self.free(x, z, 0.6, 0.8, 0.2):
-                    self.deco.append({'k': 'bush', 'x': round(x, 2), 'y': round(self.ground(x, z), 2), 'z': round(z, 2), 'r': round(rng.uniform(0.45, 0.7), 2), 'c': 2})
+                    self.deco.append({'k': 'bush', 'x': round(x, 2), 'y': round(self.surface(x, z), 2), 'z': round(z, 2), 'r': round(rng.uniform(0.45, 0.7), 2), 'c': 2})
                     self.props.append((x, z, 0.5))
         n = 0
         for _ in range(900):
@@ -663,10 +673,10 @@ class Alpine(Town):
             x, z = rng.uniform(-self.bx + 4, self.bx - 4), rng.uniform(self.z_face + 3, self.bz - 4)
             if self.free(x, z, 0.8, 1.0, 0.3):
                 sz = rng.uniform(0.3, 0.6)
-                self.deco.append({'k': 'stone', 'x': round(x, 2), 'y': round(self.ground(x, z), 2), 'z': round(z, 2), 's': round(sz, 2), 'yaw': round(rng.uniform(0, 3.1), 2)})
+                self.deco.append({'k': 'stone', 'x': round(x, 2), 'y': round(self.surface(x, z), 2), 'z': round(z, 2), 's': round(sz, 2), 'yaw': round(rng.uniform(0, 3.1), 2)})
                 if rng.random() < 0.6:
                     gx = x + rng.uniform(-1.2, 1.2)
-                    self.deco.append({'k': 'grass', 'x': round(gx, 2), 'y': round(self.ground(gx, z + 0.8), 2), 'z': round(z + 0.8, 2), 'n': rng.randrange(3, 6), 'c': 1})
+                    self.deco.append({'k': 'grass', 'x': round(gx, 2), 'y': round(self.surface(gx, z + 0.8), 2), 'z': round(z + 0.8, 2), 'n': rng.randrange(3, 6), 'c': 1})
                 n += 1
         # the station at night: a few floods, a lamp over each bunker door, the helipad edged
         # in lights, and the buildings lit inside; the slopes between stay dark
@@ -698,6 +708,7 @@ class Alpine(Town):
 
     def to_json(self):
         m = Town.to_json(self)
-        m['sites'] = {k: [v[0], v[1], round(self.ground(v[0], v[1]), 2)] for k, v in m['sites'].items()}
-        m['hills'] = [[x, z, round(self.ground(x, z), 2)] for (x, z) in m['hills']]
+        m['sites'] = {k: [v[0], v[1], round(self.surface(v[0], v[1]), 2)] for k, v in m['sites'].items()}
+        m['hills'] = [[x, z, round(self.surface(x, z), 2)] for (x, z) in m['hills']]
+        m['height'] = self.height_grid()
         return m

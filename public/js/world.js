@@ -51,12 +51,13 @@ const POOL = 14;             // real point lights in play at once; the nearest l
 let texCache = null;
 function textures() {
   if (texCache) return texCache;
+  const ground = T.groundSet(), snow = T.snowSet(), grass = T.grassSet(), concrete = T.concreteSet();
   texCache = {
-    plaster: T.plaster(), stone: T.stone(), ground: T.ground(), tiles: T.tiles(), wood: T.wood(),
+    plaster: T.plaster(), stone: T.stone(), ground: ground.map, groundN: ground.normalMap, tiles: T.tiles(), wood: T.wood(),
     crate: T.crate(), metal: T.metal(), leaf: T.palmLeaf(),
     cloth: CLOTH.map((c) => T.cloth(c)),
-    concrete: T.concrete(), snow: T.snow(), corrugated: T.corrugated(), rock: T.rock(), container: T.containerSkin(),
-    grass: T.grass(), marble: T.marble(), hedge: T.hedge(), windows: T.windows(), asphalt: T.roadStyle('asphalt'),
+    concrete: concrete.map, concreteN: concrete.normalMap, snow: snow.map, snowN: snow.normalMap, corrugated: T.corrugated(), rock: T.rock(), container: T.containerSkin(),
+    grass: grass.map, grassN: grass.normalMap, marble: T.marble(), hedge: T.hedge(), windows: T.windows(), asphalt: T.roadStyle('asphalt'),
     tuft: T.leafTuft(), grassTuft: T.grassTuft(),
   };
   return texCache;
@@ -251,6 +252,33 @@ function mergeInto(list) {
 const M4 = new THREE.Matrix4();
 const Q = new THREE.Quaternion();
 const E = new THREE.Euler();
+// how strongly each ground's normal map shows
+const NORMAL_SCALE = { ground: new THREE.Vector2(0.9, 0.9), snow: new THREE.Vector2(0.8, 0.8), grass: new THREE.Vector2(0.6, 0.6), concrete: new THREE.Vector2(0.5, 0.5) };
+
+// a ground material: the colour and its normal map, lit like everything else
+// (Phong with next to no shine, so it matches the Lambert walls), plus any extras
+function groundMat(tx, kind, extra = {}) {
+  return new THREE.MeshPhongMaterial({ map: tx[kind], normalMap: tx[kind + 'N'], normalScale: NORMAL_SCALE[kind], specular: '#101010', shininess: 4, ...extra });
+}
+
+// the height of a map's smooth ground at a point, from its grid of cell heights:
+// the four cells round the point blended, except across a cliff (a jump of more
+// than 2.5 m), where the nearest cell wins so the edge stays an edge. The same
+// sums as surface_at in server/mapgen.py, so everyone agrees where the ground is.
+export function surfaceAt(H, x, z) {
+  const nx = H.nx, nz = H.nz, h = H.h;
+  let fx = (x - H.x0) / H.cell - 0.5, fz = (z - H.z0) / H.cell - 0.5;
+  let ix = Math.floor(fx), iz = Math.floor(fz);
+  let tx = fx - ix, tz = fz - iz;
+  if (ix < 0) { ix = 0; tx = 0; } else if (ix > nx - 2) { ix = nx - 2; tx = 1; }
+  if (iz < 0) { iz = 0; tz = 0; } else if (iz > nz - 2) { iz = nz - 2; tz = 1; }
+  const h00 = h[ix][iz], h10 = h[ix + 1][iz], h01 = h[ix][iz + 1], h11 = h[ix + 1][iz + 1];
+  const lo = Math.min(h00, h10, h01, h11), hi = Math.max(h00, h10, h01, h11);
+  if (hi - lo > 2.5) return h[ix + (tx >= 0.5 ? 1 : 0)][iz + (tz >= 0.5 ? 1 : 0)];
+  const sx = tx * tx * (3 - 2 * tx), sz = tz * tz * (3 - 2 * tz);
+  return (h00 + (h10 - h00) * sx) * (1 - sz) + (h01 + (h11 - h01) * sx) * sz;
+}
+
 // a number in [0, 1) that is always the same for the same point and seed
 function jit(x, y, z, seed = 0) {
   const h = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719 + seed * 0.618) * 43758.5453;
@@ -528,7 +556,8 @@ export class World {
     this.night = !!map.night;
     this.lamps = [];
     this.pool = [];
-    this.physics = new Physics(map.boxes, map.bounds, map.tunnels);
+    this.surface = map.height ? (x, z) => surfaceAt(map.height, x, z) : null;
+    this.physics = new Physics(map.boxes, map.bounds, map.tunnels, this.surface);
     const tx = textures();
     const root = new THREE.Group();
     this.root = root;
@@ -548,11 +577,11 @@ export class World {
       flatroof: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
       rock: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
       terrain: new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }),
-      terraintop: new THREE.MeshLambertMaterial({ map: map.theme === 'snow' ? tx.snow : map.theme === 'garden' ? tx.grass : tx.ground, vertexColors: true }),
+      terraintop: groundMat(tx, map.theme === 'snow' ? 'snow' : map.theme === 'garden' ? 'grass' : 'ground', { vertexColors: true }),
       // stepped ground can carry its own texture by tint: snow, grass or concrete
-      terraintop1: new THREE.MeshLambertMaterial({ map: tx.snow, vertexColors: true }),
-      terraintop2: new THREE.MeshLambertMaterial({ map: tx.grass, vertexColors: true }),
-      terraintop3: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
+      terraintop1: groundMat(tx, 'snow', { vertexColors: true }),
+      terraintop2: groundMat(tx, 'grass', { vertexColors: true }),
+      terraintop3: groundMat(tx, 'concrete', { vertexColors: true }),
       marble: new THREE.MeshLambertMaterial({ map: tx.marble, vertexColors: true }),
       hedge: new THREE.MeshLambertMaterial({ map: tx.hedge, vertexColors: true }),
       velvet: new THREE.MeshLambertMaterial({ map: tx.plaster, vertexColors: true }),
@@ -595,6 +624,7 @@ export class World {
       } else if (mat === 'container') {
         B('container').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CONTAINER_TINTS[tint % 6]), 3.4);
       } else if (mat === 'terrain') {
+        if (map.height) continue;     // smooth ground: drawn as one surface below
         // stepped ground: snow (or the tint's texture) on top, rock on the risers
         B(tint ? 'terraintop' + (tint % 4) : 'terraintop').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(tint === 3 ? '#c9c8c2' : '#ffffff'), tint === 3 ? 2.5 : 9.0, { faces: 'top' });
         if (hy > 0.04) B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(tint === 1 ? '#9a9c9e' : '#b8a888'), 3.0, { faces: 'sides' });
@@ -691,11 +721,12 @@ export class World {
       const guv = gg.attributes.uv;
       for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * W / 9, guv.getY(i) * D / 9);
     }
-    const gtex = map.theme === 'concrete' ? tx.concrete : map.theme === 'snow' ? tx.snow : map.theme === 'garden' ? tx.grass : tx.ground;
+    const gkind = map.theme === 'concrete' ? 'concrete' : map.theme === 'snow' ? 'snow' : map.theme === 'garden' ? 'grass' : 'ground';
     // drawn from underneath as well, so nobody under the street sees through it
-    const ground = new THREE.Mesh(gg, new THREE.MeshLambertMaterial({ map: gtex, side: THREE.DoubleSide }));
+    const ground = new THREE.Mesh(gg, groundMat(tx, gkind, { side: THREE.DoubleSide }));
     ground.receiveShadow = true;
     root.add(ground);
+    if (map.height) this.addHeightfield(map, root, tx, gkind);
 
     this.buildDeco(map, root, tx);
     this.setIndoor(!!map.indoor, root, map);
@@ -993,10 +1024,11 @@ export class World {
         // a patch of different ground under a whole quarter of the royale map
         const g = new THREE.PlaneGeometry(d.w, d.d);
         g.rotateX(-Math.PI / 2);
-        const t = (d.c === 'concrete' ? tx.concrete : d.c === 'grass' ? tx.grass : d.c === 'snow' ? tx.snow : tx.ground).clone();
-        t.repeat.set(d.w / 9, d.d / 9);
-        t.needsUpdate = true;
-        const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: t, polygonOffset: true, polygonOffsetFactor: -0.5 }));
+        const kind = d.c === 'concrete' ? 'concrete' : d.c === 'grass' ? 'grass' : d.c === 'snow' ? 'snow' : 'ground';
+        const t = tx[kind].clone(), tn = tx[kind + 'N'].clone();
+        t.repeat.set(d.w / 9, d.d / 9); tn.repeat.set(d.w / 9, d.d / 9);
+        t.needsUpdate = true; tn.needsUpdate = true;
+        const m = new THREE.Mesh(g, new THREE.MeshPhongMaterial({ map: t, normalMap: tn, normalScale: NORMAL_SCALE[kind], specular: '#111111', shininess: 4, polygonOffset: true, polygonOffsetFactor: -0.5 }));
         m.material.userData.own = true;
         m.position.set(d.x, 0.012, d.z);
         m.receiveShadow = true;
@@ -1483,6 +1515,51 @@ export class World {
   }
 
   // a broadleaf garden tree: a trunk and a round canopy
+  // the ground of a map with a height grid (Ridgeline) as one smooth surface: the
+  // cell heights interpolated on a metre grid, snow on it, the steep bits turning to
+  // rock through the vertex colour. The stepped terrain boxes still come in the map
+  // (the minimap and the server use them) but are not drawn or walked on.
+  addHeightfield(map, root, tx, kind) {
+    const H = map.height;
+    const [bx, bz] = map.bounds;
+    const step = 1.0;
+    const nx = Math.round(bx * 2 / step) + 1, nz = Math.round(bz * 2 / step) + 1;
+    const pos = new Float32Array(nx * nz * 3), uv = new Float32Array(nx * nz * 2), col = new Float32Array(nx * nz * 3);
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        const x = -bx + i * step, z = -bz + j * step;
+        const k = j * nx + i;
+        pos[k * 3] = x; pos[k * 3 + 1] = surfaceAt(H, x, z); pos[k * 3 + 2] = z;
+        uv[k * 2] = x / 9; uv[k * 2 + 1] = -z / 9;
+      }
+    }
+    const idx = [];
+    for (let j = 0; j + 1 < nz; j++) {
+      for (let i = 0; i + 1 < nx; i++) {
+        const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    const nrm = g.attributes.normal;
+    const rock = kind === 'snow' ? [0.52, 0.54, 0.57] : [0.62, 0.56, 0.48];
+    for (let k = 0; k < nx * nz; k++) {
+      // flat: the ground's own colour; steeper than about 35 degrees: bare rock
+      const ny = nrm.getY(k);
+      const t = Math.max(0, Math.min(1, (0.82 - ny) / 0.25));
+      col[k * 3] = 1 - (1 - rock[0]) * t; col[k * 3 + 1] = 1 - (1 - rock[1]) * t; col[k * 3 + 2] = 1 - (1 - rock[2]) * t;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.computeBoundingSphere();
+    const mesh = new THREE.Mesh(g, groundMat(tx, kind, { vertexColors: true }));
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+
   // the ridge's face on Ridgeline as one rock wall: the server sends the smoothed
   // line it stands on (x, z, foot, riser, crag) every half metre; columns of
   // jittered vertices between the foot and the top make a craggy face lit flat,

@@ -1403,6 +1403,29 @@ def generate(seed, kind='town'):
 
 # -- line of sight (used for grenades) -------------------------------------
 
+def surface_at(H, x, z):
+    """The height of a map's smooth ground at a point, from its grid of cell heights:
+    the four cells round the point blended, except across a cliff (a jump of more than
+    2.5 m), where the nearest cell wins. The same sums as surfaceAt in public/js/world.js."""
+    nx, nz, h = H['nx'], H['nz'], H['h']
+    fx, fz = (x - H['x0']) / H['cell'] - 0.5, (z - H['z0']) / H['cell'] - 0.5
+    ix, iz = math.floor(fx), math.floor(fz)
+    tx, tz = fx - ix, fz - iz
+    if ix < 0:
+        ix, tx = 0, 0.0
+    elif ix > nx - 2:
+        ix, tx = nx - 2, 1.0
+    if iz < 0:
+        iz, tz = 0, 0.0
+    elif iz > nz - 2:
+        iz, tz = nz - 2, 1.0
+    h00, h10, h01, h11 = h[ix][iz], h[ix + 1][iz], h[ix][iz + 1], h[ix + 1][iz + 1]
+    if max(h00, h10, h01, h11) - min(h00, h10, h01, h11) > 2.5:
+        return h[ix + (1 if tx >= 0.5 else 0)][iz + (1 if tz >= 0.5 else 0)]
+    sx, sz = tx * tx * (3 - 2 * tx), tz * tz * (3 - 2 * tz)
+    return (h00 + (h10 - h00) * sx) * (1 - sz) + (h01 + (h11 - h01) * sx) * sz
+
+
 class Solid:
     """The boxes of a town, prepared for segment tests."""
 

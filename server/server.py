@@ -2941,7 +2941,12 @@ class Room:
     def land_height(self, x, z, y):
         """The highest thing under a point in the air, up to a little above it, or the ground."""
         best = 0.0
+        H = self.map.get('height')
+        if H:
+            best = min(y + 0.5, mapgen.surface_at(H, x, z))     # smooth ground: the steps are not what is walked on
         for (cx, cy, cz, hx, hy, hz, yaw, mat, tint) in self.map['boxes']:
+            if H and mat == 'terrain':
+                continue
             top = cy + hy
             if top <= best or top > y + 0.5:
                 continue

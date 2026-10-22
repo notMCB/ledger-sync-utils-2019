@@ -6,12 +6,14 @@ import * as THREE from 'three';
 const CELL = 4;
 
 export class Physics {
-  constructor(boxes, bounds, tunnels) {
+  constructor(boxes, bounds, tunnels, surface = null) {
     this.boxes = [];
     this.cells = new Map();
     this.stamp = 1;
     this.bx = bounds[0] + 4;
     this.bz = bounds[1] + 4;
+    // a map with smooth ground: its height here, instead of the stepped terrain boxes
+    this.surface = surface;
     // the tunnels below the town. Only a hatch shaft actually opens the ground;
     // the corridors are sealed under it, so the street above stays solid.
     this.pits = (tunnels && tunnels.pits) || [];
@@ -29,6 +31,7 @@ export class Physics {
 
   // the level the ground sits at here: 0 everywhere except down an open hatch
   floorAt(x, z, y = 1) {
+    if (this.surface) return this.surface(x, z);
     if (this.shafts.length && Physics.inRects(this.shafts, x, z)) return this.pitFloor;
     // already below the street: you're in the tunnels, so the tunnel floor
     // holds you wherever you are down there (the walls keep you in the
@@ -42,6 +45,7 @@ export class Physics {
   }
 
   add([cx, cy, cz, hx, hy, hz, yaw, mat]) {
+    if (this.surface && mat === 'terrain') return null;     // the smooth ground stands in for the steps
     const c = Math.cos(yaw);
     const s = Math.sin(yaw);
     // extent of the rotated rectangle along world x and z
@@ -154,9 +158,30 @@ export class Physics {
     const n = new THREE.Vector3();
     // the street level is solid both ways: from above, and from underneath too,
     // so nothing fired from the tunnels' ceiling gap passes up through it
-    const crossing = (d.y < -1e-6 && o.y > 0) || (d.y > 1e-6 && o.y < 0);
+    const crossing = !this.surface && ((d.y < -1e-6 && o.y > 0) || (d.y > 1e-6 && o.y < 0));
     const tg = crossing ? -o.y / d.y : Infinity;
     let groundT = tg >= 0 && tg < maxT ? tg : Infinity;
+    if (this.surface) {
+      // march along the ray until it goes under the ground, then close in on the spot
+      const stepT = 0.5;
+      let tPrev = 0, under = o.y < this.surface(o.x, o.z);
+      if (!under) {
+        for (let t = stepT; t <= maxT + stepT; t += stepT) {
+          const tt = Math.min(t, maxT);
+          if (o.y + d.y * tt < this.surface(o.x + d.x * tt, o.z + d.z * tt)) {
+            let a = tPrev, b = tt;
+            for (let k = 0; k < 8; k++) {
+              const m = (a + b) / 2;
+              if (o.y + d.y * m < this.surface(o.x + d.x * m, o.z + d.z * m)) b = m; else a = m;
+            }
+            groundT = b;
+            break;
+          }
+          tPrev = tt;
+          if (tt >= maxT) break;
+        }
+      }
+    }
     // a ray that crosses ground level inside a hatch keeps going down the shaft
     if (groundT < Infinity && this.pits.length && this.inPit(o.x + d.x * groundT, o.z + d.z * groundT)) groundT = Infinity;
     let best = Math.min(maxT, groundT), bestBox = null;
@@ -193,6 +218,11 @@ export class Physics {
     if (!bestBox && groundT < Infinity) {
       const r = res || {};
       bn.set(0, d.y > 0 ? -1 : 1, 0);
+      if (this.surface) {
+        // the slope's normal, from the heights either side of the spot
+        const px = o.x + d.x * groundT, pz = o.z + d.z * groundT;
+        bn.set(this.surface(px - 0.25, pz) - this.surface(px + 0.25, pz), 0.5, this.surface(px, pz - 0.25) - this.surface(px, pz + 0.25)).normalize();
+      }
       r.t = groundT; r.point = new THREE.Vector3().copy(o).addScaledVector(d, groundT); r.normal = bn; r.box = null; r.ground = true;
       return r;
     }
@@ -291,7 +321,7 @@ export class Physics {
     this.query(p.x - r, p.z - r, p.x + r, p.z + r, tmp);
     const fr = r * 0.8;
     // ground under us: highest top at or below feet + step
-    let ground = this.pits.length ? this.floorAt(p.x, p.z, p.y) : 0;
+    let ground = this.pits.length || this.surface ? this.floorAt(p.x, p.z, p.y) : 0;
     const reach = body.grounded ? step : Math.max(0.05, -v.y * dt + 0.05);
     for (const b of tmp) {
       if (b.maxY > p.y + reach || b.maxY <= ground) continue;

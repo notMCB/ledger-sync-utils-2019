@@ -32,6 +32,193 @@ function speckle(g, size, r, n, colors, min = 1, max = 3) {
   }
 }
 
+// -- noise, for ground that reads as ground rather than a stipple -------------------
+
+// tileable value noise: an n by n lattice of random values, smoothly interpolated
+// across an S by S field, wrapping at the edges
+function valueNoise(S, n, r, out, amp) {
+  const lat = new Float32Array(n * n);
+  for (let i = 0; i < lat.length; i++) lat[i] = r();
+  const k = n / S;
+  for (let y = 0; y < S; y++) {
+    const fy = y * k, iy = Math.floor(fy), ty0 = fy - iy, ty = ty0 * ty0 * (3 - 2 * ty0);
+    const y0 = iy % n, y1 = (iy + 1) % n;
+    for (let x = 0; x < S; x++) {
+      const fx = x * k, ix = Math.floor(fx), tx0 = fx - ix, tx = tx0 * tx0 * (3 - 2 * tx0);
+      const x0 = ix % n, x1 = (ix + 1) % n;
+      const a = lat[y0 * n + x0], b = lat[y0 * n + x1], c = lat[y1 * n + x0], d = lat[y1 * n + x1];
+      out[y * S + x] += amp * ((a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty);
+    }
+  }
+}
+
+// layered noise in [0, 1]: `base` cells across the tile at the coarsest layer
+function fbm(S, r, base = 4, octaves = 5, gain = 0.5) {
+  const out = new Float32Array(S * S);
+  let amp = 1, total = 0, n = base;
+  for (let o = 0; o < octaves; o++) {
+    valueNoise(S, n, r, out, amp);
+    total += amp;
+    amp *= gain;
+    n *= 2;
+  }
+  for (let i = 0; i < out.length; i++) out[i] /= total;
+  return out;
+}
+
+// a normal map from a height field, wrapping, `strength` scaling the slopes
+function normalMap(S, h, strength = 2) {
+  const [c, g] = canvas(S);
+  const img = g.createImageData(S, S);
+  const d = img.data;
+  for (let y = 0; y < S; y++) {
+    const yu = (y + S - 1) % S, yd = (y + 1) % S;
+    for (let x = 0; x < S; x++) {
+      const xl = (x + S - 1) % S, xr = (x + 1) % S;
+      const dx = (h[y * S + xr] - h[y * S + xl]) * strength;
+      const dy = (h[yd * S + x] - h[yu * S + x]) * strength;
+      const L = Math.hypot(dx, dy, 1);
+      const i = (y * S + x) * 4;
+      d[i] = (-dx / L * 0.5 + 0.5) * 255;
+      d[i + 1] = (-dy / L * 0.5 + 0.5) * 255;
+      d[i + 2] = (1 / L * 0.5 + 0.5) * 255;
+      d[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.NoColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+
+const clamp255 = (v) => (v < 0 ? 0 : v > 255 ? 255 : v);
+const mix = (a, b, t) => a + (b - a) * t;
+
+// paint a colour field: fn(i, x, y) returns [r, g, b] for the pixel
+function paint(g, S, fn) {
+  const img = g.createImageData(S, S);
+  const d = img.data;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = y * S + x;
+      const [r, gg, b] = fn(i, x, y);
+      d[i * 4] = clamp255(r); d[i * 4 + 1] = clamp255(gg); d[i * 4 + 2] = clamp255(b); d[i * 4 + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+}
+
+// dry sand: dunes of tone, wind ripples, damp patches, pebbles and the odd stone.
+// Returns the colour and the normal map; nine metres to the tile
+export function groundSet() {
+  const S = 1024;
+  const [c, g] = canvas(S);
+  const r = rng(3);
+  const tone = fbm(S, r, 3, 4, 0.55), fine = fbm(S, r, 24, 4, 0.5), damp = fbm(S, r, 5, 3, 0.5), rip = fbm(S, r, 6, 2, 0.5);
+  const h = new Float32Array(S * S);
+  paint(g, S, (i, x, y) => {
+    // wind ripples: a wave running across the tile, bent by the noise
+    const w = Math.sin((x * 0.9 + y * 0.35) * (Math.PI * 2 / 48) + rip[i] * 6) * 0.5 + 0.5;
+    const t = tone[i], f = fine[i], d = Math.max(0, damp[i] - 0.58) * 2.5;
+    const base = [mix(205, 232, t), mix(168, 196, t), mix(118, 150, t)];
+    const k = 1 + (f - 0.5) * 0.22 + (w - 0.5) * 0.08 - d * 0.22;
+    h[i] = w * 0.5 + f * 0.5;
+    return [base[0] * k, base[1] * k, base[2] * k];
+  });
+  // pebbles and small stones, each with a shadowed side
+  for (let i = 0; i < 1400; i++) {
+    const x = r() * S, y = r() * S, rad = 1.5 + r() * 3.5, dark = r() < 0.6;
+    g.fillStyle = dark ? `rgba(${110 + r() * 40},${90 + r() * 30},${60 + r() * 25},0.75)` : `rgba(${225 + r() * 25},${210 + r() * 25},${180 + r() * 25},0.7)`;
+    g.beginPath(); g.ellipse(x, y, rad, rad * 0.7, r() * 3, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(70,55,35,0.35)';
+    g.beginPath(); g.ellipse(x + rad * 0.3, y + rad * 0.4, rad * 0.9, rad * 0.5, 0, 0, Math.PI * 2); g.fill();
+  }
+  speckle(g, S, r, 20000, ['rgba(110,85,50,0.25)', 'rgba(250,235,200,0.25)'], 1, 2);
+  return { map: tex(c), normalMap: normalMap(S, h, 3.5) };
+}
+export function ground() { return groundSet().map; }
+
+// a lawn: a carpet of fine blades in two greens, worn and yellow in patches, with
+// faint mowing stripes
+export function grassSet() {
+  const S = 1024;
+  const [c, g] = canvas(S);
+  const r = rng(77);
+  const tone = fbm(S, r, 3, 4, 0.55), fine = fbm(S, r, 40, 3, 0.5), worn = fbm(S, r, 4, 3, 0.5);
+  const h = new Float32Array(S * S);
+  paint(g, S, (i, x, y) => {
+    const t = tone[i], f = fine[i], wn = Math.max(0, worn[i] - 0.6) * 2.2;
+    const stripe = Math.sin(y * (Math.PI * 2 / 128)) > 0 ? 1.0 : 0.93;
+    const gr = [mix(86, 120, t), mix(140, 176, t), mix(52, 70, t)];
+    const dry = [160, 148, 72];
+    const k = (0.82 + f * 0.36) * stripe;
+    h[i] = f;
+    return [mix(gr[0], dry[0], wn) * k, mix(gr[1], dry[1], wn) * k, mix(gr[2], dry[2], wn) * k];
+  });
+  // blades: short strokes leaning every way
+  g.lineWidth = 1;
+  for (let i = 0; i < 26000; i++) {
+    const x = r() * S, y = r() * S, L = 3 + r() * 5, a = -Math.PI / 2 + (r() - 0.5) * 1.2;
+    g.strokeStyle = r() < 0.5 ? 'rgba(60,110,40,0.35)' : 'rgba(150,200,90,0.3)';
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke();
+  }
+  return { map: tex(c), normalMap: normalMap(S, h, 2.2) };
+}
+export function grass() { return grassSet().map; }
+
+// packed snow: soft drifts, a blue cast in the hollows, wind-scoured crust and a sparkle
+export function snowSet() {
+  const S = 1024;
+  const [c, g] = canvas(S);
+  const r = rng(43);
+  const drift = fbm(S, r, 3, 4, 0.5), fine = fbm(S, r, 20, 4, 0.5), crust = fbm(S, r, 8, 2, 0.5);
+  const h = new Float32Array(S * S);
+  paint(g, S, (i, x, y) => {
+    const d = drift[i], f = fine[i];
+    const scour = Math.sin((x * 0.7 + y * 0.7) * (Math.PI * 2 / 90) + crust[i] * 5) * 0.5 + 0.5;
+    h[i] = d * 0.6 + f * 0.3 + scour * 0.1;
+    const hollow = 1 - d;
+    const k = 0.9 + f * 0.12 + scour * 0.04;
+    return [mix(244, 214, hollow * 0.6) * k, mix(247, 226, hollow * 0.6) * k, mix(251, 240, hollow * 0.6) * k];
+  });
+  speckle(g, S, r, 14000, ['rgba(255,255,255,0.7)', 'rgba(190,205,225,0.25)'], 1, 2);
+  return { map: tex(c), normalMap: normalMap(S, h, 4.0) };
+}
+export function snow() { return snowSet().map; }
+
+// poured concrete: aggregate showing through, stains, hairline cracks and a joint
+// round the slab
+export function concreteSet() {
+  const S = 512;
+  const [c, g] = canvas(S);
+  const r = rng(41);
+  const tone = fbm(S, r, 2, 4, 0.55), fine = fbm(S, r, 16, 4, 0.5), stain = fbm(S, r, 3, 3, 0.5);
+  const h = new Float32Array(S * S);
+  paint(g, S, (i) => {
+    const t = tone[i], f = fine[i], st = Math.max(0, stain[i] - 0.62) * 2.5;
+    const k = (0.86 + f * 0.26) * (1 - st * 0.18) * (0.94 + t * 0.12);
+    h[i] = f;
+    return [181 * k, 180 * k, 174 * k];
+  });
+  speckle(g, S, r, 9000, ['rgba(60,60,58,0.3)', 'rgba(225,225,220,0.3)'], 1, 2);
+  g.strokeStyle = 'rgba(50,50,48,0.5)';
+  g.lineWidth = 2;
+  g.strokeRect(1, 1, S - 2, S - 2);
+  for (let i = 0; i < 4; i++) {
+    g.beginPath();
+    let x = r() * S, y = r() * S;
+    g.moveTo(x, y);
+    for (let k = 0; k < 7; k++) { x += (r() - 0.5) * 50; y += (r() - 0.5) * 50; g.lineTo(x, y); }
+    g.strokeStyle = 'rgba(40,40,38,0.4)';
+    g.lineWidth = 1;
+    g.stroke();
+  }
+  return { map: tex(c), normalMap: normalMap(S, h, 1.6) };
+}
+export function concrete() { return concreteSet().map; }
+
 // light plaster, tinted per building through vertex colours
 export function plaster() {
   const S = 256;
@@ -88,53 +275,7 @@ export function stone() {
   return tex(c);
 }
 
-export function ground() {
-  const S = 512;
-  const [c, g] = canvas(S);
-  const r = rng(3);
-  g.fillStyle = '#c9a877';
-  g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 140; i++) {
-    const x = r() * S, y = r() * S, rad = 20 + r() * 70;
-    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
-    grd.addColorStop(0, r() < 0.5 ? 'rgba(150,115,70,0.16)' : 'rgba(230,205,160,0.18)');
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd;
-    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  speckle(g, S, r, 9000, ['rgba(110,85,50,0.3)', 'rgba(245,225,190,0.3)', 'rgba(90,70,45,0.22)'], 1, 2.5);
-  // pebbles
-  for (let i = 0; i < 260; i++) {
-    g.fillStyle = `rgba(${120 + r() * 60},${100 + r() * 40},${70 + r() * 30},0.55)`;
-    g.beginPath();
-    g.ellipse(r() * S, r() * S, 1 + r() * 3, 1 + r() * 2, r() * 3, 0, Math.PI * 2);
-    g.fill();
-  }
-  return tex(c);
-}
 
-// a mown lawn: green with darker mowing stripes and a few worn patches
-export function grass() {
-  const S = 512;
-  const [c, g] = canvas(S);
-  const r = rng(77);
-  g.fillStyle = '#6f9a3c';
-  g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 8; i++) {
-    g.fillStyle = i % 2 ? 'rgba(90,140,50,0.35)' : 'rgba(130,180,80,0.25)';
-    g.fillRect(0, i * S / 8, S, S / 8);
-  }
-  for (let i = 0; i < 90; i++) {
-    const x = r() * S, y = r() * S, rad = 20 + r() * 60;
-    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
-    grd.addColorStop(0, r() < 0.5 ? 'rgba(150,130,60,0.16)' : 'rgba(60,110,40,0.2)');
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd;
-    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  speckle(g, S, r, 12000, ['rgba(40,90,30,0.35)', 'rgba(170,210,110,0.3)', 'rgba(120,160,60,0.3)'], 1, 2.5);
-  return tex(c);
-}
 
 // white marble with grey veins
 export function marble() {
@@ -177,56 +318,7 @@ export function hedge() {
   return tex(c);
 }
 
-// poured concrete: grey, a little stained, with expansion joints
-export function concrete() {
-  const S = 256;
-  const [c, g] = canvas(S);
-  const r = rng(41);
-  g.fillStyle = '#b4b3ad';
-  g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 40; i++) {
-    const x = r() * S, y = r() * S, rad = 20 + r() * 60;
-    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
-    grd.addColorStop(0, r() < 0.5 ? 'rgba(70,70,68,0.14)' : 'rgba(200,200,195,0.14)');
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd;
-    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  speckle(g, S, r, 5000, ['rgba(60,60,58,0.25)', 'rgba(220,220,215,0.22)'], 1, 2);
-  g.strokeStyle = 'rgba(50,50,48,0.5)';
-  g.lineWidth = 2;
-  g.strokeRect(1, 1, S - 2, S - 2);
-  // a couple of hairline cracks
-  for (let i = 0; i < 3; i++) {
-    g.beginPath();
-    let x = r() * S, y = r() * S;
-    g.moveTo(x, y);
-    for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 40; y += (r() - 0.5) * 40; g.lineTo(x, y); }
-    g.strokeStyle = 'rgba(40,40,38,0.35)';
-    g.lineWidth = 1;
-    g.stroke();
-  }
-  return tex(c);
-}
 
-// packed snow: white with a faint blue shadow in the hollows
-export function snow() {
-  const S = 512;
-  const [c, g] = canvas(S);
-  const r = rng(43);
-  g.fillStyle = '#e9edf1';
-  g.fillRect(0, 0, S, S);
-  for (let i = 0; i < 90; i++) {
-    const x = r() * S, y = r() * S, rad = 30 + r() * 90;
-    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
-    grd.addColorStop(0, r() < 0.6 ? 'rgba(180,196,214,0.16)' : 'rgba(255,255,255,0.2)');
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grd;
-    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  speckle(g, S, r, 6000, ['rgba(255,255,255,0.5)', 'rgba(170,185,200,0.18)'], 1, 2);
-  return tex(c);
-}
 
 // corrugated steel: vertical ribs, tinted per piece through vertex colours
 export function corrugated() {
