@@ -52,6 +52,7 @@ const DEFAULTS = {
   crouchToggle: false,
   sprintToggle: false,
   shadows: true,
+  lighting: 'on',        // the enhanced lighting pass: 'on', 'half' (occlusion at half size) or 'off'
   renderScale: 1.0,
   showFps: false,
   // touch controls: 'auto' shows them on a touch screen; the layout is where each control was dragged to

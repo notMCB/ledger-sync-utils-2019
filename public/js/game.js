@@ -7,7 +7,7 @@ import { Effects } from './effects.js';
 import { Avatars, TEAM_COLORS, TEAM_NAMES, playerColor } from './avatars.js';
 import { Hud, MODE_INFO, isTeamMode } from './hud.js';
 import { input } from './input.js';
-import { settings, keyName } from './settings.js';
+import { saveSettings, settings, keyName } from './settings.js';
 import { WEAPONS, LOADOUTS, PERKS, NADE_INFO, NADES_PER_LIFE, NADE_FUSE, FLASH_RANGE, makeWeaponState, nadesFor, AMMO_OF, AMMO_CAP } from './weapons.js';
 import { serverFlags, royaleFit } from './attachments.js';
 import { PASS_TIERS } from './pass.js';
@@ -18,6 +18,7 @@ import { tickSkins, OUTFIT, CAMO_OUTFITS, CART, sirenMaterials, chromeMaterial }
 import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
 import { Voice, TALK_FLAG } from './voice.js';
+import { Lighting } from './lighting.js';
 import { AD_MODES, AD_REACH, makeTowerBomb, poseTowerBomb, makeZone, colourZone } from './attack.js';
 import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, STRIKE_DELAY, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
 
@@ -107,6 +108,7 @@ export class Game {
     this.camera.rotation.order = 'YXZ';
     this.world = new World(r, this.scene);
     this.world.sun.castShadow = settings.shadows;
+    this.lighting = null;      // the enhanced lighting pass, made when it is first wanted
     this.vm = new ViewModel();
     this.fx = new Effects(this.scene);
     this.avatars = new Avatars(this.scene);
@@ -242,6 +244,26 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.vm.camera.aspect = w / h;
     this.vm.camera.updateProjectionMatrix();
+    if (this.lighting) this.lighting.setSize(w, h, this.renderer.getPixelRatio());
+  }
+
+  // the enhanced pass runs on every map but Souk Royale's, when the setting allows
+  enhancedLighting() {
+    const q = settings.lighting || 'on';
+    if (q === 'off') return false;
+    if (this.room && this.room.mode === 'royale') return false;
+    if (!this.lighting) {
+      try {
+        this.lighting = new Lighting(this.renderer, this.scene, this.camera);
+        this.resize();
+      } catch (e) {
+        console.warn('enhanced lighting unavailable', e);
+        settings.lighting = 'off';
+        return false;
+      }
+    }
+    this.lighting.setQuality(q);
+    return true;
   }
 
   applySettings() {
@@ -4347,13 +4369,25 @@ export class Game {
     this.fpsN++;
     this.fpsT += dt;
     if (this.fpsT > 0.5) {
-      if (settings.showFps) document.getElementById('fps').textContent = `${Math.round(this.fpsN / this.fpsT)} fps · ${this.net ? this.net.rtt : 0} ms`;
+      const fps = this.fpsN / this.fpsT;
+      if (settings.showFps) document.getElementById('fps').textContent = `${Math.round(fps)} fps · ${this.net ? this.net.rtt : 0} ms`;
       this.fpsN = 0;
       this.fpsT = 0;
+      // the enhanced lighting steps itself down on a machine that can't keep up
+      if (this.lighting && settings.lighting !== 'off' && this.inRoom && !document.hidden) {
+        this.slowWindows = fps < 34 ? (this.slowWindows || 0) + 1 : 0;
+        if (this.slowWindows >= 6) {
+          this.slowWindows = 0;
+          settings.lighting = settings.lighting === 'on' ? 'half' : 'off';
+          saveSettings();
+          this.hud.center('Lighting turned down', settings.lighting === 'half' ? 'Enhanced, lighter: this machine was struggling. Change it in Settings → Video' : 'Standard lighting: this machine was struggling. Change it in Settings → Video', 'warn', 4, 2);
+        }
+      }
     }
     const r = this.renderer;
     r.clear();
-    r.render(this.scene, this.camera);
+    if (this.enhancedLighting()) this.lighting.render();
+    else r.render(this.scene, this.camera);
     if (this.inRoom && this.me.alive && this.vm.visible && !this.vm.scoped) {
       r.clearDepth();
       r.render(this.vm.scene, this.vm.camera);

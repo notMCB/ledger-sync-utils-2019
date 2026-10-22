@@ -2,9 +2,19 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.7.2';
+export const VERSION = '3.8.0';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.8.0',
+    date: '22 October 2026',
+    title: 'Enhanced lighting',
+    notes: [
+      'A new lighting pass on every map: ambient occlusion darkens corners, doorways and the ground under things the way bounced light should, bright things bloom a little, edges are smoothed, and the whole picture goes through filmic tone mapping. The town looks put together rather than placed down.',
+      'It is on by default. Settings → Video → Lighting has a lighter version (occlusion at half size) for slower laptops, and Standard to turn it off.',
+      'Souk Royale keeps the standard lighting for now: that map is too big to pay for it.',
+    ],
+  },
   {
     version: '3.7.2',
     date: '22 October 2026',

@@ -865,6 +865,11 @@ for (const [sid, oid, key, fmt] of SLIDERS) {
     game.applySettings();
   });
 }
+$('s-lighting').addEventListener('change', () => {
+  settings.lighting = $('s-lighting').value;
+  saveSettings();
+  game.applySettings();
+});
 $('s-voicemode').addEventListener('change', () => {
   settings.voiceMode = $('s-voicemode').value;
   saveSettings();
@@ -885,6 +890,7 @@ function openSettings() {
   }
   $('s-touchmode').value = settings.touchMode || 'auto';
   $('s-voicemode').value = settings.voiceMode || 'push';
+  $('s-lighting').value = settings.lighting || 'on';
   for (const [cid, key] of CHECKS) $(cid).checked = !!settings[key];
   renderBinds();
   $('pause').hidden = true;
