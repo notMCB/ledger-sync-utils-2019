@@ -307,6 +307,7 @@ export class Avatar {
     this.legs = [];
     for (const sx of [-0.11, 0.11]) {
       const leg = new THREE.Group();
+      part('pants', sp(leg, 0.09, SHARED.pants, 0, 0, 0));                   // the hip
       part('pants', cy(leg, 0.085, 0.07, 0.5, SHARED.pants, 0, -0.25, 0));
       part('pants', sp(leg, 0.072, SHARED.pants, 0, -0.5, 0));
       const shin = new THREE.Group();
@@ -325,8 +326,14 @@ export class Avatar {
     upper.position.y = 0.97;
     g.add(upper);
     this.upper = upper;
-    part('pants', bx(upper, 0.44, 0.3, 0.25, SHARED.pants, 0, 0.08, 0));
-    bx(upper, 0.48, 0.42, 0.28, this.body, 0, 0.4, 0);       // vest in team colour
+    // the torso is round in section: a pelvis the legs grow out of, a chest that
+    // widens to the shoulders, and the vest in the team colour over the chest
+    const pelvis = part('pants', cy(upper, 0.2, 0.19, 0.3, SHARED.pants, 0, 0.1, 0, 14));
+    pelvis.scale.z = 0.62;
+    const chest = part('shirt', cy(upper, 0.235, 0.195, 0.52, this.body, 0, 0.41, 0, 14));
+    chest.scale.z = 0.56;
+    const vest = cy(upper, 0.25, 0.225, 0.4, this.body, 0, 0.41, 0, 14);       // vest in team colour
+    vest.scale.z = 0.6;
     // a jacket over the vest, for the outfits that have one: worn open over a
     // T-shirt, with a stripe down each front edge
     this.jacket = new THREE.Group();
@@ -340,10 +347,12 @@ export class Avatar {
       this.web.push(bx(this.jacket, 0.012, 0.42, 0.012, lam('#1f6b3a'), sx * 0.107, 0.4, -0.153));
     }
     this.jacket.visible = false;
-    bx(upper, 0.1, 0.44, 0.3, SHARED.strap, 0.12, 0.4, 0.001);
-    part('shirt', bx(upper, 0.46, 0.1, 0.26, this.body, 0, 0.64, 0)); // collar and shoulders
-    for (const sx of [-1, 1]) part('shirt', sp(upper, 0.075, this.body, sx * 0.235, 0.6, 0));   // rounded shoulders
-    cy(upper, 0.055, 0.065, 0.12, SHARED.skin, 0, 0.72, 0.01);                                // the neck
+    bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, -0.153).rotation.z = 0.28;    // the sling, over one shoulder and across
+    bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, 0.153).rotation.z = -0.28;
+    // the shoulders: a ball at each top corner of the chest, which the arm grows out of
+    for (const sx of [-1, 1]) part('shirt', sp(upper, 0.085, this.body, sx * 0.215, 0.6, 0));
+    part('shirt', cy(upper, 0.12, 0.2, 0.08, this.body, 0, 0.66, 0, 14)).scale.z = 0.6;   // the trapezius, up to the neck
+    cy(upper, 0.055, 0.065, 0.14, SHARED.skin, 0, 0.72, 0.01);                                // the neck
     const head = new THREE.Group();
     head.position.y = 0.76;
     upper.add(head);
@@ -367,15 +376,42 @@ export class Avatar {
       this.heads[name] = h;
       return h;
     };
+    const dome = (parent, r, y, mat, open = 0, seg = 16) => {
+      // a cap over the crown; `open` leaves the face clear (the face is at -z)
+      const geo = open ? new THREE.SphereGeometry(r, seg, 10, Math.PI * 1.5 + open / 2, Math.PI * 2 - open, 0, Math.PI * 0.62)
+        : new THREE.SphereGeometry(r, seg, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+      const m = new THREE.Mesh(geo, mat);
+      m.position.y = y;
+      m.castShadow = false;
+      parent.add(m);
+      return m;
+    };
+    const ring = (parent, r, tube, y, mat) => {
+      const m = new THREE.Mesh(new THREE.TorusGeometry(r, tube, 8, 24), mat);
+      m.rotation.x = Math.PI / 2;
+      m.position.y = y;
+      m.castShadow = false;
+      parent.add(m);
+      return m;
+    };
+    // a shemagh wound round the head: a low dome, the wrap round it, a tail at the back
     const wrapG = hg('wrap');
-    part('wrap', bx(wrapG, 0.26, 0.12, 0.28, this.wrap, 0, 0.1, 0.01));
-    part('wrap', bx(wrapG, 0.26, 0.1, 0.12, this.wrap, 0, -0.08, 0.08));
+    part('wrap', dome(wrapG, 0.14, 0.0, this.wrap)).scale.set(1, 0.85, 1.04);
+    part('wrap', ring(wrapG, 0.133, 0.03, 0.005, this.wrap));
+    part('wrap', ring(wrapG, 0.125, 0.022, 0.05, this.wrap)).rotation.z = 0.08;
+    part('wrap', bx(wrapG, 0.13, 0.15, 0.03, this.wrap, 0, -0.06, 0.125));
+    // a helmet: a dome with a rim, sat a touch forward
     const helm = hg('helmet');
-    part('wrap', bx(helm, 0.3, 0.14, 0.31, this.wrap, 0, 0.13, 0.01));
-    part('wrap', bx(helm, 0.32, 0.03, 0.34, this.wrap, 0, 0.07, 0.01));
+    part('wrap', dome(helm, 0.158, -0.01, this.wrap)).scale.set(1, 0.98, 1.06);
+    part('wrap', cy(helm, 0.165, 0.17, 0.03, this.wrap, 0, -0.01, 0.01, 18)).scale.z = 1.06;
+    bx(helm, 0.02, 0.12, 0.02, SHARED.strap, -0.13, -0.08, -0.03).rotation.z = 0.15;   // chin strap
+    bx(helm, 0.02, 0.12, 0.02, SHARED.strap, 0.13, -0.08, -0.03).rotation.z = -0.15;
+    // a beret: a soft flat crown pulled over to one side, on a band
     const beret = hg('beret');
-    const b = part('wrap', bx(beret, 0.27, 0.06, 0.27, this.wrap, 0.02, 0.15, 0.01));
-    b.rotation.z = -0.18;
+    const bcrown = part('wrap', sp(beret, 0.14, this.wrap, 0.03, 0.1, 0.0, 16));
+    bcrown.scale.set(1.12, 0.42, 1.12);
+    bcrown.rotation.z = -0.22;
+    part('wrap', ring(beret, 0.126, 0.016, 0.05, this.wrap)).rotation.z = -0.06;
     // a party hat: a striped cone on the crown, a bobble on top, and a little lean
     const party = hg('party');
     const hatTex = new THREE.CanvasTexture(rainbowCanvas());
@@ -391,10 +427,11 @@ export class Avatar {
     band.position.set(0.01, 0.115, 0.0);
     band.rotation.z = -0.12;
     party.add(band);
+    // a hood: a shell round the whole head, open at the face, down to a cowl on the shoulders
     const hood = hg('hood');
-    part('wrap', bx(hood, 0.29, 0.3, 0.2, this.wrap, 0, 0.02, 0.06));
-    part('wrap', bx(hood, 0.29, 0.07, 0.3, this.wrap, 0, 0.15, 0.0));
-    part('wrap', bx(hood, 0.3, 0.1, 0.12, this.wrap, 0, -0.1, 0.07));
+    const shell = part('wrap', dome(hood, 0.165, 0.0, this.wrap, 1.9));
+    shell.scale.set(1, 1.08, 1.02);
+    part('wrap', cy(hood, 0.14, 0.2, 0.12, this.wrap, 0, -0.12, 0.02, 16)).scale.z = 0.95;
     // Morty's head: big and round, brown hair over the top and the back, the two
     // wide eyes with their little pupils, a small nose, ears, and the wobbly mouth
     const morty = hg('morty');
@@ -596,7 +633,11 @@ export class Avatar {
     const ic = icons();
     const pouch = (bag, icon) => {
       const g = new THREE.Group();
-      bx(g, 0.5, 0.06, 0.28, SHARED.strap, 0, 0.17, 0);                    // belt round the waist
+      const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.06, 14), SHARED.strap);   // belt round the waist
+      belt.position.y = 0.17;
+      belt.scale.z = 0.64;
+      belt.castShadow = false;
+      g.add(belt);
       bx(g, 0.32, 0.15, 0.12, lam(bag), 0, 0.15, -0.19);                  // the pouch
       bx(g, 0.3, 0.03, 0.125, SHARED.strap, 0, 0.235, -0.19);             // flap seam
       const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.1), icon);

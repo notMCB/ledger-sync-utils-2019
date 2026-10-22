@@ -11,7 +11,7 @@ export const PATCH_NOTES = [
     title: 'Real guns in hand',
     notes: [
       'Every player you see now carries the actual gun they are holding: the same model you see in your own hands, with their finish on it, from the SMG to the Kabir .50, the knife and the launcher. No more grey blocks.',
-      'New bodies to hold them: a proper head with a face, rounded shoulders, arms with elbows that reach for the grip and the foregrip of whatever gun it is, legs with knees, boots with toes.',
+      'New bodies to hold them: a proper head with a face, a chest and hips that are round rather than boxes, shoulders the arms grow out of, elbows, knees, boots with toes. Helmets, hoods, berets and the shemagh are reshaped to sit on the new head.',
       'They move like it too: the gun comes up to the shoulder when they aim, swings low when they run, the off hand works the magazine on a reload, knees come up in a jump, and a body goes slack when it falls.',
     ],
   },
