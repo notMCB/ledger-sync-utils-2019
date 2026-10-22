@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { nameTag, softDot, wood } from './textures.js';
 import { outfitMaterials, gunMaterials, chromeMaterial, OUTFIT, FINISH, rainbowCanvas } from './skins.js';
 import { makeChute } from './royale.js';
+import { buildPreviewGun } from './viewmodel.js';
 
 export const TEAM_COLORS = ['#d98b2b', '#3f8fd0'];
 export const TEAM_NAMES = ['Sand', 'Sky'];
@@ -26,6 +27,9 @@ const SHARED = {
   gun: lam('#26272a'),
   gunTan: lam('#8e7550'),
   strap: lam('#3d3a30'),
+  glove: lam('#6b5a44'),
+  lip: lam('#8a5a46'),
+  eye: lam('#1a1512'),
 };
 
 function bx(parent, w, h, d, mat, x, y, z) {
@@ -120,11 +124,115 @@ function ghillieGeometry() {
   return ghillieGeo;
 }
 
-const GUN_SIZES = {
-  smg: [0.06, 0.1, 0.5], lmg: [0.09, 0.13, 0.85], shotgun: [0.06, 0.08, 0.85], sniper: [0.06, 0.09, 1.05], pistol: [0.04, 0.08, 0.2],
-  knife: [0.03, 0.04, 0.28], heavy: [0.08, 0.11, 1.35], revolver: [0.04, 0.09, 0.33], flamer: [0.07, 0.1, 0.8],
-  pdw: [0.06, 0.11, 0.45], carbine: [0.06, 0.1, 0.78],
-};
+// -- the guns in their hands -----------------------------------------------------------
+// Every avatar carries the real gun: the same model the first-person view uses,
+// with the player's finish on it, baked down to one mesh per material so a
+// crowd of them costs next to nothing. Baked once per gun and finish and shared.
+const GUN_CACHE = new Map();
+const LAMBERT_TWIN = new Map();
+const Y_UP = new THREE.Vector3(0, 1, 0);
+
+// the first-person guns are lit for their own little scene; out in the town
+// the same colours go on a plain material that takes the sun like everything else
+function worldMaterial(m) {
+  if (!m || Array.isArray(m) || !m.isMeshStandardMaterial) return m;
+  let t = LAMBERT_TWIN.get(m);
+  if (!t) {
+    t = new THREE.MeshLambertMaterial({ color: m.color, map: m.map || null, emissive: m.emissive, emissiveIntensity: m.emissiveIntensity,
+      transparent: m.transparent, opacity: m.opacity, side: m.side });
+    LAMBERT_TWIN.set(m, t);
+  }
+  return t;
+}
+
+function mergeGeometries(geos) {
+  let n = 0, hasUv = true;
+  for (const g of geos) { n += g.attributes.position.count; if (!g.attributes.uv) hasUv = false; }
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = hasUv ? new Float32Array(n * 2) : null;
+  let o = 0;
+  for (const g of geos) {
+    const c = g.attributes.position.count;
+    pos.set(g.attributes.position.array, o * 3);
+    nor.set(g.attributes.normal.array, o * 3);
+    if (uv) uv.set(g.attributes.uv.array, o * 2);
+    o += c;
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  if (uv) out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return out;
+}
+
+function bakedGun(gunId, finish, quiet, muzzleStyle) {
+  const key = `${gunId}|${finish || ''}|${quiet ? 1 : 0}|${muzzleStyle || ''}`;
+  let hit = GUN_CACHE.get(key);
+  if (hit) return hit;
+  const fitted = quiet ? { muzzle: 'suppressor', muzzleStyle } : null;
+  const built = buildPreviewGun(gunId, finish, fitted);
+  const root = built.group;
+  root.position.set(0, 0, 0);
+  root.rotation.set(0, 0, 0);
+  root.updateMatrixWorld(true);
+  const byMat = new Map();
+  root.traverseVisible((o) => {
+    if (!o.isMesh || Array.isArray(o.material)) return;
+    const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    geo.applyMatrix4(o.matrixWorld);
+    if (!geo.attributes.normal) geo.computeVertexNormals();
+    let list = byMat.get(o.material);
+    if (!list) byMat.set(o.material, (list = []));
+    list.push(geo);
+  });
+  const g = new THREE.Group();
+  for (const [mat, geos] of byMat) {
+    const mesh = new THREE.Mesh(mergeGeometries(geos), worldMaterial(mat));
+    mesh.castShadow = false;
+    mesh.userData.shared = true;
+    g.add(mesh);
+    for (const x of geos) x.dispose();
+  }
+  root.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  const h = built.hands;
+  hit = {
+    template: g,
+    muzzle: built.muzzle.clone(),
+    grip: h ? h.right.position.clone() : new THREE.Vector3(0, -0.08, 0.05),
+    fore: h && built.kind !== 'knife' ? h.leftHome.clone() : null,
+    kind: built.kind || 'mag',
+  };
+  GUN_CACHE.set(key, hit);
+  return hit;
+}
+
+// two-bone arm: where the elbow goes for a shoulder S reaching for T, with the
+// elbow pushed toward `pole`. Writes the elbow to E and the (reachable) hand to H.
+const ARM_UPPER = 0.3, ARM_FORE = 0.3;
+const IK_D = new THREE.Vector3(), IK_P = new THREE.Vector3();
+function solveArm(S, T, pole, E, H) {
+  IK_D.subVectors(T, S);
+  let d = IK_D.length();
+  if (d < 1e-4) { IK_D.set(0, -1, 0); d = 1e-4; } else IK_D.divideScalar(d);
+  d = Math.min(ARM_UPPER + ARM_FORE - 0.004, Math.max(Math.abs(ARM_UPPER - ARM_FORE) + 0.01, d));
+  H.copy(S).addScaledVector(IK_D, d);
+  const cosA = (ARM_UPPER * ARM_UPPER + d * d - ARM_FORE * ARM_FORE) / (2 * ARM_UPPER * d);
+  const a = Math.acos(Math.max(-1, Math.min(1, cosA)));
+  IK_P.subVectors(pole, S);
+  IK_P.addScaledVector(IK_D, -IK_P.dot(IK_D));
+  if (IK_P.lengthSq() < 1e-6) IK_P.set(0, -1, 0).addScaledVector(IK_D, IK_D.y);
+  IK_P.normalize();
+  E.copy(S).addScaledVector(IK_D, ARM_UPPER * Math.cos(a)).addScaledVector(IK_P, ARM_UPPER * Math.sin(a));
+}
+
+// lay a limb segment (a unit-length cylinder along y) from a to b
+const SEG_D = new THREE.Vector3();
+function poseSegment(mesh, a, b, thin = 1) {
+  SEG_D.subVectors(b, a);
+  const len = Math.max(0.01, SEG_D.length());
+  mesh.position.copy(a).addScaledVector(SEG_D, 0.5);
+  mesh.scale.set(thin, len, thin);
+  mesh.quaternion.setFromUnitVectors(Y_UP, SEG_D.divideScalar(len));
+}
 
 // the flash of sun off a scope lens, shared by every avatar
 let GLINT = null;
@@ -133,6 +241,10 @@ const SHIELD_GEO = new THREE.CapsuleGeometry(0.45, 0.95, 4, 14);
 const SHIELD_MAT = new THREE.MeshBasicMaterial({ color: 0x7fc8ff, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
 
 const PRONE_LEN = 1.45;
+const GRIP_AT = new THREE.Vector3(), TMP_V = new THREE.Vector3();
+const SPRINT_GRIP = new THREE.Vector3(0.14, -0.4, -0.12);
+const RELOAD_OFF = new THREE.Vector3(-0.04, -0.17, -0.05);
+const DEFAULT_GRIP = new THREE.Vector3(0, -0.08, 0.05);
 const Y_AXIS = new THREE.Vector3(0, 1, 0), X_AXIS = new THREE.Vector3(1, 0, 0);
 const QA = new THREE.Quaternion(), QB = new THREE.Quaternion();
 const wrapAngle = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -177,14 +289,30 @@ export class Avatar {
       this.parts[role].push(m);
       return m;
     };
-    // legs pivot at the hips
+    const cy = (parent, r0, r1, h, mat, x, y, z, seg = 10) => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, h, seg), mat);
+      m.position.set(x, y, z);
+      m.castShadow = false;
+      parent.add(m);
+      return m;
+    };
+    const sp = (parent, r, mat, x, y, z, seg = 10) => {
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, seg, Math.max(6, seg - 2)), mat);
+      m.position.set(x, y, z);
+      m.castShadow = false;
+      parent.add(m);
+      return m;
+    };
+    // legs pivot at the hips: a thigh that tapers to the knee, a knee, a shin, a boot
     this.legs = [];
     for (const sx of [-0.11, 0.11]) {
       const leg = new THREE.Group();
-      part('pants', bx(leg, 0.17, 0.5, 0.19, SHARED.pants, 0, -0.25, 0));
+      part('pants', cy(leg, 0.085, 0.07, 0.5, SHARED.pants, 0, -0.25, 0));
+      part('pants', sp(leg, 0.072, SHARED.pants, 0, -0.5, 0));
       const shin = new THREE.Group();
-      part('pants', bx(shin, 0.16, 0.42, 0.18, SHARED.pants, 0, -0.21, 0));
-      part('boots', bx(shin, 0.18, 0.1, 0.27, SHARED.boots, 0, -0.42, -0.04));
+      part('pants', cy(shin, 0.068, 0.055, 0.4, SHARED.pants, 0, -0.2, 0));
+      part('boots', bx(shin, 0.15, 0.1, 0.26, SHARED.boots, 0, -0.42, -0.04));
+      part('boots', bx(shin, 0.14, 0.14, 0.14, SHARED.boots, 0, -0.38, 0.02));
       shin.position.y = -0.5;
       leg.add(shin);
       leg.userData.shin = shin;
@@ -213,13 +341,24 @@ export class Avatar {
     }
     this.jacket.visible = false;
     bx(upper, 0.1, 0.44, 0.3, SHARED.strap, 0.12, 0.4, 0.001);
-    part('shirt', bx(upper, 0.5, 0.1, 0.26, this.body, 0, 0.64, 0)); // collar and shoulders
+    part('shirt', bx(upper, 0.46, 0.1, 0.26, this.body, 0, 0.64, 0)); // collar and shoulders
+    for (const sx of [-1, 1]) part('shirt', sp(upper, 0.075, this.body, sx * 0.235, 0.6, 0));   // rounded shoulders
+    cy(upper, 0.055, 0.065, 0.12, SHARED.skin, 0, 0.72, 0.01);                                // the neck
     const head = new THREE.Group();
     head.position.y = 0.76;
     upper.add(head);
     this.head = head;
-    bx(head, 0.23, 0.25, 0.25, SHARED.skin, 0, 0, 0);
-    bx(head, 0.2, 0.04, 0.02, SHARED.boots, 0, 0.03, -0.13); // eyes shadow
+    // the head: an egg rather than a box, with a brow, a nose, ears and a mouth
+    const skull = sp(head, 0.13, SHARED.skin, 0, 0.0, 0, 16);
+    skull.scale.set(0.92, 1.05, 0.98);
+    bx(head, 0.2, 0.03, 0.03, SHARED.skin, 0, 0.055, -0.108);                                  // the brow
+    for (const sx of [-0.045, 0.045]) {
+      bx(head, 0.035, 0.02, 0.012, lam('#f0ebe2'), sx, 0.03, -0.117);                          // eyes
+      bx(head, 0.016, 0.018, 0.012, SHARED.eye, sx + (sx < 0 ? 0.004 : -0.004), 0.03, -0.122);
+    }
+    bx(head, 0.03, 0.045, 0.035, SHARED.skin, 0, -0.005, -0.125).rotation.x = 0.2;             // the nose
+    bx(head, 0.06, 0.012, 0.01, SHARED.lip, 0, -0.06, -0.117);                                  // the mouth
+    for (const sx of [-0.118, 0.118]) bx(head, 0.02, 0.05, 0.035, SHARED.skin, sx, 0.0, 0.0); // ears
     // headgear: one of these shows, depending on the outfit
     this.heads = {};
     const hg = (name) => {
@@ -289,17 +428,32 @@ export class Avatar {
     morty.add(chain);
     this.visor = bx(head, 0.21, 0.035, 0.015, new THREE.MeshBasicMaterial({ color: '#27e6ff' }), 0, 0.03, -0.132);
     this.visor.visible = false;
-    // arms and gun
+    // arms and gun: the arms pivot at the shoulders and reach for the gun's grip
+    // and foregrip every frame, so they fit whichever gun is in hand
     const arms = new THREE.Group();
     arms.position.set(0, 0.52, 0);
     upper.add(arms);
     this.arms = arms;
-    this.armMeshes = [
-      part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, 0.2, -0.02, -0.14)),
-      part('shirt', bx(arms, 0.12, 0.12, 0.4, this.body, -0.16, -0.04, -0.22)),
-    ];
-    bx(arms, 0.1, 0.1, 0.1, SHARED.boots, 0.14, -0.04, -0.34);
-    bx(arms, 0.1, 0.1, 0.1, SHARED.boots, -0.04, -0.03, -0.5);
+    this.armThin = 1;
+    this.armsOf = [];
+    for (const sx of [1, -1]) {
+      const A = {
+        shoulder: new THREE.Vector3(sx * 0.235, 0.08, 0),
+        pole: new THREE.Vector3(sx * 0.4, -0.7, -0.05),
+        upper: part('shirt', cy(arms, 0.052, 0.058, 1, this.body, 0, 0, 0, 8)),
+        fore: part('shirt', cy(arms, 0.044, 0.05, 1, this.body, 0, 0, 0, 8)),
+        elbow: part('shirt', sp(arms, 0.052, this.body, 0, 0, 0, 8)),
+        hand: bx(arms, 0.07, 0.05, 0.09, SHARED.glove, 0, 0, 0),
+        E: new THREE.Vector3(), H: new THREE.Vector3(), T: new THREE.Vector3(),
+      };
+      this.armsOf.push(A);
+    }
+    this.adsK = 0;
+    this.sprintK = 0;
+    this.reloadT = 0;
+    this.jumpK = 0;
+    this.lastY = 0;
+    this.vy = 0;
     // the log body: a tall square trunk with a face on the front, over the
     // usual torso and head, for the outfit shaped that way
     const woodM = new THREE.MeshLambertMaterial({ map: wood(), color: '#8a5a36' });
@@ -394,12 +548,9 @@ export class Avatar {
     this.gun = new THREE.Group();
     this.gun.position.set(0.08, 0.02, -0.3);
     arms.add(this.gun);
-    this.gunMesh = bx(this.gun, 0.06, 0.1, 0.6, SHARED.gun, 0, 0, -0.2);
+    this.gunModel = null;
+    this.gunInfo = null;
     this.muzzleLocal = new THREE.Vector3(0, 0.02, -0.5);
-    this.can = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.22, 10), SHARED.gun);
-    this.can.rotation.x = Math.PI / 2;
-    this.can.visible = false;
-    this.gun.add(this.can);
     this.buildGear(upper, head);
 
     this.tagMat = new THREE.SpriteMaterial({ transparent: true, depthTest: true, depthWrite: false });
@@ -438,6 +589,7 @@ export class Avatar {
     scene.add(g);
     this.tagKey = '';
     this.setOutfit('standard');
+    this.poseArms();
   }
 
   buildGear(upper, head) {
@@ -511,7 +663,7 @@ export class Avatar {
     // the brainrot bodies have thin arms and legs
     const thin = shape ? 0.6 : 1;
     for (const leg of this.legs) leg.scale.set(thin, 1, thin);
-    for (const a of this.armMeshes) a.scale.set(thin, thin, 1);
+    this.armThin = thin;
   }
 
   setCosmetics(cs) {
@@ -542,21 +694,16 @@ export class Avatar {
   setGun(w) {
     if (this.gunId === w) return;
     this.gunId = w;
-    // a knife finish with a shape is a bat or a cane: longer, and its own material
-    const kf = w === 'knife' && this.gunSkins.knife && FINISH[this.gunSkins.knife];
-    const shape = kf && kf.shape;
-    const s = shape === 'bat' ? [0.06, 0.06, 0.8] : shape === 'cane' ? [0.03, 0.03, 0.85] : GUN_SIZES[w] || GUN_SIZES.smg;
-    this.gunMesh.scale.set(s[0] / 0.06, s[1] / 0.1, s[2] / 0.6);
-    this.gunMesh.position.z = -s[2] / 2 + 0.1;
-    const skin = this.gunSkins[w] && gunMaterials(this.gunSkins[w], true);
-    this.gunMesh.material = skin ? skin.body : w === 'sniper' || w === 'lmg' ? SHARED.gunTan : w === 'revolver' ? SHARED.silver : SHARED.gun;
-    this.muzzleLocal.set(0, 0.02, -s[2] + 0.1);
     const quiet = w === 'sniper' || (w === 'pistol' && (this.loadout === 2 || this.loadout === 3));
-    this.can.visible = quiet;
-    this.can.material = this.muzzleStyle === 'sahur' ? (SHARED.logcan || (SHARED.logcan = new THREE.MeshLambertMaterial({ map: wood(), color: '#8a5a36' }))) : SHARED.gun;
-    if (quiet) {
-      this.can.position.set(0, 0, -s[2] + 0.02);
-      this.muzzleLocal.z -= 0.22;
+    const info = bakedGun(w, this.gunSkins[w] || '', quiet, this.muzzleStyle || '');
+    if (this.gunModel) this.gun.remove(this.gunModel);
+    this.gunModel = info.template.clone();
+    this.gun.add(this.gunModel);
+    this.gunInfo = info;
+    this.muzzleLocal.copy(info.muzzle);
+    this.poseArms();
+    if (this._xray) {
+      this.gunModel.traverse((o) => { if (o.isMesh) o.renderOrder = 999; });
     }
   }
 
@@ -599,6 +746,7 @@ export class Avatar {
     if (alive && !this.alive) {
       this.deathT = 0;
       this.group.rotation.set(0, 0, 0);
+      this.head.rotation.set(0, 0, 0);
     }
     if (!alive && this.alive) this.deathT = 0.0001;
     this.alive = alive;
@@ -613,6 +761,8 @@ export class Avatar {
     // speed for walk cycle and footsteps
     const moved = Math.hypot(this.pos.x - this.lastPos.x, this.pos.z - this.lastPos.z);
     this.speed += ((dt > 0 ? moved / dt : 0) - this.speed) * Math.min(1, dt * 8);
+    const vy = dt > 0 ? (this.pos.y - this.lastPos.y) / dt : 0;
+    this.vy += (Math.max(-12, Math.min(12, vy)) - this.vy) * Math.min(1, dt * 10);
     this.lastPos.copy(this.pos);
     if (this.deathT > 0) {
       this.deathT += dt;
@@ -622,6 +772,15 @@ export class Avatar {
       g.position.y = this.pos.y + 0.1 * k;
       g.visible = this.deathT < 5;
       this.tag.visible = false;
+      // slack: knees give, the arms drop, the head lolls
+      this.legs[0].rotation.x = 0.5 * k;
+      this.legs[1].rotation.x = -0.25 * k;
+      this.legs[0].userData.shin.rotation.x = 0.8 * k;
+      this.legs[1].userData.shin.rotation.x = 0.3 * k;
+      this.arms.rotation.x = -0.7 * k;
+      this.head.rotation.x = 0.45 * k;
+      this.head.rotation.z = 0.3 * k;
+      this.poseArms();
       return;
     }
     // flying a drone: the body stands where it was, head down over the controller
@@ -691,10 +850,61 @@ export class Avatar {
     this.arms.rotation.x = this.piloting ? -0.9 : this.pitch * (1 - pk) - 1.35 * pk;
     this.head.rotation.x = this.piloting ? 0.7 : this.pitch * 0.6 * (1 - pk) - 0.8 * pk;
     this.head.rotation.y = pk ? wrapAngle(this.yaw - this.bodyYaw) * (1 - bk) * 0.6 : 0;
-    this.upper.rotation.x = c * 0.15;
+    this.head.rotation.z = 0;
+    // what they are doing with the gun: aiming, running, reloading
+    const ads = !!(this.flags & 8) && !this.driving, sprint = !!(this.flags & 32) && sp > 2 && !this.driving;
+    this.adsK += ((ads ? 1 : 0) - this.adsK) * Math.min(1, dt * 9);
+    this.sprintK += ((sprint ? 1 : 0) - this.sprintK) * Math.min(1, dt * 7);
+    this.reloadT = this.flags & 16 ? this.reloadT + dt : 0;
+    // in the air: knees up
+    const air = !this.driving && pk < 0.1 && Math.abs(this.vy) > 1.0;
+    this.jumpK += ((air ? 1 : 0) - this.jumpK) * Math.min(1, dt * 10);
+    const jk = this.jumpK;
+    this.legs[0].rotation.x += -0.5 * jk;
+    this.legs[1].rotation.x += -0.2 * jk;
+    this.legs[0].userData.shin.rotation.x += 0.8 * jk;
+    this.legs[1].userData.shin.rotation.x += 0.45 * jk;
+    // the torso: a lean into a run, a twist and a bob with the stride
+    const stride = Math.min(1, sp / 4) * (1 - pk);
+    this.upper.rotation.x = c * 0.15 + 0.22 * this.sprintK * (1 - pk);
+    this.upper.rotation.y = Math.sin(this.walkT) * 0.07 * stride;
+    this.upper.position.y += Math.abs(Math.sin(this.walkT)) * 0.025 * stride;
+    this.poseArms();
     this.showName = Math.max(0, this.showName - dt);
     this.revealT = Math.max(0, this.revealT - dt);
     this.pingT = Math.max(0, (this.pingT || 0) - dt);
+  }
+
+  // the arms reach for the gun: the right hand on the grip, the left on the
+  // foregrip (or working the magazine), the gun held at the hip, up at the
+  // shoulder to aim, or swung low and across when running
+  poseArms() {
+    const info = this.gunInfo;
+    const G = this.gun;
+    const ads = this.adsK, spr = this.sprintK;
+    const grip = info ? info.grip : DEFAULT_GRIP;
+    GRIP_AT.set(0.09 + (0.03 - 0.09) * ads, -0.3 + (0.06 + 0.3) * ads, -0.26 + (-0.3 + 0.26) * ads);
+    GRIP_AT.lerp(SPRINT_GRIP, spr);
+    G.rotation.set(-0.35 * spr, 0.5 * spr, 0);
+    TMP_V.copy(grip).applyQuaternion(G.quaternion);
+    G.position.copy(GRIP_AT).sub(TMP_V);
+    const R = this.armsOf[0], L = this.armsOf[1];
+    R.T.copy(GRIP_AT);
+    if (info && info.fore) L.T.copy(info.fore).applyQuaternion(G.quaternion).add(G.position);
+    else L.T.set(-0.2, -0.32, -0.2);
+    if (this.reloadT > 0 && info && info.kind !== 'knife') {
+      const k = 0.5 - 0.5 * Math.cos(this.reloadT * 7);
+      L.T.lerp(TMP_V.copy(GRIP_AT).add(RELOAD_OFF), k);
+    }
+    for (const A of this.armsOf) {
+      solveArm(A.shoulder, A.T, A.pole, A.E, A.H);
+      poseSegment(A.upper, A.shoulder, A.E, this.armThin);
+      poseSegment(A.fore, A.E, A.H, this.armThin);
+      A.elbow.position.copy(A.E);
+      A.elbow.scale.setScalar(this.armThin);
+      A.hand.position.copy(A.H);
+      A.hand.quaternion.copy(G.quaternion);
+    }
   }
 
   // A scoped player's lens catches the light. It is brightest when they are
@@ -771,7 +981,7 @@ export class Avatar {
     if (this.glint.material.map) this.glint.material.dispose();
     this.scene.remove(this.group);
     this.group.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
+      if (o.geometry && !o.userData.shared) o.geometry.dispose();
     });
     if (this.tagMat.map) this.tagMat.map.dispose();
   }
@@ -836,7 +1046,7 @@ export class Avatars {
       if (a._xray === on) continue;
       a._xray = on;
       a.group.traverse((o) => {
-        if (!o.isMesh) return;
+        if (!o.isMesh || o.userData.shared) return;
         o.renderOrder = on ? 999 : 0;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const mt of mats) { mt.depthTest = !on; mt.needsUpdate = true; }
