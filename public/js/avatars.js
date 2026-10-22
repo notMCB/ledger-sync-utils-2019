@@ -28,6 +28,7 @@ const SHARED = {
   gunTan: lam('#8e7550'),
   strap: lam('#3d3a30'),
   glove: lam('#6b5a44'),
+  shirt: lam('#a89877'),
   lip: lam('#8a5a46'),
   eye: lam('#1a1512'),
 };
@@ -330,10 +331,8 @@ export class Avatar {
     // widens to the shoulders, and the vest in the team colour over the chest
     const pelvis = part('pants', cy(upper, 0.2, 0.19, 0.3, SHARED.pants, 0, 0.1, 0, 14));
     pelvis.scale.z = 0.62;
-    const chest = part('shirt', cy(upper, 0.235, 0.195, 0.52, this.body, 0, 0.41, 0, 14));
-    chest.scale.z = 0.56;
-    const vest = cy(upper, 0.25, 0.225, 0.4, this.body, 0, 0.41, 0, 14);       // vest in team colour
-    vest.scale.z = 0.6;
+    const chest = part('shirt', cy(upper, 0.245, 0.2, 0.52, this.body, 0, 0.41, 0, 14));
+    chest.scale.z = 0.58;
     // a jacket over the vest, for the outfits that have one: worn open over a
     // T-shirt, with a stripe down each front edge
     this.jacket = new THREE.Group();
@@ -351,10 +350,10 @@ export class Avatar {
     bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, 0.153).rotation.z = -0.28;
     // the shoulders: a ball at each top corner of the chest, which the arm grows out of
     for (const sx of [-1, 1]) part('shirt', sp(upper, 0.085, this.body, sx * 0.215, 0.6, 0));
-    part('shirt', cy(upper, 0.12, 0.2, 0.08, this.body, 0, 0.66, 0, 14)).scale.z = 0.6;   // the trapezius, up to the neck
-    cy(upper, 0.055, 0.065, 0.14, SHARED.skin, 0, 0.72, 0.01);                                // the neck
+    part('shirt', cy(upper, 0.095, 0.19, 0.06, this.body, 0, 0.63, 0, 14)).scale.z = 0.6;  // the slope of the shoulders up to the collar
+    cy(upper, 0.052, 0.06, 0.16, SHARED.skin, 0, 0.7, 0.01);                                   // the neck
     const head = new THREE.Group();
-    head.position.y = 0.76;
+    head.position.y = 0.82;
     upper.add(head);
     this.head = head;
     // the head: an egg rather than a box, with a brow, a nose, ears and a mouth
@@ -480,6 +479,7 @@ export class Avatar {
         upper: part('shirt', cy(arms, 0.052, 0.058, 1, this.body, 0, 0, 0, 8)),
         fore: part('shirt', cy(arms, 0.044, 0.05, 1, this.body, 0, 0, 0, 8)),
         elbow: part('shirt', sp(arms, 0.052, this.body, 0, 0, 0, 8)),
+        band: cy(arms, 0.064, 0.066, 0.055, this.body, 0, 0, 0, 10),        // armband in the team colour
         hand: bx(arms, 0.07, 0.05, 0.09, SHARED.glove, 0, 0, 0),
         E: new THREE.Vector3(), H: new THREE.Vector3(), T: new THREE.Vector3(),
       };
@@ -683,7 +683,7 @@ export class Avatar {
     const m = outfitMaterials(this.outfit);
     for (const x of this.parts.pants) x.material = m.pants;
     for (const x of this.parts.boots) x.material = m.boots;
-    for (const x of this.parts.shirt) x.material = m.shirt || this.body;
+    for (const x of this.parts.shirt) x.material = m.shirt || SHARED.shirt;
     for (const x of this.parts.wrap) x.material = m.wrap || this.wrap;
     for (const k in this.heads) this.heads[k].visible = k === (m.head || 'wrap') && this.gearLd !== 3;
     this.visor.visible = !!m.glow;
@@ -692,7 +692,7 @@ export class Avatar {
     this.jacket.visible = !!(o && o.jacket);
     // a printed T-shirt is the jacket's box with the words on its chest and back, and none of the Gucci trim
     const printed = !!(o && o.tee && m.tee);
-    this.jacketBox.material = printed ? m.tee : (m.shirt || this.body);
+    this.jacketBox.material = printed ? m.tee : (m.shirt || SHARED.shirt);
     this.tee.visible = !printed;
     for (const w of this.web) w.visible = !printed;
     const shape = (o && o.shape) || '';
@@ -941,6 +941,9 @@ export class Avatar {
       solveArm(A.shoulder, A.T, A.pole, A.E, A.H);
       poseSegment(A.upper, A.shoulder, A.E, this.armThin);
       poseSegment(A.fore, A.E, A.H, this.armThin);
+      A.band.position.lerpVectors(A.shoulder, A.E, 0.42);
+      A.band.quaternion.copy(A.upper.quaternion);
+      A.band.scale.set(this.armThin, 1, this.armThin);
       A.elbow.position.copy(A.E);
       A.elbow.scale.setScalar(this.armThin);
       A.hand.position.copy(A.H);
