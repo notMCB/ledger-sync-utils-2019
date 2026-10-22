@@ -281,7 +281,7 @@ export class Hud {
   feedKill(ev, myId) {
     const row = document.createElement('div');
     row.className = 'kf' + (ev.k === myId || ev.v === myId ? ' me' : '');
-    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', cart: 'crash', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife', gas: 'gas', strike: 'airstrike' };
+    const names = { nade: 'grenade', bomb: 'bomb', forklift: 'roadkill', cart: 'crash', fire: 'fire', molotov: 'molotov', tknife: 'throwing knife', gas: 'gas', strike: 'airstrike', carpet: 'carpet bomb' };
     const wname = names[ev.w] || (WEAPONS[ev.w] ? WEAPONS[ev.w].short : ev.w);
     const kc = ev.kc || '#fff', vc = ev.vc || '#fff';
     if (ev.k && ev.k !== ev.v) {
@@ -289,7 +289,7 @@ export class Hud {
       const reach = ev.d && WEAPONS[ev.w] && ev.w !== 'knife' ? `<span class="dist">${ev.d} m</span>` : '';
       row.innerHTML = `<span style="color:${kc}">${esc(ev.kn)}</span>${helpers}<span class="w">${esc(wname)}</span>${ev.hs ? '<span class="hs">HEAD</span>' : ''}${reach}<span style="color:${vc}">${esc(ev.vn)}</span>`;
     } else {
-      row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : ev.w === 'gas' ? 'the gas' : ev.w === 'strike' ? 'airstrike' : 'self')}</span>`;
+      row.innerHTML = `<span style="color:${vc}">${esc(ev.vn)}</span><span class="w">${esc(ev.w === 'bomb' ? 'bomb' : ev.w === 'gas' ? 'the gas' : ev.w === 'strike' ? 'airstrike' : ev.w === 'carpet' ? 'carpet bomb' : 'self')}</span>`;
     }
     this.feedAdd(row);
   }

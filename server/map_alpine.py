@@ -199,6 +199,43 @@ class Alpine(Town):
             self.rects.append((rx, fz + depth / 2, 4.6, depth / 2 + 1.0, 0.0))
             self.areas.append({'n': 'Ridge Ramp', 'x': rx, 'z': fz + 5, 'r': 5})
 
+    def cliff(self):
+        """The ridge's face as one wall instead of a column per cell: the line the
+        stepped riser makes along x is enveloped (never behind a step) and smoothed,
+        sent to the client every half metre to draw as a craggy face, and backed by
+        unseen collision a metre wide so what is drawn is what stops a player."""
+        top = self.ridge_top()
+        riser, foot = [], []
+        for ix in range(self.nx):
+            col = self.h[ix]
+            k = -1
+            for iz in range(self.nz):
+                if col[iz] > top - QUANT / 2:      # the shelf (8.8 quantised, 8.9 at the ramps)
+                    k = iz
+                else:
+                    break
+            riser.append(-self.bz + (k + 1) * CELL)
+            foot.append(col[k + 1] if k + 1 < self.nz else BASE)
+        cell = lambda x: max(0, min(self.nx - 1, int((x + self.bx) / CELL)))
+        step = 0.25
+        xs = [-self.bx + i * step for i in range(int(self.bx * 2 / step) + 1)]
+        env = [max(riser[cell(x + d * step)] for d in range(-5, 6)) for x in xs]       # +-1.25 m
+        smooth = []
+        for i in range(len(xs)):
+            w = [env[max(0, min(len(xs) - 1, i + d))] for d in range(-4, 5)]            # +-1 m
+            smooth.append(sum(w) / len(w))
+        pts = []
+        for i in range(0, len(xs), 2):
+            x = xs[i]
+            g = min(foot[cell(x + d * step)] for d in range(-5, 6))
+            dr = min(abs(x - rx) for rx, _ in self.ramp_pts) if self.ramp_pts else 99.0
+            crag = max(0.0, min(1.0, (dr - 5.0) / 3.0))
+            pts.append([round(x, 2), round(smooth[i], 2), round(g, 2), round(riser[cell(x)], 2), round(crag, 2)])
+        self.deco.append({'k': 'cliff', 'top': round(top, 2), 'pts': pts})
+        for i in range(2, len(xs) - 2, 4):
+            x, zs = xs[i], smooth[i]
+            self.box(x, top / 2, zs - 0.8, 0.5, top / 2, 0.8, 0.0, 'inv', 0)
+
     def parapet(self):
         """Boulders along the shelf edge with gaps to shoot through, and a few below."""
         rng = self.rng
@@ -208,7 +245,12 @@ class Alpine(Town):
         while x < self.bx - 4:
             L = rng.uniform(3, 6)
             if rng.random() < 0.7 and all(abs(x + L / 2 - rx) > 5 for rx, _ in self.ramp_pts):
-                self.rock(x + L / 2, 0.45, self.z_face - 0.9, L / 2, 0.45, 0.6, rng.uniform(-0.1, 0.1))
+                # a run of boulders shoulder to shoulder rather than one slab
+                n = max(2, int(round(L / 1.5)))
+                for i in range(n):
+                    s = rng.uniform(0.6, 0.9)
+                    bxp = x + (i + 0.5) * L / n + rng.uniform(-0.15, 0.15)
+                    self.rock(bxp, s * 0.55, self.z_face - 0.9 + rng.uniform(-0.25, 0.25), s * 0.95, s * 0.55, s * 0.7, rng.uniform(0, 3))
             x += L + rng.uniform(1.6, 3.2)
         for _ in range(40):
             x = rng.uniform(-self.bx + 6, self.bx - 6)
@@ -495,6 +537,7 @@ class Alpine(Town):
         # the ground itself, now every pad and cut is in
         self.base_y = 0.0
         self.emit_ground()
+        self.cliff()
         self.parapet()
 
         # the fuel dump: a tank and barrels behind barriers, site B

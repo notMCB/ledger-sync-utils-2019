@@ -21,7 +21,7 @@ import { Voice, TALK_FLAG } from './voice.js';
 import { Lighting } from './lighting.js';
 import { dailyText } from './daily.js';
 import { AD_MODES, AD_REACH, makeTowerBomb, poseTowerBomb, makeZone, colourZone } from './attack.js';
-import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, STRIKE_DELAY, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
+import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, STRIKE_DELAY, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow, CarpetShow, CARPET_WARN } from './streaks.js';
 
 const GRAVITY = 18;
 const JUMP_V = 6.6;
@@ -412,6 +412,7 @@ export class Game {
       case 'rtc': return this.voice.onMessage(m);
       case 'heli': return this.onHeli(m);
       case 'strike': return this.onStrike(m);
+      case 'carpet': return this.onCarpet(m);
       case 'chat':
         if (this.chat) this.chat.add(m, this.myId);
         return;
@@ -938,7 +939,7 @@ export class Game {
       ['/bots N', 'practice dummies (test server)'],
       ['/fly', `${this.fly ? 'ON' : 'off'} · move keys, ${keyName(settings.binds.jump)} up, ${keyName(settings.binds.crouch)} down`],
       ['/wall', `${this.wall ? 'ON' : 'off'} · everyone through walls`],
-      ['4 5 6', 'scan · airstrike · helicopter, always'],
+      ['4 5 6 7', 'scan · airstrike · helicopter · carpet bomb, always'],
       ['/panel', 'hide this'],
     ];
   }
@@ -1014,6 +1015,9 @@ export class Game {
       } else if (s.k === 'strike') {
         if (this.driving || this.drone || this.gunner || me_busy(this)) return;
         this.startStrikePick();
+      } else if (s.k === 'carpet') {
+        if (this.strikePick) return;
+        this.useStreak('carpet');
       }
       return;
     }
@@ -1256,6 +1260,19 @@ export class Game {
       this.cancelStrikePick();
       this.hud.center('Airstrike called in', 'Bombs on target in five seconds', 'gold', 2.5, 2);
     } else if (input.pressed('perk') || input.pressed('interact')) this.cancelStrikePick();
+  }
+
+  onCarpet(m) {
+    const key = 'c' + m.id;
+    const old = this.strikes.get(key);
+    if (old) old.show.end();
+    const t0 = this.clock + (m.in !== undefined ? m.in : CARPET_WARN);
+    const a = new THREE.Vector3(m.a[0], 0, m.a[1]), b = new THREE.Vector3(m.b[0], 0, m.b[1]);
+    const groundAt = (x, z) => { const h = this.world.physics.raycast(tmpA.set(x, 120, z), DOWN, 140); return h ? h.point.y : 0; };
+    const show = new CarpetShow(this.scene, this.fx, a, b, t0, m.v || 42, m.by === this.myId, groundAt);
+    this.strikes.set(key, { id: key, p: a, t0, show, by: m.by, tm: m.tm });
+    if (m.by === this.myId) this.hud.center('Carpet bomb called in', 'Four jets. The line is theirs to pick, not yours', 'gold', 3, 2);
+    else if (m.in > 0.5) this.hud.center('Carpet bomb inbound', `${m.byn || 'Someone'} called in four jets. Keep off the red`, 'gold', 3, 2);
   }
 
   onStrike(m) {

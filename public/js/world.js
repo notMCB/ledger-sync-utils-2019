@@ -114,6 +114,10 @@ class GeoBuilder {
     const nx = n(hx), ny = n(hy), nz = n(hz);
     const c = Math.cos(yaw), s = Math.sin(yaw);
     const seed = opts.seed || 0, puff = opts.puff || 0, flatTop = !!opts.flatTop;
+    // cross: the puff goes out from the block's long axis rather than along each
+    // face's normal, so a vertex shared by two faces (or by two blocks laid end to
+    // end, with the same seed) moves the same way and the surface stays sealed
+    const cross = !!opts.cross, longX = hx >= hz;
     const W = (lx, ly, lz) => [cx + c * lx + s * lz, cy + ly, cz - s * lx + c * lz];
     const vert = (lx, ly, lz, fn) => {
       const w = W(lx, ly, lz);
@@ -121,8 +125,15 @@ class GeoBuilder {
       let ox = (jit(qx, qy, qz, seed) - 0.5) * 2 * amp, oy = (jit(qx, qy, qz, seed + 1) - 0.5) * 2 * amp, oz = (jit(qx, qy, qz, seed + 2) - 0.5) * 2 * amp;
       if (flatTop && ly >= hy - 1e-6) oy *= 0.1;
       if (ly <= -hy + 1e-6) oy = Math.min(0, oy);
-      // the puff goes out along the face, in the world frame
-      const pn = [c * fn[0] + s * fn[2], fn[1], -s * fn[0] + c * fn[2]];
+      let pn;
+      if (cross) {
+        const dx = longX ? 0 : lx / hx, dy = ly / hy, dz = longX ? lz / hz : 0;
+        const L = Math.hypot(dx, dy, dz) || 1;
+        pn = [(c * dx + s * dz) / L, dy / L, (-s * dx + c * dz) / L];
+      } else {
+        // the puff goes out along the face, in the world frame
+        pn = [c * fn[0] + s * fn[2], fn[1], -s * fn[0] + c * fn[2]];
+      }
       const k = puff * (0.6 + 0.8 * jit(qz, qx, qy, seed + 3));
       return [w[0] + ox + pn[0] * k, w[1] + oy + pn[1] * k, w[2] + oz + pn[2] * k];
     };
@@ -593,7 +604,8 @@ export class World {
         B('marble').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf('#f4f2ec'), { ao: true }), 2.4);
       } else if (mat === 'hedge') {
         // a clipped hedge: bulging, uneven, with sprigs of leaf poking out of it
-        B('hedge').rock(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 1.2, { amp: 0.06, seg: 0.45, maxSeg: 40, puff: 0.07, seed: Math.round(cx * 7 + cz * 13), skipBottom: true });
+        // one seed for every hedge and a puff out from the long axis, so hedges laid end to end meet without a gap
+        B('hedge').rock(cx, cy, cz, hx, hy, hz, yaw, colorOf('#ffffff'), 1.2, { amp: 0.06, seg: 0.45, maxSeg: 40, puff: 0.07, seed: 11, cross: true, skipBottom: true });
         const c = Math.cos(yaw), sn = Math.sin(yaw);
         const long = Math.max(hx, hz), short = Math.min(hx, hz);
         for (let t = -long + 0.3; t <= long - 0.3; t += 0.55) {
@@ -705,7 +717,7 @@ export class World {
     const bladeGeo = new THREE.PlaneGeometry(0.55, 0.42);
     bladeGeo.translate(0, 0.21, 0);
     const sprigs = [], blades = [];
-    const stones = new GeoBuilder();
+    const stones = new GeoBuilder(), lips = new GeoBuilder();
     const snowy = map.theme === 'snow';
     const unitCyl = new THREE.CylinderGeometry(1, 1, 1, 22);
     const coneGeo = new THREE.ConeGeometry(1, 1, 9);
@@ -767,6 +779,8 @@ export class World {
           blades.push({ geo: bladeGeo, matrix: mtx(x, d.y || 0, z, 0, a, 0, sc, sc, sc), color: col });
           blades.push({ geo: bladeGeo, matrix: mtx(x, d.y || 0, z, 0, a + 1.57, 0, sc, sc, sc), color: col });
         }
+      } else if (d.k === 'cliff') {
+        this.addCliff(stones, lips, d);
       } else if (d.k === 'stone') {
         const sz = d.s || 0.5;
         stones.rock(d.x, (d.y || 0) + sz * 0.38, d.z, sz, sz * 0.42, sz * 0.72, d.yaw || 0, Object.assign(colorOf(snowy ? '#cfd3d8' : '#d9cdb4'), { ao: false }), 3.0,
@@ -1164,6 +1178,12 @@ export class World {
       mesh.receiveShadow = true;
       root.add(mesh);
     }
+    if (!lips.empty) {
+      // the snow on top of the cliff, running back under the shelf
+      const mesh = new THREE.Mesh(lips.geometry(), new THREE.MeshLambertMaterial({ map: tx.snow, vertexColors: true }));
+      mesh.receiveShadow = true;
+      root.add(mesh);
+    }
     for (const g of blobs) g.dispose();
     for (const g of ragged) g.dispose();
     sprigGeo.dispose(); bladeGeo.dispose();
@@ -1463,6 +1483,44 @@ export class World {
   }
 
   // a broadleaf garden tree: a trunk and a round canopy
+  // the ridge's face on Ridgeline as one rock wall: the server sends the smoothed
+  // line it stands on (x, z, foot, riser, crag) every half metre; columns of
+  // jittered vertices between the foot and the top make a craggy face lit flat,
+  // and a snowy lip runs back under the shelf so no gap shows from above
+  addCliff(B, L, d) {
+    const pts = d.pts || [];
+    if (pts.length < 2) return;
+    const top = d.top || 0, R = 7;
+    const rock = Object.assign(colorOf('#d9dce0'), { ao: true }), snow = colorOf('#ffffff');
+    const V = pts.map(([x, z, g, r, c], i) => {
+      const col = [];
+      const bottom = g - 0.7;
+      for (let j = 0; j <= R; j++) {
+        const t = j / R, y0 = bottom + (top - bottom) * t;
+        const mid = j > 0 && j < R;
+        const h1 = jit(Math.round(x * 10), j, 7, 21), h2 = jit(j, Math.round(x * 10), 3, 22), h3 = jit(Math.round(x * 10), 5, j, 23);
+        const crag = (j === R ? 0.22 : j === 0 ? 0.45 : 0.75) * (c === undefined ? 1 : c);
+        col.push([x + (mid ? (h1 - 0.5) * 0.4 : 0), y0 + (mid ? (h2 - 0.5) * 0.7 : 0), z + h3 * crag]);
+      }
+      col.back = r - 0.4;
+      return col;
+    });
+    for (let i = 0; i + 1 < V.length; i++) {
+      const a = V[i], b = V[i + 1];
+      for (let j = 0; j < R; j++) {
+        const uv = (v) => [v[0] / 3, v[1] / 3];
+        B.tri(a[j], b[j], b[j + 1], uv(a[j]), uv(b[j]), uv(b[j + 1]), rock);
+        B.tri(a[j], b[j + 1], a[j + 1], uv(a[j]), uv(b[j + 1]), uv(a[j + 1]), rock);
+      }
+      // the lip: from the top of the face back under the shelf
+      const t0 = a[R], t1 = b[R], y = top - 0.03;
+      const p0 = [t0[0], y, Math.min(a.back, b.back)], p1 = [t1[0], y, Math.min(a.back, b.back)];
+      const uv = (v) => [v[0] / 9, v[2] / 9];
+      L.tri(t0, t1, p1, uv(t0), uv(t1), uv(p1), snow);
+      L.tri(t0, p1, p0, uv(t0), uv(p1), uv(p0), snow);
+    }
+  }
+
   addTree(trunks, canopies, trunkSeg, blobs, d) {
     const greens = ['#3f7a35', '#4d8a3c', '#35662f'];
     const h = d.h || 4.5, r = d.r || 2.6, c = d.c || 0;

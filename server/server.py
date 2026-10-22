@@ -212,9 +212,10 @@ ARMOUR_FLAG = 1048576           # the Interceptor's bulletproof walls are up (a 
 
 # -- scorestreaks: kills in one life, in Free for All, Team Deathmatch and King of the Hill --
 # Two kills: a scan that marks every enemy on the map. Five: an airstrike on a spot you
-# pick from above. Eight: the door gun of a helicopter circling the town.
+# pick from above. Eight: the door gun of a helicopter circling the town. Ten: a carpet
+# bombing down a line across the map that nobody picks.
 STREAK_MODES = ('ffa', 'tdm', 'koth')
-STREAKS = ((2, 'scan'), (5, 'strike'), (8, 'heli'))
+STREAKS = ((2, 'scan'), (5, 'strike'), (8, 'heli'), (10, 'carpet'))
 HELI_FLAG = 2097152         # in the helicopter's door (the server sets it, like the plane's flag)
 SCAN_LIFE = 30.0            # the scan: every enemy marked, this long
 SCAN_EVERY = 2.5
@@ -228,6 +229,12 @@ STRIKE_DELAY = 5.0          # seconds from the call to the bombs landing
 STRIKE_R = 7.5              # the circle the bombs cover: fifteen metres across
 STRIKE_KILL_R = 5.0         # the middle ten metres: anyone in the open dies
 STRIKE_DMG = 50             # the rest of the circle, and anyone under a roof inside it
+CARPET_WARN = 4.0           # seconds from the call to the first bomb landing at the map's edge
+CARPET_SPEED = 42.0         # metres a second the bombs walk down the line (the jets fly at that too)
+CARPET_W = 9.0              # half the width of the swath: eighteen metres, roof or no roof
+CARPET_BACK = 5.0           # the blast lingers this far behind the front, and reaches this far ahead
+CARPET_AHEAD = 2.0
+CARPET_MARGIN = 12.0        # the line starts and ends this far outside the walls
 # SOUK_STREAK=0.2 makes the scan, the helicopter and the strike's wait five times quicker, for the tests
 _streak_scale = float(os.environ.get('SOUK_STREAK') or 1.0)
 STREAK_FREE = os.environ.get('SOUK_STREAK_FREE') == '1'     # every life starts with all three, for looking at them
@@ -239,6 +246,7 @@ DUMMY_NAMES = ['Dummy Adil', 'Dummy Basma', 'Dummy Cem', 'Dummy Dina', 'Dummy Em
 SCAN_LIFE *= _streak_scale
 HELI_LIFE *= _streak_scale
 STRIKE_DELAY *= _streak_scale
+CARPET_WARN *= _streak_scale
 POSTMATCH = 12.0
 PROTECT = 1.5
 # players who neither move nor act for this long are taken out of their match
@@ -794,6 +802,7 @@ class Room:
         self.helis = {}
         self.strikes = []
         self.strike_seq = 0
+        self.carpets = []
         self.dummy_want = DUMMIES
         self.ad = None           # Attack and Defend: the sector, the attackers' lives, the points' state
         # the battle royale
@@ -852,8 +861,8 @@ class Room:
         if self.mode == 'knives':
             # Knife Fight is on foot: no golf carts to drive about in
             self.map['deco'] = [d for d in self.map['deco'] if d.get('k') != 'golfcart']
-        # night falls on four matches in ten, on every map but the royale's and the Manor
-        self.night = self.mode != 'royale' and self.map_kind not in ('manor', 'front') and random.random() < NIGHT_CHANCE
+        # night falls on four matches in ten, on every map but the royale's, the Manor and Ridgeline
+        self.night = self.mode != 'royale' and self.map_kind not in ('manor', 'front', 'alpine') and random.random() < NIGHT_CHANCE
         self.map['night'] = self.night
         boxes = self.map['boxes']
         if self.mode == 'rush' and self.map.get('ad'):
@@ -932,6 +941,8 @@ class Room:
         for S in self.strikes:
             p.send({'t': 'strike', 'id': S['id'], 'p': S['p'], 'in': round(max(0.0, S['at'] - now()), 2), 'h': S['h'], 'by': S['owner'],
                     'byn': self.players[S['owner']].name if S['owner'] in self.players else '', 'tm': S['tm']})
+        for C in self.carpets:
+            p.send(self.carpet_msg(C, now()))
         if self.mode == 'royale':
             p.reset_kit()
             for cid, C in self.chests.items():
@@ -2073,6 +2084,10 @@ class Room:
             self.helis[p.id] = H
             p.pos = heli_seat(self.circuit, s0)
             self.broadcast({'t': 'heli', 'id': p.id, 'tm': p.team, 's0': round(s0, 2), 'el': 0, 'life': HELI_LIFE})
+        elif k == 'carpet':
+            C = self.carpet_line(p, t)
+            self.carpets.append(C)
+            self.broadcast(self.carpet_msg(C, t))
         elif k == 'strike':
             if p.heli:
                 return
@@ -2143,6 +2158,62 @@ class Room:
             self.strikes.remove(S)
             if live:
                 self.strike_land(S)
+        for C in list(self.carpets):
+            if t < C['t0']:
+                continue
+            if (t - C['t0']) * CARPET_SPEED > C['L'] + CARPET_BACK + 1.0:
+                self.carpets.remove(C)
+                continue
+            if live:
+                self.carpet_sweep(C, t)
+
+    def carpet_line(self, p, t):
+        """A line across the map for the carpet bombing: a random heading through a
+        random point in the middle half of the town, run out to the margin either side.
+        Nobody picks it, the caller included."""
+        bx, bz = self.map['bounds']
+        h = random.uniform(0.0, math.tau)
+        dx, dz = math.cos(h), -math.sin(h)
+        cx, cz = random.uniform(-bx * 0.5, bx * 0.5), random.uniform(-bz * 0.5, bz * 0.5)
+        X, Z = bx + CARPET_MARGIN, bz + CARPET_MARGIN
+        lo, hi = -1e9, 1e9
+        for (c, d, lim) in ((cx, dx, X), (cz, dz, Z)):
+            if abs(d) < 1e-6:
+                continue
+            a, b = (-lim - c) / d, (lim - c) / d
+            lo, hi = max(lo, min(a, b)), min(hi, max(a, b))
+        ax, az = cx + dx * lo, cz + dz * lo
+        bx2, bz2 = cx + dx * hi, cz + dz * hi
+        self.strike_seq += 1
+        return {'id': self.strike_seq, 'owner': p.id, 'tm': p.team, 'a': [round(ax, 2), round(az, 2)], 'b': [round(bx2, 2), round(bz2, 2)],
+                'd': (dx, dz), 'L': hi - lo, 't0': t + CARPET_WARN, 'h': round(h, 3)}
+
+    def carpet_msg(self, C, t):
+        owner = self.players.get(C['owner'])
+        return {'t': 'carpet', 'id': C['id'], 'a': C['a'], 'b': C['b'], 'h': C['h'], 'v': CARPET_SPEED, 'in': round(C['t0'] - t, 2),
+                'by': C['owner'], 'byn': owner.name if owner else '', 'tm': C['tm']}
+
+    def carpet_sweep(self, C, t):
+        """The bombs are walking down the line: anyone in the swath about the front dies,
+        under a roof or not. Never the caller or their side."""
+        s = (t - C['t0']) * CARPET_SPEED
+        owner = self.players.get(C['owner'])
+        team_mode = self.mode in TEAM_MODES
+        ax, az = C['a']
+        dx, dz = C['d']
+        rx, rz = -dz, dx
+        for wid, W in list(self.walls.items()):
+            along = (W['p'][0] - ax) * dx + (W['p'][2] - az) * dz
+            side = (W['p'][0] - ax) * rx + (W['p'][2] - az) * rz
+            if s - CARPET_BACK <= along <= s + CARPET_AHEAD and abs(side) <= CARPET_W:
+                self.hurt_wall(wid, WALL_HP)
+        for q in list(self.players.values()):
+            if not q.alive or q.id == C['owner'] or (team_mode and q.team == C['tm']) or t_protected(q) or q.heli:
+                continue
+            along = (q.pos[0] - ax) * dx + (q.pos[2] - az) * dz
+            side = (q.pos[0] - ax) * rx + (q.pos[2] - az) * rz
+            if s - CARPET_BACK <= along <= s + CARPET_AHEAD and abs(side) <= CARPET_W:
+                self.damage(q, owner, 999, 'carpet', False)
 
     def strike_land(self, S):
         """The bombs land. In the open: dead in the middle ten metres, fifty off the rest of the
