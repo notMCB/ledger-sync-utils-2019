@@ -2,9 +2,20 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.8.0';
+export const VERSION = '3.8.1';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.8.1',
+    date: '23 October 2026',
+    title: 'Souk Royale gets the ground pass',
+    notes: [
+      'Souk Royale has the same ground as the other maps now. Ridgeline’s quarter and the country round it are one smooth surface, so the slopes down from the snow to the fields roll instead of stepping, and the ground wears snow, sand, lawn or concrete by where it is.',
+      'The roads across the seams lie on the land rather than standing on stepped slabs, the ridge’s face is the same rock wall as on Ridgeline, and where the ridge carries on past its quarter the drop is bare rock.',
+      'The Manor’s doors and windows work in the Royale too: open them, sprint through them, break the glass.',
+      'Snow banks against the walls in the snowy quarter and sand against the walls in the sandy one.',
+    ],
+  },
   {
     version: '3.8.0',
     date: '22 October 2026',

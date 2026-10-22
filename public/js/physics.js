@@ -45,7 +45,7 @@ export class Physics {
   }
 
   add([cx, cy, cz, hx, hy, hz, yaw, mat]) {
-    if (this.surface && mat === 'terrain') return null;     // the smooth ground stands in for the steps
+    if (this.surface && mat === 'terrain' && hy > 0.1) return null;     // the smooth ground stands in for the steps (thin slabs are just a texture)
     const c = Math.cos(yaw);
     const s = Math.sin(yaw);
     // extent of the rotated rectangle along world x and z

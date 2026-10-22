@@ -627,7 +627,7 @@ export class World {
       } else if (mat === 'container') {
         B('container').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(CONTAINER_TINTS[tint % 6]), 3.4);
       } else if (mat === 'terrain') {
-        if (map.height) continue;     // smooth ground: drawn as one surface below
+        if (map.height && hy > 0.1) continue;     // smooth ground: drawn as one surface below (thin slabs are a texture patch)
         // stepped ground: snow (or the tint's texture) on top, rock on the risers
         B(tint ? 'terraintop' + (tint % 4) : 'terraintop').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(tint === 3 ? '#c9c8c2' : '#ffffff'), tint === 3 ? 2.5 : 9.0, { faces: 'top' });
         if (hy > 0.04) B('terrain').box(cx, cy, cz, hx, hy, hz, yaw, colorOf(tint === 1 ? '#9a9c9e' : '#b8a888'), 3.0, { faces: 'sides' });
@@ -730,7 +730,7 @@ export class World {
     ground.receiveShadow = true;
     root.add(ground);
     if (map.height) this.addHeightfield(map, root, tx, gkind);
-    if (gkind === 'snow' || gkind === 'ground') this.addDrifts(map, root, tx, gkind);
+    if (gkind === 'snow' || gkind === 'ground' || (map.height && map.height.tint)) this.addDrifts(map, root, tx, gkind);
 
     this.buildDeco(map, root, tx);
     this.buildDoors(map, root, tx);
@@ -1665,9 +1665,18 @@ export class World {
   // outward if the ground just in front of it is open: not inside another wall, a
   // floor slab or any other box.
   addDrifts(map, root, tx, kind) {
-    const phys = this.physics, S = this.surface;
+    const phys = this.physics, S = this.surface, H = map.height;
     const groundAt = (x, z) => (S ? S(x, z) : 0);
-    const pos = [], uv = [], idx = [];
+    // snow or sand, by where the wall stands: a map with ground kinds per cell (the
+    // Royale) banks snow in its snowy part and sand in the sandy, nothing on lawn or concrete
+    const kindAt = (x, z) => {
+      if (!H || !H.tint) return kind;
+      const ix = Math.max(0, Math.min(H.nx - 1, Math.floor((x - H.x0) / H.cell))), iz = Math.max(0, Math.min(H.nz - 1, Math.floor((z - H.z0) / H.cell)));
+      return ['ground', 'snow', null, null][H.tint[ix][iz]];
+    };
+    const sets = { ground: { pos: [], uv: [], idx: [] }, snow: { pos: [], uv: [], idx: [] } };
+    let cur = sets[kind] || sets.ground;
+    let pos = cur.pos, uv = cur.uv, idx = cur.idx;
     const near = [];
     const open = (x, z, y) => {
       phys.query(x - 0.3, z - 0.3, x + 0.3, z + 0.3, near);
@@ -1679,11 +1688,15 @@ export class World {
       return true;
     };
     const walls = new Set(['wall', 'concrete', 'stone', 'marble']);
-    const scale = kind === 'snow' ? 1.2 : 0.8;
+    let scale = kind === 'snow' ? 1.2 : 0.8;
     for (const [cx, cy, cz, hx, hy, hz, yaw, mat] of map.boxes) {
       if (!walls.has(mat) || hy * 2 < 1.8 || hx > 60 || hz > 60) continue;
       const base = cy - hy, g0 = groundAt(cx, cz);
       if (Math.abs(base - g0) > 0.35) continue;        // not standing on the ground here
+      const wk = kindAt(cx, cz);
+      if (!wk) continue;
+      cur = sets[wk]; pos = cur.pos; uv = cur.uv; idx = cur.idx;
+      scale = wk === 'snow' ? 1.2 : 0.8;
       const c = Math.cos(yaw), s = Math.sin(yaw);
       // the four faces: normal (local), the axis the face runs along, its half length
       for (const [fnx, fnz, ax, az, half] of [[1, 0, 0, 1, hz], [-1, 0, 0, 1, hz], [0, 1, 1, 0, hx], [0, -1, 1, 0, hx]]) {
@@ -1731,16 +1744,19 @@ export class World {
         }
       }
     }
-    if (!idx.length) return;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    // any triangle wound the wrong way still shows: both sides are drawn
-    const mesh = new THREE.Mesh(g, groundMat(tx, kind, { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }));
-    mesh.receiveShadow = true;
-    root.add(mesh);
+    for (const kk of ['ground', 'snow']) {
+      const st = sets[kk];
+      if (!st.idx.length) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(st.pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(st.uv, 2));
+      g.setIndex(st.idx);
+      g.computeVertexNormals();
+      // any triangle wound the wrong way still shows: both sides are drawn
+      const mesh = new THREE.Mesh(g, groundMat(tx, kk, { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }));
+      mesh.receiveShadow = true;
+      root.add(mesh);
+    }
   }
 
   // the ground of a map with a height grid (Ridgeline) as one smooth surface: the
@@ -1761,31 +1777,50 @@ export class World {
         uv[k * 2] = x / 9; uv[k * 2 + 1] = -z / 9;
       }
     }
-    const idx = [];
+    // the quads, grouped by the ground kind of the cell each sits in; where the
+    // ground is flat and the map has kinds (the Royale) the ground plane and its
+    // patches already show, so nothing is drawn there
+    const KINDS = ['ground', 'snow', 'grass', 'concrete'];
+    const groups = new Map();
+    const tintAt = (x, z) => {
+      if (!H.tint) return kind;
+      const ix = Math.max(0, Math.min(H.nx - 1, Math.floor((x - H.x0) / H.cell))), iz = Math.max(0, Math.min(H.nz - 1, Math.floor((z - H.z0) / H.cell)));
+      return KINDS[H.tint[ix][iz]] || kind;
+    };
     for (let j = 0; j + 1 < nz; j++) {
       for (let i = 0; i + 1 < nx; i++) {
         const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+        if (H.tint && pos[a * 3 + 1] <= 0 && pos[b * 3 + 1] <= 0 && pos[c * 3 + 1] <= 0 && pos[d * 3 + 1] <= 0) continue;
+        // a drop of more than a metre and a half across one metre is a cliff face: bare rock
+        const ys = [pos[a * 3 + 1], pos[b * 3 + 1], pos[c * 3 + 1], pos[d * 3 + 1]];
+        const kk = Math.max(...ys) - Math.min(...ys) > 1.5 ? 'rock' : tintAt(-bx + (i + 0.5) * step, -bz + (j + 0.5) * step);
+        let idx = groups.get(kk);
+        if (!idx) groups.set(kk, (idx = []));
         idx.push(a, c, b, b, c, d);
       }
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    const nrm = g.attributes.normal;
-    const rock = kind === 'snow' ? [0.52, 0.54, 0.57] : [0.62, 0.56, 0.48];
-    for (let k = 0; k < nx * nz; k++) {
-      // flat: the ground's own colour; steeper than about 35 degrees: bare rock
-      const ny = nrm.getY(k);
-      const t = Math.max(0, Math.min(1, (0.82 - ny) / 0.25));
-      col[k * 3] = 1 - (1 - rock[0]) * t; col[k * 3 + 1] = 1 - (1 - rock[1]) * t; col[k * 3 + 2] = 1 - (1 - rock[2]) * t;
+    for (const [kk, idx] of groups) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      const nrm = g.attributes.normal;
+      const rock = kk === 'snow' ? [0.52, 0.54, 0.57] : [0.62, 0.56, 0.48];
+      const c2 = new Float32Array(col.length);
+      for (let k = 0; k < nx * nz; k++) {
+        // flat: the ground's own colour; steeper than about 35 degrees: bare rock
+        const ny = nrm.getY(k);
+        const t = kk === 'rock' ? 0.15 : Math.max(0, Math.min(1, (0.82 - ny) / 0.25));
+        c2[k * 3] = 1 - (1 - rock[0]) * t; c2[k * 3 + 1] = 1 - (1 - rock[1]) * t; c2[k * 3 + 2] = 1 - (1 - rock[2]) * t;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(c2, 3));
+      g.computeBoundingSphere();
+      const material = kk === 'rock' ? new THREE.MeshLambertMaterial({ map: tx.rock, vertexColors: true }) : groundMat(tx, kk, { vertexColors: true, polygonOffset: H.tint ? true : false, polygonOffsetFactor: -0.5 });
+      const mesh = new THREE.Mesh(g, material);
+      mesh.receiveShadow = true;
+      root.add(mesh);
     }
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    g.computeBoundingSphere();
-    const mesh = new THREE.Mesh(g, groundMat(tx, kind, { vertexColors: true }));
-    mesh.receiveShadow = true;
-    root.add(mesh);
   }
 
   // the ridge's face on Ridgeline as one rock wall: the server sends the smoothed

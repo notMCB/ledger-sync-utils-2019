@@ -74,6 +74,8 @@ class Royale(Town):
         self.nx = int(2 * BX / CELL)
         self.nz = int(2 * BZ / CELL)
         self.city = None
+        self.door_leaves = []  # the Manor's doors, carried across
+        self.panes = []        # and its window glass
 
     # -- the quarters --------------------------------------------------------
 
@@ -117,6 +119,11 @@ class Royale(Town):
                 d['yaw'] = round(d['yaw'] + yaw, 4)
             if k == 'road':
                 d['pts'] = [[round(v, 2) for v in pt(p[0], p[1])] + list(p[2:]) for p in d['pts']]
+            if k == 'cliff':
+                # the ridge's face is a line along x: it moves with its quarter, which is never turned
+                if abs(yaw) > 1e-6:
+                    continue
+                d['pts'] = [[round(p[0] + cx, 2), round(p[1] + cz, 2), p[2], round(p[3] + cz, 2), p[4]] for p in d['pts']]
             if k == 'lanterns':
                 d['a'] = [round(v, 2) for v in pt(*d['a'])]
                 d['b'] = [round(v, 2) for v in pt(*d['b'])]
@@ -128,6 +135,13 @@ class Royale(Town):
             self.props.append((*pt(x, z), r))
         for (x, z) in t.doors:
             self.doors.append(pt(x, z))
+        # doors that open and glass that breaks come across with the quarter
+        for d in getattr(t, 'door_leaves', []):
+            x, z = pt(d['x'], d['z'])
+            self.door_leaves.append(dict(d, id='d%d' % len(self.door_leaves), x=round(x, 2), z=round(z, 2), yaw=round(d['yaw'] + yaw, 4)))
+        for d in getattr(t, 'panes', []):
+            x, z = pt(d['x'], d['z'])
+            self.panes.append(dict(d, id='p%d' % len(self.panes), x=round(x, 2), z=round(z, 2), yaw=round(d['yaw'] + yaw, 4)))
         for rd in t.roads:
             self.roads.append({'w': rd['w'], 'pts': [pt(p[0], p[1]) for p in rd['pts']]})
         for a in t.areas:
@@ -183,6 +197,39 @@ class Royale(Town):
                 return q['town'].ground(x - q['cx'], z - q['cz'])
             return 0.0
         return self.h[ix][iz]
+
+    def height_grid(self):
+        """The whole map's cell heights and ground kinds for the smooth surface: the
+        seams' own cells, Ridgeline's cells where its quarter lies (its grid lines up
+        with this one), and flat ground everywhere else. The kind (sand, snow, grass,
+        concrete) says what the raised ground is dressed in."""
+        alp = next((q for q in self.quarters if q['kind'] == 'alpine'), None)
+        A = alp['town'] if alp else None
+        h = [[0.0] * self.nz for _ in range(self.nx)]
+        tint = [[0] * self.nz for _ in range(self.nx)]
+        for ix in range(self.nx):
+            x = -BX + (ix + 0.5) * CELL
+            for iz in range(self.nz):
+                z = -BZ + (iz + 0.5) * CELL
+                if self.blend[ix][iz]:
+                    h[ix][iz] = round(self.h[ix][iz], 2)
+                    tint[ix][iz] = self.tint[ix][iz]
+                elif alp and alp['x0'] <= x <= alp['x1'] and alp['z0'] <= z <= alp['z1']:
+                    h[ix][iz] = round(A.ground(x - alp['cx'], z - alp['cz']), 2)
+                    tint[ix][iz] = 1
+                else:
+                    q = self.in_quarter(x, z)
+                    tint[ix][iz] = GROUND_TINT[q['kind']] if q else 0
+        return {'x0': -BX, 'z0': -BZ, 'cell': CELL, 'nx': self.nx, 'nz': self.nz, 'h': h, 'tint': tint}
+
+    def surface(self, x, z):
+        """The smooth ground a player walks on (see mapgen.surface_at)."""
+        if self.h is None:
+            return 0.0
+        key = sum(map(sum, self.h))
+        if getattr(self, '_grid_key', None) != key:
+            self._grid_key, self._grid = key, self.height_grid()
+        return mapgen.surface_at(self._grid, x, z)
 
     def make_ground(self):
         """Heights for every seam cell: the ridge's ground carried out and ramped
@@ -291,42 +338,24 @@ class Royale(Town):
     # -- the roads across the seams ----------------------------------------------
 
     def road(self, pts, w, c='asphalt', lift=0.0):
-        """A solid road along the ground: a slab for every stretch of level ground it
-        crosses, stepping where the ground steps, so you walk and drive on the road
-        itself. `lift` raises one road a hair over another where they cross."""
-        self.base_y = 0.0
+        """A road laid on the smooth ground: a strip with a point every metre at the
+        surface's height, which the client lays vertex by vertex on the land. You
+        walk on the ground under it. `lift` stacks one road a hair over another where they cross."""
+        out = []
         for i in range(len(pts) - 1):
             (ax, az), (bx2, bz2) = pts[i], pts[i + 1]
             L = math.hypot(bx2 - ax, bz2 - az)
             if L < 0.05:
                 continue
             ux, uz = (bx2 - ax) / L, (bz2 - az) / L
-            yaw = math.atan2(ux, uz)
-            n = max(1, int(L / 0.5))
-            runs = []
+            n = max(1, int(L / 1.0))
             for k in range(n + 1):
-                s = L if k == n else k * 0.5
-                g = self.ground(ax + ux * s, az + uz * s)
-                if runs and abs(runs[-1][2] - g) < 1e-6:
-                    runs[-1][1] = s
-                else:
-                    runs.append([s, s, g])
-            # the slabs overlap a little where the ground steps, and by half the
-            # road's width at a bend, so the joints are filled
-            ext0 = w / 2 if i > 0 else 0.3
-            ext1 = w / 2 if i + 1 < len(pts) - 1 else 0.3
-            for (s0, s1, g) in runs:
-                a = -ext0 if s0 <= 0 else s0 - 0.3
-                b = L + ext1 if s1 >= L else s1 + 0.3
-                if b - a < 0.2:
+                if k == 0 and out:
                     continue
-                mid = (a + b) / 2
-                top = g + ROAD_H + lift
-                bot = g - 0.3
-                self.box(ax + ux * mid, (top + bot) / 2, az + uz * mid, w / 2, (top - bot) / 2, (b - a) / 2, yaw, 'asphalt')
-        d = {'k': 'road', 'w': w, 'c': c, 'solid': 1,
-             'pts': [[round(x, 2), round(z, 2), round(self.ground(x, z) + ROAD_H, 2)] for (x, z) in pts]}
-        self.deco.append(d)
+                s = L if k == n else k * 1.0
+                x, z = ax + ux * s, az + uz * s
+                out.append([round(x, 2), round(z, 2), round(self.surface(x, z) + 0.05, 2)])
+        self.deco.append({'k': 'road', 'w': w, 'c': c, 'h': round(lift, 3), 'pts': out})
         self.roads.append({'w': w, 'pts': [(x, z) for (x, z) in pts]})
 
     def spur(self, x, z, w):
@@ -614,7 +643,7 @@ class Royale(Town):
                 continue
             carts.append((x, z))
             self.vehicles += 1
-            self.deco.append({'k': 'golfcart', 'id': self.vehicles, 'x': round(x, 2), 'y': round(self.ground(x, z), 2), 'z': round(z, 2),
+            self.deco.append({'k': 'golfcart', 'id': self.vehicles, 'x': round(x, 2), 'y': round(self.surface(x, z), 2), 'z': round(z, 2),
                               'yaw': round(rng.uniform(0, math.tau), 4)})
         # nobody fights over sites or hills here, but the record wants them
         self.site_a = (0.0, 0.0)
@@ -643,4 +672,5 @@ class Royale(Town):
         m['chests'] = self.chests
         m['royale'] = True
         m['tower'] = round(self.city.tower_h, 1) if self.city else 0
+        m['height'] = self.height_grid()
         return m

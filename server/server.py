@@ -45,7 +45,7 @@ import mailer  # noqa: E402
 import daily  # noqa: E402
 from og import game as og  # noqa: E402
 
-VERSION = '3.8.0'
+VERSION = '3.8.1'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
