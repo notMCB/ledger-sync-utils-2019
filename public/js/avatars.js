@@ -246,8 +246,9 @@ function capsule(parent, r, len, mat, x = 0, y = 0, z = 0) {
 
 // the torso turned on a lathe: hips, a waist, the chest widening to the
 // shoulders and closing to the neck. One smooth shape, oval in section.
-function lathe(parent, profile, mat, seg = 18) {
-  const m = new THREE.Mesh(new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), seg), mat);
+function lathe(parent, profile, mat, seg = 18, phiStart = Math.PI / 2, phiLength = Math.PI * 2) {
+  // phiStart of a quarter turn puts the front (-z) at u = 0.25 and the back at 0.75, so a print sits whole on each
+  const m = new THREE.Mesh(new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), seg, phiStart, phiLength), mat);
   m.scale.z = 0.64;
   m.castShadow = false;
   parent.add(m);
@@ -259,6 +260,40 @@ let GLINT = null;
 // spawn protection: a faint blue shell around a player who can't be hurt yet
 const SHIELD_GEO = new THREE.CapsuleGeometry(0.45, 0.95, 4, 14);
 const SHIELD_MAT = new THREE.MeshBasicMaterial({ color: 0x7fc8ff, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+
+// the clothes: sleeves that end at a cuff with the arm bare below, and the kit
+// an outfit's look calls for. Anything not listed wears long sleeves and nothing else.
+const GARB = {
+  porter: { sleeves: 'short' }, scout: { sleeves: 'short', scarf: true }, nomad: { sleeves: 'short', scarf: true },
+  fatigues: { rig: true, pads: true }, nightwatch: { rig: true }, urban: { rig: true, pads: true },
+  tigercamo: { rig: true, pads: true }, desertops: { rig: true, pads: true }, woodlandops: { rig: true, pads: true },
+  arcticops: { rig: true, pads: true }, urbanops: { rig: true, pads: true }, multiterrain: { rig: true, pads: true },
+  ghillie: { rig: true, pads: true }, midnight: { rig: true, pads: true }, mirage: { pads: true },
+  zelligeguard: { scarf: true }, crimson: { rig: true, scarf: true }, sultan: { scarf: true }, festival: { scarf: true },
+  royale1: { scarf: true }, candystripe: { sleeves: 'short' }, surfer: { sleeves: 'short' }, popart: { sleeves: 'short' },
+  month1: { sleeves: 'short' },
+};
+const TEE_YELLOW = new THREE.MeshLambertMaterial({ color: '#f2d43a' });
+const POUCH = new THREE.MeshLambertMaterial({ color: '#4a4f3a' });
+const teeWrapCache = new Map();
+// a printed T-shirt laid round the chest: the print on the front and the back, white elsewhere
+function teeWrap(printMat) {
+  const img = printMat && printMat.map && printMat.map.image;
+  if (!img) return null;
+  let m = teeWrapCache.get(img);
+  if (m) return m;
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 1024, 512);
+  for (const u of [0.25, 0.75]) g.drawImage(img, u * 1024 - 88, 300, 176, 118);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  m = new THREE.MeshLambertMaterial({ map: tex });
+  teeWrapCache.set(img, m);
+  return m;
+}
 
 const PRONE_LEN = 1.45;
 const GRIP_AT = new THREE.Vector3(), TMP_V = new THREE.Vector3();
@@ -330,6 +365,11 @@ export class Avatar {
       part('pants', capsule(leg, 0.088, 0.6, SHARED.pants, 0, -0.22, 0));       // thigh, from inside the hip to the knee
       const shin = new THREE.Group();
       part('pants', capsule(shin, 0.068, 0.5, SHARED.pants, 0, -0.18, 0));      // shin, knee to ankle
+      part('pants', cy(shin, 0.078, 0.082, 0.05, SHARED.pants, 0, -0.35, 0, 12));   // the trouser cuff over the boot
+      const pad = sp(shin, 0.058, SHARED.strap, 0, -0.03, -0.045, 10);              // a knee pad, for the outfits that wear them
+      pad.scale.set(1, 1.25, 0.6);
+      this.pads = this.pads || [];
+      this.pads.push(pad);
       part('boots', bx(shin, 0.15, 0.1, 0.26, SHARED.boots, 0, -0.42, -0.04));
       part('boots', bx(shin, 0.14, 0.14, 0.14, SHARED.boots, 0, -0.38, 0.02));
       shin.position.y = -0.5;
@@ -347,18 +387,51 @@ export class Avatar {
     // the torso is round in section: a pelvis the legs grow out of, a chest that
     // widens to the shoulders, and the vest in the team colour over the chest
     part('pants', lathe(upper, [[0.05, -0.12], [0.17, -0.1], [0.205, -0.02], [0.205, 0.08], [0.19, 0.18], [0.185, 0.22]], SHARED.pants));
-    part('shirt', lathe(upper, [[0.185, 0.21], [0.195, 0.3], [0.225, 0.42], [0.24, 0.52], [0.235, 0.58], [0.205, 0.63], [0.13, 0.665], [0.07, 0.68], [0.0, 0.685]], this.body));
-    // a jacket over the vest, for the outfits that have one: worn open over a
-    // T-shirt, with a stripe down each front edge
+    this.chest = part('shirt', lathe(upper, [[0.185, 0.21], [0.195, 0.3], [0.225, 0.42], [0.24, 0.52], [0.235, 0.58], [0.205, 0.63], [0.13, 0.665], [0.07, 0.68], [0.0, 0.685]], this.body));
+    // the shirt hangs over the trousers: a hem that stands a touch proud of the hips
+    part('shirt', lathe(upper, [[0.188, 0.17], [0.2, 0.19], [0.2, 0.25], [0.19, 0.27]], this.body));
+    // a collar at the neck, and buttons down the front
+    this.collar = part('shirt', new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.02, 8, 20), this.body));
+    this.collar.rotation.x = Math.PI / 2;
+    this.collar.position.set(0, 0.665, 0.005);
+    this.collar.castShadow = false;
+    upper.add(this.collar);
+    this.buttons = [[0.36, -0.134], [0.46, -0.149], [0.56, -0.152]].map(([y, z]) => sp(upper, 0.011, SHARED.boots, 0.0, y, z, 8));
+    // a chest rig: shoulder straps front and back, a strap across, two pouches on the chest
+    this.rig = new THREE.Group();
+    upper.add(this.rig);
+    for (const sx of [-0.085, 0.085]) {
+      bx(this.rig, 0.03, 0.34, 0.012, SHARED.strap, sx, 0.45, -0.157);
+      bx(this.rig, 0.03, 0.34, 0.012, SHARED.strap, sx, 0.45, 0.152);
+      bx(this.rig, 0.075, 0.11, 0.05, POUCH, sx * 0.85, 0.4, -0.178);
+      bx(this.rig, 0.08, 0.02, 0.055, SHARED.strap, sx * 0.85, 0.445, -0.18);
+    }
+    bx(this.rig, 0.3, 0.025, 0.012, SHARED.strap, 0, 0.53, -0.158);
+    bx(this.rig, 0.3, 0.025, 0.012, SHARED.strap, 0, 0.53, 0.153);
+    // a scarf round the neck with a tail down the chest
+    this.scarf = new THREE.Group();
+    upper.add(this.scarf);
+    this.scarfMeshes = [];
+    const scarfRing = new THREE.Mesh(new THREE.TorusGeometry(0.088, 0.034, 8, 20), this.wrap);
+    scarfRing.rotation.x = Math.PI / 2;
+    scarfRing.position.set(0, 0.655, 0.0);
+    scarfRing.castShadow = false;
+    this.scarf.add(scarfRing);
+    this.scarfMeshes.push(scarfRing);
+    const tail = bx(this.scarf, 0.09, 0.17, 0.02, this.wrap, 0.05, 0.56, -0.15);
+    tail.rotation.z = 0.18;
+    this.scarfMeshes.push(tail);
+    // a jacket for the outfits that have one: an open shell over the chest, worn
+    // over a T-shirt, with a stripe down each front edge
     this.jacket = new THREE.Group();
     upper.add(this.jacket);
-    this.jacketBox = part('shirt', bx(this.jacket, 0.5, 0.44, 0.3, this.body, 0, 0.4, 0));
-    this.tee = bx(this.jacket, 0.13, 0.42, 0.01, lam('#f2d43a'), 0, 0.4, -0.152);
+    this.jacketBox = lathe(this.jacket, [[0.2, 0.19], [0.215, 0.3], [0.245, 0.42], [0.262, 0.52], [0.256, 0.58], [0.226, 0.63], [0.15, 0.665]], this.body, 18, Math.PI + 0.6, Math.PI * 2 - 1.2);
+    this.jacketBox.material.side = THREE.DoubleSide;
     this.web = [];
     for (const sx of [-1, 1]) {
-      this.web.push(bx(this.jacket, 0.012, 0.42, 0.012, lam('#1f6b3a'), sx * 0.083, 0.4, -0.153));
-      this.web.push(bx(this.jacket, 0.012, 0.42, 0.012, lam('#b3201c'), sx * 0.095, 0.4, -0.153));
-      this.web.push(bx(this.jacket, 0.012, 0.42, 0.012, lam('#1f6b3a'), sx * 0.107, 0.4, -0.153));
+      this.web.push(bx(this.jacket, 0.012, 0.4, 0.012, lam('#1f6b3a'), sx * 0.118, 0.44, -0.142));
+      this.web.push(bx(this.jacket, 0.012, 0.4, 0.012, lam('#b3201c'), sx * 0.13, 0.44, -0.138));
+      this.web.push(bx(this.jacket, 0.012, 0.4, 0.012, lam('#1f6b3a'), sx * 0.142, 0.44, -0.133));
     }
     this.jacket.visible = false;
     bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, -0.153).rotation.z = 0.28;    // the sling, over one shoulder and across
@@ -413,12 +486,17 @@ export class Avatar {
     part('wrap', ring(wrapG, 0.133, 0.03, 0.005, this.wrap));
     part('wrap', ring(wrapG, 0.125, 0.022, 0.05, this.wrap)).rotation.z = 0.08;
     part('wrap', bx(wrapG, 0.13, 0.15, 0.03, this.wrap, 0, -0.06, 0.125));
-    // a helmet: a dome with a rim, sat a touch forward
+    // a helmet: a low dome pulled down over the brow, a thin rim that comes down at the back, a band round it
     const helm = hg('helmet');
-    part('wrap', dome(helm, 0.158, -0.01, this.wrap)).scale.set(1, 0.98, 1.06);
-    part('wrap', cy(helm, 0.165, 0.17, 0.03, this.wrap, 0, -0.01, 0.01, 18)).scale.z = 1.06;
-    bx(helm, 0.02, 0.12, 0.02, SHARED.strap, -0.13, -0.08, -0.03).rotation.z = 0.15;   // chin strap
-    bx(helm, 0.02, 0.12, 0.02, SHARED.strap, 0.13, -0.08, -0.03).rotation.z = -0.15;
+    const hdome = part('wrap', dome(helm, 0.168, -0.025, this.wrap));
+    hdome.scale.set(1, 1.0, 1.08);
+    const hrim = part('wrap', cy(helm, 0.172, 0.178, 0.022, this.wrap, 0, -0.025, 0.012, 18));
+    hrim.scale.z = 1.1;
+    hrim.rotation.x = 0.12;
+    part('wrap', cy(helm, 0.171, 0.171, 0.03, this.wrap, 0, 0.035, 0.0, 18)).scale.set(1.01, 1, 1.09);   // the cover's band
+    bx(helm, 0.016, 0.1, 0.016, SHARED.strap, -0.125, -0.1, -0.02).rotation.z = 0.12;     // chin strap
+    bx(helm, 0.016, 0.1, 0.016, SHARED.strap, 0.125, -0.1, -0.02).rotation.z = -0.12;
+    bx(helm, 0.2, 0.014, 0.014, SHARED.strap, 0, -0.14, -0.065);
     // a beret: a soft flat crown pulled over to one side, on a band
     const beret = hg('beret');
     const bcrown = part('wrap', sp(beret, 0.14, this.wrap, 0.03, 0.1, 0.0, 16));
@@ -490,9 +568,12 @@ export class Avatar {
       const A = {
         shoulder: new THREE.Vector3(sx * 0.215, 0.07, 0),
         pole: new THREE.Vector3(sx * 0.4, -0.7, -0.05),
-        upper: part('shirt', capsule(arms, 0.056, ARM_UPPER + 0.06, this.body)),
-        fore: part('shirt', capsule(arms, 0.048, ARM_FORE + 0.05, this.body)),
-        band: cy(arms, 0.064, 0.066, 0.055, this.body, 0, 0, 0, 10),        // armband in the team colour
+        upper: capsule(arms, 0.05, ARM_UPPER + 0.06, SHARED.skin),
+        fore: capsule(arms, 0.044, ARM_FORE + 0.05, SHARED.skin),
+        sleeveU: part('shirt', capsule(arms, 0.063, ARM_UPPER + 0.04, this.body)),
+        sleeveF: part('shirt', capsule(arms, 0.055, ARM_FORE - 0.02, this.body)),
+        cuff: part('shirt', cy(arms, 0.066, 0.066, 0.03, this.body, 0, 0, 0, 10)),
+        band: cy(arms, 0.071, 0.073, 0.05, this.body, 0, 0, 0, 10),        // armband in the team colour
         hand: sp(arms, 0.046, SHARED.glove, 0, 0, 0, 10),
         E: new THREE.Vector3(), H: new THREE.Vector3(), T: new THREE.Vector3(),
       };
@@ -702,13 +783,24 @@ export class Avatar {
     this.visor.visible = !!m.glow;
     if (m.glow) this.visor.material = m.glow;
     const o = OUTFIT[this.outfit];
-    this.jacket.visible = !!(o && o.jacket);
-    // a printed T-shirt is the jacket's box with the words on its chest and back, and none of the Gucci trim
-    const printed = !!(o && o.tee && m.tee);
-    this.jacketBox.material = printed ? m.tee : (m.shirt || SHARED.shirt);
-    this.tee.visible = !printed;
-    for (const w of this.web) w.visible = !printed;
     const shape = (o && o.shape) || '';
+    const garb = { sleeves: 'long', rig: false, pads: false, scarf: false, ...(GARB[this.outfit] || {}) };
+    this.sleeves = garb.sleeves;
+    // a printed T-shirt goes round the chest; a jacket is worn open over a yellow tee
+    const printed = !!(o && o.tee && m.tee);
+    const wrapMat = printed && teeWrap(m.tee[4]);
+    const jacket = !!(o && o.jacket) && !printed;
+    this.jacket.visible = jacket;
+    this.jacketBox.material = m.shirt || SHARED.shirt;
+    if (wrapMat) this.chest.material = wrapMat;
+    else if (jacket) this.chest.material = TEE_YELLOW;
+    this.collar.visible = !jacket && !printed && !shape;
+    for (const b of this.buttons) b.visible = !jacket && !printed && !shape && !garb.rig;
+    this.rig.visible = garb.rig && !shape;
+    for (const pd of this.pads) pd.visible = garb.pads;
+    this.scarf.visible = garb.scarf && !shape;
+    for (const x of this.scarfMeshes) x.material = m.wrap || this.wrap;
+    if (this.armsOf) this.poseArms();
     this.logOn = !!shape;              // any of the shaped bodies: the head is inside it
     this.log.visible = shape === 'log';
     this.cup.visible = shape === 'cup';
@@ -957,6 +1049,24 @@ export class Avatar {
       solveArm(A.shoulder, A.T, A.pole, A.E, A.H);
       poseSegment(A.upper, A.shoulder, A.E, this.armThin);
       poseSegment(A.fore, A.E, A.H, this.armThin);
+      // the sleeves ride on the arm; short ones stop above the elbow, long ones at the wrist
+      A.sleeveU.position.copy(A.upper.position);
+      A.sleeveU.quaternion.copy(A.upper.quaternion);
+      A.sleeveU.scale.copy(A.upper.scale);
+      const long = this.sleeves !== 'short';
+      A.sleeveF.visible = long;
+      if (long) {
+        A.sleeveF.position.lerpVectors(A.E, A.H, 0.46);
+        A.sleeveF.quaternion.copy(A.fore.quaternion);
+        A.sleeveF.scale.copy(A.fore.scale);
+        A.cuff.position.lerpVectors(A.E, A.H, 0.86);
+        A.cuff.quaternion.copy(A.fore.quaternion);
+        A.cuff.scale.set(0.9 * this.armThin, 1, 0.9 * this.armThin);
+      } else {
+        A.cuff.position.lerpVectors(A.shoulder, A.E, 0.8);
+        A.cuff.quaternion.copy(A.upper.quaternion);
+        A.cuff.scale.set(this.armThin, 1, this.armThin);
+      }
       A.band.position.lerpVectors(A.shoulder, A.E, 0.42);
       A.band.quaternion.copy(A.upper.quaternion);
       A.band.scale.set(this.armThin, 1, this.armThin);
