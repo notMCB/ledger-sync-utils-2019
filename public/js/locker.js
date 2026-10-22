@@ -215,6 +215,16 @@ export const locker = {
     return best ? { weapon: best, kills: n } : null;
   },
 
+  // -- daily challenges: today's progress, kept here for guests (the server keeps an account's) --
+  setDaily(m) {
+    try {
+      localStorage.setItem('souk-daily', JSON.stringify({ day: m.day, have: m.list.map((c) => c.have), done: m.list.map((c) => c.done), bonus: !!m.bonusDone }));
+    } catch (e) { /* no storage */ }
+  },
+  guestDaily() {
+    try { return JSON.parse(localStorage.getItem('souk-daily') || 'null') || undefined; } catch (e) { return undefined; }
+  },
+
   // -- dinars --
 
   // dinars from a match; when signed in the server sends the new balance

@@ -664,6 +664,27 @@ class Manor(Town):
             self.pick_spawns()      # a quarter of the royale map has no spawns of its own
         else:
             self.ffa_spawns, self.team_spawns = [], [[], []]
+        # the grounds: a bush at each end of every hedge, and grass in tufts across the lawns
+        rng = self.rng
+        for b in list(self.boxes):
+            if b[7] != 'hedge':
+                continue
+            cx, cy, cz, hx, hy, hz, yaw = b[:7]
+            L = max(hx, hz)
+            ax, az = (math.cos(yaw), -math.sin(yaw)) if hx >= hz else (math.sin(yaw), math.cos(yaw))
+            for sgn in (-1, 1):
+                x, z = cx + ax * sgn * (L + 0.6), cz + az * sgn * (L + 0.6)
+                if self.free(x, z, 0.35, 0.2, -0.3, road=False) and self.road_dist(x, z) > 0.9:
+                    self.deco.append({'k': 'bush', 'x': round(x, 2), 'z': round(z, 2), 'r': round(rng.uniform(0.5, 0.75), 2), 'c': rng.randrange(2)})
+                    self.props.append((x, z, 0.6))
+        n = 0
+        for _ in range(1200):
+            if n >= 160:
+                break
+            x, z = rng.uniform(-self.bx + 3, self.bx - 3), rng.uniform(-self.bz + 3, self.bz - 3)
+            if self.free(x, z, 0.9, 0.9, 0.3, road=True):
+                self.deco.append({'k': 'grass', 'x': round(x, 2), 'z': round(z, 2), 'n': rng.randrange(4, 8), 'c': 0})
+                n += 1
         # the estate at night: lamps on the gateposts, bollards up both sides of the drive
         # and round the forecourt and gardens, floods on the tennis court, and every room
         # of the house lit

@@ -247,9 +247,12 @@ body.party *:not(canvas):not(#party-splash):not(#party-splash *) { animation: ra
 #hitmarker i:nth-child(2) { transform: translate(4px, -10px) rotate(-45deg); }
 #hitmarker i:nth-child(3) { transform: translate(-15px, 8px) rotate(-45deg); }
 #hitmarker i:nth-child(4) { transform: translate(4px, 8px) rotate(45deg); }
-#hitmarker.show { opacity: 1; transition: none; }
-#hitmarker.kill i { background: #ff5a44; width: 14px; }
-#hitmarker.head i { background: var(--saffron); }
+#hitmarker.show { opacity: 1; transition: none; animation: hm-pop 0.14s ease-out; }
+#hitmarker.kill i { background: #ff5a44; width: 15px; height: 3px; }
+#hitmarker.kill.show { animation: hm-kill 0.3s ease-out; }
+#hitmarker.head i { background: var(--saffron); width: 13px; }
+@keyframes hm-pop { from { transform: scale(1.45); } to { transform: scale(1); } }
+@keyframes hm-kill { 0% { transform: scale(0.9); } 40% { transform: scale(1.5); } 100% { transform: scale(1.15); } }
 #hitmarker.blocked i { background: #7fc8ff; width: 8px; }
 
 #vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(160, 20, 10, 0.75) 100%); opacity: 0; }
@@ -810,3 +813,16 @@ body.strikecam #crosshair, body.strikecam #minimap, body.strikecam #markers, bod
 #streaks .sk.ready b { color: #ffd23f; animation: blink 1s steps(2) infinite; }
 #streaks .sk.ready .sk-key { background: #ffd23f; color: #1a1408; }
 #streaks .sk.spent { opacity: 0.45; }
+
+/* daily challenges */
+.daily-row { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.daily-row:last-child { border-bottom: 0; }
+.daily-text { font-weight: 600; }
+.daily-bar { height: 8px; background: var(--ink); border-radius: 4px; overflow: hidden; }
+.daily-bar i { display: block; height: 100%; background: var(--saffron); transition: width 0.4s; }
+.daily-row.done .daily-bar i { background: #5fc86f; }
+.daily-meta { display: flex; justify-content: space-between; font-size: 13px; color: var(--plaster-dim); }
+.daily-pay { display: inline-flex; align-items: center; gap: 4px; color: var(--saffron); font-weight: 700; }
+.daily-row.done .daily-text { color: #8fd99a; }
+.daily-row.bonus .daily-text { color: var(--saffron); }
+#btn-daily.attention { box-shadow: 0 0 0 2px var(--saffron) inset; }

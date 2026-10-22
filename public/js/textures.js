@@ -392,6 +392,40 @@ export function cloth(color) {
   return tex(c);
 }
 
+// a leafy sprig for hedges and bushes: a cluster of small leaves on a cut-out
+export function leafTuft() {
+  const S = 128;
+  const [c, g] = canvas(S);
+  g.clearRect(0, 0, S, S);
+  const r = rng(91);
+  for (let i = 0; i < 26; i++) {
+    const x = 20 + r() * 88, y = 14 + r() * 100, w = 7 + r() * 9, h = 4 + r() * 5;
+    g.fillStyle = r() < 0.5 ? '#3d7a34' : r() < 0.5 ? '#5a9a44' : '#2f6228';
+    g.beginPath();
+    g.ellipse(x, y, w, h, r() * Math.PI, 0, Math.PI * 2);
+    g.fill();
+  }
+  return tex(c, false);
+}
+
+// a tuft of grass: a fan of blades on a cut-out
+export function grassTuft() {
+  const S = 128;
+  const [c, g] = canvas(S);
+  g.clearRect(0, 0, S, S);
+  const r = rng(97);
+  for (let i = 0; i < 22; i++) {
+    const x0 = 24 + r() * 80, lean = (r() - 0.5) * 60, h = 50 + r() * 70;
+    g.strokeStyle = r() < 0.5 ? '#7fae46' : r() < 0.5 ? '#5f8f35' : '#9cc45a';
+    g.lineWidth = 2 + r() * 2.5;
+    g.beginPath();
+    g.moveTo(x0, S);
+    g.quadraticCurveTo(x0 + lean * 0.3, S - h * 0.6, x0 + lean, S - h);
+    g.stroke();
+  }
+  return tex(c, false);
+}
+
 export function palmLeaf() {
   const S = 128;
   const [c, g] = canvas(S);

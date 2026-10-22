@@ -152,6 +152,7 @@
     </div>
     <div class="menu-foot">
       <button class="btn" id="btn-locker">Locker <span class="dinar-pill"><i class="dinar"></i><span id="menu-dinars">0</span></span></button>
+      <button class="btn ghost" id="btn-daily">Daily</button>
       <button class="btn ghost" id="btn-pass">Battle Pass</button>
       <button class="btn ghost" id="btn-shop" hidden>Shop</button>
       <button class="btn ghost" id="btn-stats">Stats</button>
@@ -433,6 +434,18 @@
         <button class="btn" id="acct-confirm" type="submit">Confirm</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- ============ daily challenges ============ -->
+<div id="daily" class="overlay dim" hidden>
+  <div class="panel narrow">
+    <div class="panel-head">
+      <div><h2>Daily challenges</h2><div class="lk-account" id="daily-sub"></div></div>
+      <button class="btn ghost" id="daily-close">Done</button>
+    </div>
+    <p class="panel-sub">Three a day, the same for everyone. Dinars land the moment one is done; finish all three for the bonus.</p>
+    <div id="daily-list"></div>
   </div>
 </div>
 

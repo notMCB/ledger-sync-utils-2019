@@ -19,6 +19,7 @@ import { buildRangeMap, Range } from './range.js';
 import { softDot as T_softDot } from './textures.js';
 import { Voice, TALK_FLAG } from './voice.js';
 import { Lighting } from './lighting.js';
+import { dailyText } from './daily.js';
 import { AD_MODES, AD_REACH, makeTowerBomb, poseTowerBomb, makeZone, colourZone } from './attack.js';
 import { STREAKS, HELI_FLAG, HELI_SPEED, HELI_HEAT, HELI_COOL, STRIKE_R, STRIKE_DELAY, heliPath, heliAt, heliSeat, makeHeli, poseHeli, makeStrikeRing, StrikeShow } from './streaks.js';
 
@@ -414,6 +415,14 @@ export class Game {
       case 'chat':
         if (this.chat) this.chat.add(m, this.myId);
         return;
+      case 'daily':
+        this.daily = m;
+        locker.setDaily(m);
+        if (this.onDaily) this.onDaily(m);
+        break;
+      case 'dailydone':
+        this.hud.center('Daily challenge done', `${dailyText(m.c)} · +${m.c.reward} dinars`, 'gold', 4, 2);
+        break;
       case 'earn':
         locker.earn(m.n, m.bal);
         this.hud.earn(m.n, m.why);

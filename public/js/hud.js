@@ -824,7 +824,7 @@ export class Hud {
 
   // dinars earned, floating up by the ammo counter
   earn(n, why) {
-    const labels = { kill: 'Kill', assist: 'Kill assist', win: 'Souk Royale won', supply: 'Teammate used your crate', shotdown: 'Drone shot down', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill' };
+    const labels = { kill: 'Kill', assist: 'Kill assist', win: 'Souk Royale won', supply: 'Teammate used your crate', shotdown: 'Drone shot down', plant: 'Bomb planted', defuse: 'Bomb defused', round: 'Round won', match: 'Match played', win: 'Match won', hill: 'Holding the hill', daily: 'Daily challenge', dailybonus: 'All three dailies' };
     const el = document.createElement('div');
     el.className = 'earn-pop';
     el.innerHTML = `<b>+${n}</b> dinars <span>${esc(labels[why] || '')}</span>`;

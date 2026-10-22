@@ -604,6 +604,27 @@ class Alpine(Town):
             self.pick_spawns()      # a quarter of the royale map has no spawns of its own
         else:
             self.ffa_spawns, self.team_spawns = [], [[], []]
+        # the slopes: dry shrubs about the pines, stones and tufts of straw where the snow is thin
+        rng = self.rng
+        for d in [d for d in self.deco if d['k'] == 'pine']:
+            for _ in range(rng.randrange(1, 3)):
+                a, r = rng.uniform(0, math.tau), rng.uniform(2.0, 4.0)
+                x, z = d['x'] + math.cos(a) * r, d['z'] + math.sin(a) * r
+                if self.free(x, z, 0.6, 0.8, 0.2):
+                    self.deco.append({'k': 'bush', 'x': round(x, 2), 'y': round(self.ground(x, z), 2), 'z': round(z, 2), 'r': round(rng.uniform(0.45, 0.7), 2), 'c': 2})
+                    self.props.append((x, z, 0.5))
+        n = 0
+        for _ in range(900):
+            if n >= 100:
+                break
+            x, z = rng.uniform(-self.bx + 4, self.bx - 4), rng.uniform(self.z_face + 3, self.bz - 4)
+            if self.free(x, z, 0.8, 1.0, 0.3):
+                sz = rng.uniform(0.3, 0.6)
+                self.deco.append({'k': 'stone', 'x': round(x, 2), 'y': round(self.ground(x, z), 2), 'z': round(z, 2), 's': round(sz, 2), 'yaw': round(rng.uniform(0, 3.1), 2)})
+                if rng.random() < 0.6:
+                    gx = x + rng.uniform(-1.2, 1.2)
+                    self.deco.append({'k': 'grass', 'x': round(gx, 2), 'y': round(self.ground(gx, z + 0.8), 2), 'z': round(z + 0.8, 2), 'n': rng.randrange(3, 6), 'c': 1})
+                n += 1
         # the station at night: a few floods, a lamp over each bunker door, the helipad edged
         # in lights, and the buildings lit inside; the slopes between stay dark
         for a in self.areas:

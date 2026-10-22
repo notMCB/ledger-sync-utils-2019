@@ -42,6 +42,7 @@ import catalog  # noqa: E402
 import accounts  # noqa: E402
 import shop  # noqa: E402
 import mailer  # noqa: E402
+import daily  # noqa: E402
 from og import game as og  # noqa: E402
 
 VERSION = '3.8.0'
@@ -192,6 +193,7 @@ CRATE_REACH = 2.4
 CRATE_AGAIN = 15.0      # stand on the same crate again this much later and it works again
 NADES = [3, 2, 2, 2]   # grenades per life, by loadout (Assault carries three)
 NADE_MAX = 3
+NADE_KILLS = ('frag', 'molotov', 'launcher', 'nade', 'smoke', 'flash')     # what counts as a grenade kill for the dailies
 NADE_RADIUS = 7.0
 NADE_DMG = 125
 
@@ -659,6 +661,8 @@ class Player:
         self.last_chat = 0.0
         self.last_active = now()   # the last time they moved or did anything
         self.auth_times = []
+        self.daily = None          # a guest's daily-challenge record for today (an account's lives on its locker)
+        self.life_kills = 0
         # the battle royale: what you found, and how you did
         self.inv = {'pw': None, 'sw': None}
         self.ammo = {a: 0 for a in AMMO_CAP}
@@ -1039,8 +1043,28 @@ class Room:
 
     # -- dinars --
 
-    def earn(self, p, why, n=None):
-        if self.phase in ('waiting', 'countdown'):
+    # -- daily challenges --
+    def daily_bump(self, p, kind, amount=1, gun=None, mode=None, best=False, force=False):
+        if getattr(p, 'bot', False) or (not force and self.phase not in ('live', 'freeze')):
+            return
+        day = daily.today(SYDNEY)
+        lk = p.locker
+        rec = lk.get('daily') if lk is not None else p.daily
+        rec, finished = daily.bump(rec, day, kind, amount, gun, mode, best)
+        if lk is not None:
+            lk['daily'] = rec
+        else:
+            p.daily = rec
+        for i, c in finished:
+            if i == 'bonus':
+                self.earn(p, 'dailybonus', c, force=True)
+            else:
+                self.earn(p, 'daily', c['reward'], force=True)
+                p.send({'t': 'dailydone', 'c': c})
+        p.send(daily.public(rec, day))
+
+    def earn(self, p, why, n=None, force=False):
+        if self.phase in ('waiting', 'countdown') and not force:
             return
         n = n if n is not None else EARN[why]
         msg = {'t': 'earn', 'n': n, 'why': why}
@@ -1308,6 +1332,11 @@ class Room:
         for p in self.players.values():
             won = (p.id == winner) if self.mode in FFA_MODES else (p.team == winner)
             self.earn(p, 'win' if won else 'match', EARN['match'] + (EARN['win'] if won else 0))
+            if not p.late and not getattr(p, 'bot', False):
+                self.daily_bump(p, 'matches', force=True)
+                self.daily_bump(p, 'modematches', mode=self.mode, force=True)
+                if won and (self.mode != 'royale' or humans >= 2):
+                    self.daily_bump(p, 'wins', force=True)
             if p.late or p.locker is None:
                 continue
             self.stat(p, 'matches')
@@ -1787,6 +1816,7 @@ class Room:
         q.alive = False
         q.hp = 0
         q.streak = 0
+        q.life_kills = 0
         if w != ADMIN_KILL:
             q.deaths += 1
         if q.id in self.drones:
@@ -1819,6 +1849,7 @@ class Room:
             helper.send({'t': 'assist', 'v': q.name})
             if counting:
                 self.earn(helper, 'assist')
+                self.daily_bump(helper, 'assists')
         q.hurt_by = {}
         if attacker and attacker is not q:
             if self.mode == 'firefight' and attacker.burn_until > now():
@@ -1828,8 +1859,21 @@ class Room:
                 attacker.send({'t': 'doused'})
             attacker.kills += 1
             attacker.score += 100
+            attacker.life_kills = getattr(attacker, 'life_kills', 0) + 1
             if counting and w in WEAPONS:
                 fact_bump('guns', w)
+            if counting:
+                self.daily_bump(attacker, 'kills')
+                if w in WEAPONS:
+                    self.daily_bump(attacker, 'gunkills', gun=w)
+                if head:
+                    self.daily_bump(attacker, 'head')
+                if w in NADE_KILLS:
+                    self.daily_bump(attacker, 'nade')
+                if w == 'knife':
+                    self.daily_bump(attacker, 'knife')
+                self.daily_bump(attacker, 'streak', attacker.life_kills, best=True)
+                self.daily_bump(attacker, 'long', int(dist3(attacker.pos, q.pos)), best=True)
             if counting and self.mode in STREAK_MODES:
                 # one more towards a scorestreak; at five, ten and fifteen it is theirs to call in
                 attacker.streak += 1
@@ -3743,6 +3787,7 @@ class Conn:
             accounts.save_locker(user['id'], lk)
         p.account = {'id': user['id'], 'username': user['username']}
         p.name = user['username']
+        self.send(daily.public(lk.get('daily'), daily.today(SYDNEY)))
         self.send({'t': 'auth', 'user': {'username': user['username'], 'email': user['email']},
                    'token': token, 'locker': lk})
         if p.room:
@@ -3817,6 +3862,7 @@ class Conn:
             if 'cos' in m:
                 self.player.cos = owned_cos(self.player, clean_cos(m.get('cos')))
             self.send({'t': 'welcome', 'id': self.player.id, 'v': VERSION, 'acc': ACCOUNTS})
+            self.send(daily.public(p.daily if p else None, daily.today(SYDNEY)))
             if m.get('v') and m.get('v') != VERSION:
                 self.send({'t': 'reload', 'v': VERSION})
             lobby.add(self)
@@ -3842,6 +3888,9 @@ class Conn:
                 return
             if not p.account and (p.name or '').strip().lower() in ('', 'player'):
                 return self.send({'t': 'err', 'm': 'Enter a name before you join, or sign in.'})
+            if not p.account and isinstance(m.get('daily'), dict):
+                p.daily = daily.clean(m['daily'], daily.today(SYDNEY))     # a guest brings today's progress with them
+                self.send(daily.public(p.daily, daily.today(SYDNEY)))
             self.leave()
             if m.get('room'):
                 r = rooms.get(int(num(m.get('room'))))

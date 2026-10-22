@@ -12,6 +12,7 @@ import * as sfxModule from './audio.js';
 import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
 import { openLocker, lockerOpen, previewOutfit, previewGun, previewShot } from './lockerui.js';
+import { dailyText } from './daily.js';
 import { Chat } from './chat.js';
 import { auth } from './auth.js';
 import { touch, touchWanted } from './touch.js';
@@ -499,7 +500,7 @@ function join(target) {
   saveSettings();
   sayHello();
   const mapPick = params.get('map') ? { map: params.get('map') } : {};
-  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(settings.lastLoadout || 0), ...locker.picks(settings.lastLoadout || 0), ...mapPick, ...target });
+  net.send({ t: 'join', ld: settings.lastLoadout || 0, cos: locker.cosmetics(settings.lastLoadout || 0), ...locker.picks(settings.lastLoadout || 0), ...mapPick, ...target, daily: auth.user ? undefined : locker.guestDaily() });
   input.lock();
 }
 
@@ -556,6 +557,30 @@ function openPass() {
   input.unlock();
 }
 $('btn-pass').addEventListener('click', () => { uiBlip(); openPass(); });
+
+// -- daily challenges ------------------------------------------------------------------
+function renderDaily(m) {
+  const host = $('daily-list');
+  if (!m) { host.innerHTML = '<p class="panel-sub">Connecting…</p>'; return; }
+  host.innerHTML = m.list.map((c) => {
+    const k = Math.min(1, c.have / c.n);
+    return `<div class="daily-row${c.done ? ' done' : ''}"><div class="daily-text">${esc(dailyText(c))}</div>` +
+      `<div class="daily-bar"><i style="width:${Math.round(k * 100)}%"></i></div>` +
+      `<div class="daily-meta"><span>${c.done ? 'Done' : `${c.have} / ${c.n}`}</span><span class="daily-pay"><i class="dinar"></i>${c.reward}</span></div></div>`;
+  }).join('') + `<div class="daily-row bonus${m.bonusDone ? ' done' : ''}"><div class="daily-text">All three today</div><div class="daily-meta"><span>${m.bonusDone ? 'Done' : 'Bonus'}</span><span class="daily-pay"><i class="dinar"></i>${m.bonus}</span></div></div>`;
+  const done = m.list.filter((c) => c.done).length;
+  $('daily-sub').textContent = `${done} of 3 done · new ones at midnight`;
+  $('btn-daily').classList.toggle('attention', done < 3);
+}
+function openDaily() {
+  renderDaily(game.daily);
+  $('pause').hidden = true;
+  $('daily').hidden = false;
+  input.unlock();
+}
+game.onDaily = (m) => { if (!$('daily').hidden) renderDaily(m); else $('btn-daily').classList.toggle('attention', m.list.some((c) => !c.done)); };
+$('btn-daily').addEventListener('click', () => { uiBlip(); openDaily(); });
+$('daily-close').addEventListener('click', () => { uiBlip(); $('daily').hidden = true; });
 
 // -- the stats page ------------------------------------------------------------------
 function renderStats() {

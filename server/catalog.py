@@ -286,6 +286,7 @@ def clean_locker(d, dinar_cap=None):
         out['opened'] = max(0, int(d.get('opened', 0)))
     except (TypeError, ValueError):
         out['opened'] = 0
+    out['daily'] = d.get('daily') if isinstance(d.get('daily'), dict) else None     # today's challenge progress, checked by daily.py
     st = d.get('stats') if isinstance(d.get('stats'), dict) else {}
     for k in STAT_KEYS:
         try:

@@ -1370,7 +1370,7 @@ export class ViewModel {
         this.setWeapon(id);
       }
     } else if (this.switchT < 1) {
-      this.switchT = Math.min(1, this.switchT + dt / 0.3);
+      this.switchT = Math.min(1, this.switchT + dt / 0.24);
     }
     let down = this.pending ? ease(this.lowering) : 1 - ease(this.switchT);
     if (this.vestT > 0) {

@@ -8,8 +8,11 @@ export const PATCH_NOTES = [
   {
     version: '3.8.0',
     date: '22 October 2026',
-    title: 'Enhanced lighting',
+    title: 'Daily challenges, enhanced lighting',
     notes: [
+      'Daily challenges: three a day, the same for everyone, on the Daily button of the menu. Kills, headshots, wins, a particular gun, a particular mode, grenades, the knife, assists, a streak or a long shot. Each pays dinars the moment it is done, and all three in a day pays a bonus on top. New ones at midnight.',
+      'The maps grew into their landscapes. Rock is craggy now instead of boxed, on Ridgeline’s cliffs, ramps and boulders. Hedges bulge and have sprigs of leaf poking out. Pines are ragged and tiered, the Manor’s trees have proper crowns, and there are bushes at the hedge ends, grass across the lawns, and shrubs, stones and straw on Ridgeline’s slopes.',
+      'Gunplay: weapons come up a touch faster on a swap, the hit marker pops and a kill marker flares so you know a shot landed.',
       'A new lighting pass on every map: ambient occlusion darkens corners, doorways and the ground under things the way bounced light should, bright things bloom a little, edges are smoothed, and the whole picture goes through filmic tone mapping. The town looks put together rather than placed down.',
       'It is on by default. Settings → Video → Lighting has a lighter version (occlusion at half size) for slower laptops, and Standard to turn it off.',
       'Souk Royale keeps the standard lighting for now: that map is too big to pay for it.',
