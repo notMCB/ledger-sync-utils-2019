@@ -367,8 +367,52 @@ def save_bans():
         print('ban file error: %r' % (e,), flush=True)
 
 
+# The owner can never be banned. Devices the owner has signed in from are
+# remembered here, so a shared address (a school's, a household's) that ended
+# up on some banned player's record can't shut the owner out before sign-in.
+OWNER_NAME = 'mcb'
+OWNER_FILE = os.path.join(accounts.DATA_DIR, 'owner.json')
+owner_devs = set()
+
+
+def load_owner():
+    global owner_devs
+    try:
+        with open(OWNER_FILE) as f:
+            owner_devs = set(x for x in json.load(f).get('devs', []) if isinstance(x, str))
+    except (OSError, ValueError, AttributeError):
+        owner_devs = set()
+
+
+def save_owner():
+    try:
+        os.makedirs(accounts.DATA_DIR, exist_ok=True)
+        with open(OWNER_FILE, 'w') as f:
+            json.dump({'devs': sorted(owner_devs)}, f)
+    except OSError as e:
+        print('owner file error: %r' % (e,), flush=True)
+
+
+def owner_heal(account_id, ip, dev):
+    """Seen the owner: strip their account, address and device from every ban
+    record, and remember the device so it is never caught again."""
+    changed = False
+    for b in bans:
+        for key, v in (('accounts', account_id), ('ips', public_ip(ip)), ('devs', dev)):
+            if v and v in b[key]:
+                b[key].remove(v)
+                changed = True
+    if changed:
+        save_bans()
+    if dev and dev not in owner_devs:
+        owner_devs.add(dev)
+        save_owner()
+
+
 def ban_match(name, account_id, ip, dev):
     n = (name or '').strip().lower()
+    if dev and dev in owner_devs:
+        return None
     for b in bans:
         if n and b['name'] == n:
             return b
@@ -390,6 +434,8 @@ def public_ip(ip):
 
 def ban_learn(b, account_id, ip, dev):
     """Everything a banned player connects with joins their record."""
+    if dev and dev in owner_devs:
+        return
     changed = False
     ip = public_ip(ip)
     for key, v in (('accounts', account_id), ('ips', ip), ('devs', dev)):
@@ -3399,6 +3445,14 @@ def admin_command(p, text):
                 return say('Nothing listed. /shop add outfit nomad 2.99 Nomad outfit')
             return say('Shop (%s): ' % ('payments on' if shop.enabled() else 'payments OFF') + '; '.join('%s = %s %s' % (x['sku'], x['name'], shop.price_text(x['price'])) for x in shop.listings))
         return say('/shop list · /shop add <outfit|gun|cart|dinars> <id> <price> [name] · /shop remove <sku>')
+    if cmd == '/bans' and arg.lower() == 'clear':
+        # keep the names, forget every device, address and account learned from them
+        n = 0
+        for x in bans:
+            n += len(x['devs']) + len(x['ips']) + len(x['accounts'])
+            x['devs'], x['ips'], x['accounts'] = [], [], []
+        save_bans()
+        return say('Forgot %d learned devices, addresses and accounts. The %d names stay banned.' % (n, len(bans)))
     if cmd == '/bans':
         if not bans:
             return say('Nobody is banned.')
@@ -3418,7 +3472,7 @@ def admin_command(p, text):
         if not targets:
             return say('Nobody alive by that name.' if arg and arg.lower() != 'all' else 'Nobody to kill.')
         return say('Killed %s.' % ', '.join(q.name for q in targets))
-    return say('Commands: /ban name, /unban name, /bans, /kill [name | all], /shop. On your own screen: /fly, /wall, /panel. Scorestreaks 4 5 6 are always yours.')
+    return say('Commands: /ban name, /unban name, /bans, /bans clear, /kill [name | all], /shop. On your own screen: /fly, /wall, /panel. Scorestreaks 4 5 6 are always yours.')
 
 
 def room_list():
@@ -3522,8 +3576,13 @@ class Conn:
     def banned(self, name=None, account_id=None):
         """Shut the door on a banned player, remembering how they came in."""
         p = self.player
-        b = ban_match(name if name is not None else (p.name if p else ''), account_id or (p.account['id'] if p and p.account else None), self.ip, self.dev)
+        acc = account_id or (p.account['id'] if p and p.account else None)
+        b = ban_match(name if name is not None else (p.name if p else ''), acc, self.ip, self.dev)
         if not b:
+            return False
+        # the owner, signed in: whatever matched, it was a mistake; undo it
+        if acc and str(name if name is not None else (p.name if p else '')).strip().lower() == OWNER_NAME:
+            owner_heal(acc, self.ip, self.dev)
             return False
         ban_learn(b, account_id or (p.account['id'] if p and p.account else None), self.ip, self.dev)
         print('banned player turned away: %s as %r from %s' % (b['name'], name or (p.name if p else ''), self.ip), flush=True)
@@ -3747,6 +3806,12 @@ class Conn:
                 self.player = Player(self, name)
             else:
                 p.name = name
+            # a saved session comes with hello: if it is the owner's, no ban applies, whatever the address
+            tok = m.get('token')
+            if ACCOUNTS and isinstance(tok, str) and ban_match(name, None, self.ip, self.dev):
+                u = accounts.resume(tok)
+                if u and str(u.get('username', '')).lower() == OWNER_NAME:
+                    owner_heal(u['id'], self.ip, self.dev)
             if self.banned(name):
                 return
             if 'cos' in m:
@@ -4188,6 +4253,7 @@ async def ticker():
 async def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get('PORT', '8080'))
     load_bans()
+    load_owner()
     if bans:
         print('bans: %s' % ', '.join(b['name'] for b in bans), flush=True)
     ensure_rooms()

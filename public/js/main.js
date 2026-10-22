@@ -267,7 +267,7 @@ function deviceId() {
 }
 
 function sayHello() {
-  net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics(settings.lastLoadout || 0), dev: deviceId() });
+  net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics(settings.lastLoadout || 0), dev: deviceId(), token: auth.token() || undefined });
 }
 
 function currentName() {
