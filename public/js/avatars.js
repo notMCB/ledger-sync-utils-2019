@@ -225,14 +225,33 @@ function solveArm(S, T, pole, E, H) {
   E.copy(S).addScaledVector(IK_D, ARM_UPPER * Math.cos(a)).addScaledVector(IK_P, ARM_UPPER * Math.sin(a));
 }
 
-// lay a limb segment (a unit-length cylinder along y) from a to b
+// lay a limb (a capsule along y, built to its own length) from a to b
 const SEG_D = new THREE.Vector3();
 function poseSegment(mesh, a, b, thin = 1) {
   SEG_D.subVectors(b, a);
   const len = Math.max(0.01, SEG_D.length());
   mesh.position.copy(a).addScaledVector(SEG_D, 0.5);
-  mesh.scale.set(thin, len, thin);
+  mesh.scale.set(thin, 1, thin);
   mesh.quaternion.setFromUnitVectors(Y_UP, SEG_D.divideScalar(len));
+}
+
+// a limb segment: a capsule whose overall length (rounded ends included) is `len`
+function capsule(parent, r, len, mat, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.01, len - 2 * r), 4, 10), mat);
+  m.position.set(x, y, z);
+  m.castShadow = false;
+  parent.add(m);
+  return m;
+}
+
+// the torso turned on a lathe: hips, a waist, the chest widening to the
+// shoulders and closing to the neck. One smooth shape, oval in section.
+function lathe(parent, profile, mat, seg = 18) {
+  const m = new THREE.Mesh(new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), seg), mat);
+  m.scale.z = 0.64;
+  m.castShadow = false;
+  parent.add(m);
+  return m;
 }
 
 // the flash of sun off a scope lens, shared by every avatar
@@ -308,11 +327,9 @@ export class Avatar {
     this.legs = [];
     for (const sx of [-0.11, 0.11]) {
       const leg = new THREE.Group();
-      part('pants', sp(leg, 0.09, SHARED.pants, 0, 0, 0));                   // the hip
-      part('pants', cy(leg, 0.085, 0.07, 0.5, SHARED.pants, 0, -0.25, 0));
-      part('pants', sp(leg, 0.072, SHARED.pants, 0, -0.5, 0));
+      part('pants', capsule(leg, 0.088, 0.6, SHARED.pants, 0, -0.22, 0));       // thigh, from inside the hip to the knee
       const shin = new THREE.Group();
-      part('pants', cy(shin, 0.068, 0.055, 0.4, SHARED.pants, 0, -0.2, 0));
+      part('pants', capsule(shin, 0.068, 0.5, SHARED.pants, 0, -0.18, 0));      // shin, knee to ankle
       part('boots', bx(shin, 0.15, 0.1, 0.26, SHARED.boots, 0, -0.42, -0.04));
       part('boots', bx(shin, 0.14, 0.14, 0.14, SHARED.boots, 0, -0.38, 0.02));
       shin.position.y = -0.5;
@@ -329,10 +346,8 @@ export class Avatar {
     this.upper = upper;
     // the torso is round in section: a pelvis the legs grow out of, a chest that
     // widens to the shoulders, and the vest in the team colour over the chest
-    const pelvis = part('pants', cy(upper, 0.2, 0.19, 0.3, SHARED.pants, 0, 0.1, 0, 14));
-    pelvis.scale.z = 0.62;
-    const chest = part('shirt', cy(upper, 0.245, 0.2, 0.52, this.body, 0, 0.41, 0, 14));
-    chest.scale.z = 0.58;
+    part('pants', lathe(upper, [[0.05, -0.12], [0.17, -0.1], [0.205, -0.02], [0.205, 0.08], [0.19, 0.18], [0.185, 0.22]], SHARED.pants));
+    part('shirt', lathe(upper, [[0.185, 0.21], [0.195, 0.3], [0.225, 0.42], [0.24, 0.52], [0.235, 0.58], [0.205, 0.63], [0.13, 0.665], [0.07, 0.68], [0.0, 0.685]], this.body));
     // a jacket over the vest, for the outfits that have one: worn open over a
     // T-shirt, with a stripe down each front edge
     this.jacket = new THREE.Group();
@@ -349,8 +364,7 @@ export class Avatar {
     bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, -0.153).rotation.z = 0.28;    // the sling, over one shoulder and across
     bx(upper, 0.045, 0.44, 0.012, SHARED.strap, 0.08, 0.4, 0.153).rotation.z = -0.28;
     // the shoulders: a ball at each top corner of the chest, which the arm grows out of
-    for (const sx of [-1, 1]) part('shirt', sp(upper, 0.085, this.body, sx * 0.215, 0.6, 0));
-    part('shirt', cy(upper, 0.095, 0.19, 0.06, this.body, 0, 0.63, 0, 14)).scale.z = 0.6;  // the slope of the shoulders up to the collar
+    for (const sx of [-1, 1]) part('shirt', sp(upper, 0.082, this.body, sx * 0.205, 0.59, 0));
     cy(upper, 0.052, 0.06, 0.16, SHARED.skin, 0, 0.7, 0.01);                                   // the neck
     const head = new THREE.Group();
     head.position.y = 0.82;
@@ -474,13 +488,12 @@ export class Avatar {
     this.armsOf = [];
     for (const sx of [1, -1]) {
       const A = {
-        shoulder: new THREE.Vector3(sx * 0.235, 0.08, 0),
+        shoulder: new THREE.Vector3(sx * 0.215, 0.07, 0),
         pole: new THREE.Vector3(sx * 0.4, -0.7, -0.05),
-        upper: part('shirt', cy(arms, 0.052, 0.058, 1, this.body, 0, 0, 0, 8)),
-        fore: part('shirt', cy(arms, 0.044, 0.05, 1, this.body, 0, 0, 0, 8)),
-        elbow: part('shirt', sp(arms, 0.052, this.body, 0, 0, 0, 8)),
+        upper: part('shirt', capsule(arms, 0.056, ARM_UPPER + 0.06, this.body)),
+        fore: part('shirt', capsule(arms, 0.048, ARM_FORE + 0.05, this.body)),
         band: cy(arms, 0.064, 0.066, 0.055, this.body, 0, 0, 0, 10),        // armband in the team colour
-        hand: bx(arms, 0.07, 0.05, 0.09, SHARED.glove, 0, 0, 0),
+        hand: sp(arms, 0.046, SHARED.glove, 0, 0, 0, 10),
         E: new THREE.Vector3(), H: new THREE.Vector3(), T: new THREE.Vector3(),
       };
       this.armsOf.push(A);
@@ -638,10 +651,10 @@ export class Avatar {
       belt.scale.z = 0.64;
       belt.castShadow = false;
       g.add(belt);
-      bx(g, 0.32, 0.15, 0.12, lam(bag), 0, 0.15, -0.19);                  // the pouch
-      bx(g, 0.3, 0.03, 0.125, SHARED.strap, 0, 0.235, -0.19);             // flap seam
+      bx(g, 0.3, 0.15, 0.12, lam(bag), 0, 0.15, -0.14);                   // the pouch
+      bx(g, 0.28, 0.03, 0.125, SHARED.strap, 0, 0.235, -0.14);            // flap seam
       const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.1), icon);
-      plate.position.set(0, 0.145, -0.2505);
+      plate.position.set(0, 0.145, -0.2005);
       plate.rotation.y = Math.PI;
       g.add(plate);
       upper.add(g);
@@ -910,6 +923,8 @@ export class Avatar {
     this.upper.rotation.x = c * 0.15 + 0.22 * this.sprintK * (1 - pk);
     this.upper.rotation.y = Math.sin(this.walkT) * 0.07 * stride;
     this.upper.position.y += Math.abs(Math.sin(this.walkT)) * 0.025 * stride;
+    this.head.rotation.x += Math.sin(this.walkT * 2) * 0.03 * stride;
+    this.stride = stride;
     this.poseArms();
     this.showName = Math.max(0, this.showName - dt);
     this.revealT = Math.max(0, this.revealT - dt);
@@ -926,6 +941,7 @@ export class Avatar {
     const grip = info ? info.grip : DEFAULT_GRIP;
     GRIP_AT.set(0.09 + (0.03 - 0.09) * ads, -0.3 + (0.06 + 0.3) * ads, -0.26 + (-0.3 + 0.26) * ads);
     GRIP_AT.lerp(SPRINT_GRIP, spr);
+    if (this.stride) GRIP_AT.y += Math.sin(this.walkT * 2) * 0.012 * this.stride * (1 - ads);
     G.rotation.set(-0.35 * spr, 0.5 * spr, 0);
     TMP_V.copy(grip).applyQuaternion(G.quaternion);
     G.position.copy(GRIP_AT).sub(TMP_V);
@@ -944,10 +960,9 @@ export class Avatar {
       A.band.position.lerpVectors(A.shoulder, A.E, 0.42);
       A.band.quaternion.copy(A.upper.quaternion);
       A.band.scale.set(this.armThin, 1, this.armThin);
-      A.elbow.position.copy(A.E);
-      A.elbow.scale.setScalar(this.armThin);
       A.hand.position.copy(A.H);
       A.hand.quaternion.copy(G.quaternion);
+      A.hand.scale.set(0.85 * this.armThin, 0.7, 1.15);
     }
   }
 
