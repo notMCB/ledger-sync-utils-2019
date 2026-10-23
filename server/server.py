@@ -46,7 +46,7 @@ import daily
 import names  # noqa: E402
 from og import game as og  # noqa: E402
 
-VERSION = '3.8.2'
+VERSION = '3.8.3'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -4132,8 +4132,11 @@ class Conn:
             if 0 < len(dev) <= 40 and dev.isalnum():
                 self.dev = dev
             # a guest plays as an adjective and an animal: the browser's own choice if it
-            # is one, else the one its device hashes to. Accounts get their username at sign-in.
-            if not FREE_NAMES and not names.is_guest_name(name) and not (p and p.account):
+            # is one, else the one its device hashes to. An account keeps its username,
+            # whatever a later hello says.
+            if p and p.account:
+                name = p.account['username']
+            elif not FREE_NAMES and not names.is_guest_name(name):
                 name = names.guest_name(self.dev or self.ip)
             if p is None:
                 self.player = Player(self, name)

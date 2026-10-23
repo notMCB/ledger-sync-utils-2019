@@ -2,9 +2,18 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.8.2';
+export const VERSION = '3.8.3';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.8.3',
+    date: '23 October 2026',
+    title: 'Names and voices',
+    notes: [
+      'Signed-in players keep their own username everywhere. A reconnect was handing some of them a guest name.',
+      'Everyone is brought onto the same build, so the open Free for All voice channel works between all of you rather than only with those who had refreshed.',
+    ],
+  },
   {
     version: '3.8.2',
     date: '23 October 2026',
