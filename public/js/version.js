@@ -2,11 +2,11 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.9.0';
+export const VERSION = '3.8.2';
 
 export const PATCH_NOTES = [
   {
-    version: '3.9.0',
+    version: '3.8.2',
     date: '23 October 2026',
     title: 'The Engineer',
     notes: [
@@ -15,14 +15,9 @@ export const PATCH_NOTES = [
       'Land mines, the other perk: three a life, laid at your feet and live a second and a half later. A vehicle driving over one is wrecked and an enemy stepping on one is blown up. Your own side sees a small light on them.',
       'Anti-tank grenades: a stick grenade the Engineer can carry instead of frags. Half the damage to people, but a vehicle it lands on is wrecked and one nearby is badly hurt.',
       'Vehicles can be wrecked now: a hundred points of blast and a forklift or golf cart burns out, with whoever was driving. It is back at its stand twenty-five seconds later. Frags scratch them; rockets, mines and anti-tank grenades finish them.',
-    ],
-  },
-  {
-    version: '3.8.3',
-    date: '23 October 2026',
-    title: 'The owner’s name',
-    notes: [
-      'MCB is the owner’s name and nobody else’s. Taking it, in any spelling, gets you banned on the spot, device and all. The ban follows the device, not the network, so nobody else on the same wifi is caught by it.',
+      'The RPG and the grenade launcher are single-shot: every round is followed by a reload, nearly three seconds for a rocket and two for a grenade, and nothing fires until it is done.',
+      'A rocket into a thin wall or floor blows a hole through it, about two metres across with a jagged edge and rubble at the foot. You can walk, shoot and fall through it. Plaster, concrete, wood, floors and flat roofs give way; rock, steel and anything thick do not.',
+      'Hits bleed: blood spurts from the wound while a body is under fire, out of the entry and the exit, and stops the moment the shooting does. Nothing stays on the ground.',
     ],
   },
   {
