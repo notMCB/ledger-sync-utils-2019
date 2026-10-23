@@ -15,8 +15,8 @@ export const PATCH_NOTES = [
       'Land mines, the other perk: three a life, laid at your feet and live a second and a half later. A vehicle driving over one is wrecked and an enemy stepping on one is blown up. Your own side sees a small light on them.',
       'Anti-tank grenades: a stick grenade the Engineer can carry instead of frags. Half the damage to people, but a vehicle it lands on is wrecked and one nearby is badly hurt.',
       'Vehicles can be wrecked now: a hundred points of blast and a forklift or golf cart burns out, with whoever was driving. It is back at its stand twenty-five seconds later. Frags scratch them; rockets, mines and anti-tank grenades finish them.',
-  {
-    version: '3.8.2',
+    ],
+  },
   {
     version: '3.8.3',
     date: '23 October 2026',

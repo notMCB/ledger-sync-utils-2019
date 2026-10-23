@@ -1592,6 +1592,7 @@ export class World {
     this.holes = this.holes || new Set();
     if (this.holes.has(bi)) return false;
     this.holes.add(bi);
+    this.lastHole = { b: bi, u, v, h: half };
     const [cx, cy, cz, hx, hy, hz, yaw, mat, tint] = box;
     const H = [hx, hy, hz];
     const T = H[0] <= H[1] && H[0] <= H[2] ? 0 : H[1] <= H[2] ? 1 : 2;

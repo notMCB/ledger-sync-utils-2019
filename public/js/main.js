@@ -1726,12 +1726,56 @@ async function runEngineer() {
   await sleep(400);
   log('CAPTURE eng-rpg-ads');
   me.adsK = 0;
-  game.fireRpg(game.weapon());
+  // a thin wall near by to put a rocket through: aim at the middle of its near face
+  const thin = (b) => Math.min(b[3], b[4], b[5]) <= 0.36;
+  const walls = game.map.boxes.map((b, i) => [b, i]).filter(([b]) => ['wall', 'concrete', 'wood'].includes(b[7]) && thin(b) && b[4] >= 1.2 && b[3] >= 1.1 && Math.hypot(b[0] - me.pos.x, b[2] - me.pos.z) < 14 && Math.hypot(b[0] - me.pos.x, b[2] - me.pos.z) > 3);
+  walls.sort((a, b) => Math.hypot(a[0][0] - me.pos.x, a[0][2] - me.pos.z) - Math.hypot(b[0][0] - me.pos.x, b[0][2] - me.pos.z));
+  let target = null;
+  if (walls.length) {
+    const [b, i] = walls[0];
+    target = { x: b[0], y: Math.min(b[1], me.pos.y + 1.2), z: b[2], i };
+    const dx = target.x - me.pos.x, dz = target.z - me.pos.z;
+    me.yaw = Math.atan2(-dx, -dz); me.pitch = Math.atan2(target.y - (me.pos.y + 1.6), Math.hypot(dx, dz));
+    await sleep(300);
+    log(`wall box ${i} ${b[7]} at ${dx.toFixed(1)},${dz.toFixed(1)} half ${b[3]},${b[4]},${b[5]}`);
+    log('CAPTURE eng-wall-before');
+  }
+  const wsR = game.weapon();
+  game.fireRpg(wsR);
+  log(`after fire: reloading ${wsR.reloading} reloadEnd in ${(me.reloadEnd - game.clock).toFixed(1)}s`);
   await sleep(160);
   log(`rockets in flight ${game.fx.nades.length} perkLeft ${me.perkLeft}`);
   log('CAPTURE eng-rocket');
   await sleep(2500);
   log('CAPTURE eng-boom');
+  if (target) {
+    const THREE = await import('three');
+    const H = game.world.lastHole;
+    log(`holes ${game.world.holes ? game.world.holes.size : 0} last ${JSON.stringify(H)} aimed box ${target.i}`);
+    if (H) {
+      // stand square in front of the holed box, on my side of it, and look through the hole
+      const b = game.map.boxes[H.b];
+      const c = Math.cos(b[6]), sn = Math.sin(b[6]);
+      const T = b[3] <= b[4] && b[3] <= b[5] ? 0 : b[4] <= b[5] ? 1 : 2;
+      const [AU, AV] = [0, 1, 2].filter((a) => a !== T);
+      const loc = [0, 0, 0]; loc[AU] = H.u; loc[AV] = H.v;
+      const hx = b[0] + c * loc[0] + sn * loc[2], hy = b[1] + loc[1], hz = b[2] - sn * loc[0] + c * loc[2];
+      let nx = T === 0 ? c : T === 2 ? sn : 0, nz = T === 0 ? -sn : T === 2 ? c : 0;
+      if ((me.pos.x - hx) * nx + (me.pos.z - hz) * nz < 0) { nx = -nx; nz = -nz; }
+      const from = new THREE.Vector3(hx + nx * 3, hy, hz + nz * 3);
+      const dir = new THREE.Vector3(-nx, 0, -nz);
+      const hit = game.world.physics.raycast(from, dir, 20);
+      log(`ray through the hole centre: hit at ${hit ? hit.t.toFixed(2) : 'none'} (${hit && hit.box ? hit.box.mat : '-'}) wall face at 3.0`);
+      me.pos.set(hx + nx * 4.5, hy - 1.3, hz + nz * 4.5); me.yaw = Math.atan2(nx, nz); me.pitch = 0.05; me.vel.set(0, 0, 0);
+      await sleep(600);
+      log('CAPTURE eng-hole');
+      me.pos.set(hx + nx * 2.2, hy - 1.3, hz + nz * 2.2); me.vel.set(0, 0, 0);
+      await sleep(500);
+      log('CAPTURE eng-hole-close');
+    }
+  }
+  for (let i = 0; i < 40 && wsR.reloading; i++) await sleep(100);
+  log(`reload done after wait: reloading ${wsR.reloading}`);
   // an Engineer among the others: look at their back
   const eng = [...game.avatars.map.values()].find((a) => a.loadout === 4);
   if (eng) {

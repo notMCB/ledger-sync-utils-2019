@@ -83,7 +83,7 @@ async def main(url, secs, out):
             pr = m['params']
             if m['method'] == 'Runtime.exceptionThrown':
                 d = pr['exceptionDetails']
-                print('EXCEPTION:', d.get('text'), (d.get('exception') or {}).get('description', '')[:300])
+                print('EXCEPTION:', d.get('text'), (d.get('exception') or {}).get('description', '')[:300], d.get('url'), d.get('lineNumber'))
             elif m['method'] == 'Log.entryAdded' and pr['entry'].get('level') in ('error', 'warning'):
                 print(pr['entry']['level'].upper() + ':', pr['entry'].get('text', '')[:300])
     finally:
