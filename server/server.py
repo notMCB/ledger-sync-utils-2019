@@ -170,8 +170,8 @@ LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 # each loadout's perk and how many uses it has per life
 PERKS = ['launcher', 'med', 'ladder', 'beacon']
 # the perks a loadout may pick from (first is the default), and the grenades
-# the Assault's grenade launcher took the ammo crate's place; the Breacher may carry one too
-PERK_OPTIONS = [('launcher',), ('med', 'wall'), ('ladder', 'launcher'), ('beacon', 'drone', 'knives')]
+# the Assault carries the grenade launcher or the ammo crate; the Breacher may carry a launcher too
+PERK_OPTIONS = [('launcher', 'ammo'), ('med', 'wall'), ('ladder', 'launcher'), ('beacon', 'drone', 'knives')]
 NADE_OPTIONS = [('frag', 'molotov'), ('frag', 'smoke'), ('frag', 'flash', 'molotov'), ('frag',)]
 PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1, 'knives': 3, 'launcher': 0}
 LAUNCH_REACH = 150.0    # a launched grenade may go off this far from the gun (a thrown one, 60)
@@ -2991,15 +2991,11 @@ class Room:
         H = self.map.get('height')
         if H:
             best = min(y + 0.5, mapgen.surface_at(H, x, z))     # smooth ground: the steps are not what is walked on
-        for (cx, cy, cz, hx, hy, hz, yaw, mat, tint) in self.map['boxes']:
-            if H and mat == 'terrain':
+        S = self.solid
+        for i in S.near(x, z):
+            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = S.b[i]
+            if (H and mat == 'terrain') or top <= best or top > y + 0.5:
                 continue
-            top = cy + hy
-            if top <= best or top > y + 0.5:
-                continue
-            if abs(cx - x) > hx + hz or abs(cz - z) > hx + hz:
-                continue
-            c, s = math.cos(yaw), math.sin(yaw)
             dx, dz = x - cx, z - cz
             lx = c * dx - s * dz
             lz = s * dx + c * dz

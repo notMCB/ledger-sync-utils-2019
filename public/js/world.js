@@ -49,9 +49,13 @@ const LAMP = {
 const POOL = 14;             // real point lights in play at once; the nearest lamps get them
 
 let texCache = null;
+let texMs = 0;
+export function textureMs() { return texMs; }
 function textures() {
   if (texCache) return texCache;
+  const t0 = performance.now();
   const ground = T.groundSet(), snow = T.snowSet(), grass = T.grassSet(), concrete = T.concreteSet();
+  texMs = Math.round(performance.now() - t0);
   texCache = {
     plaster: T.plaster(), stone: T.stone(), ground: ground.map, groundN: ground.normalMap, tiles: T.tiles(), wood: T.wood(),
     crate: T.crate(), metal: T.metal(), leaf: T.palmLeaf(),
@@ -554,6 +558,12 @@ export class World {
   }
 
   build(map) {
+    const t0 = performance.now();
+    this.buildMap(map);
+    this.buildMs = Math.round(performance.now() - t0);
+  }
+
+  buildMap(map) {
     this.dispose();
     this.map = map;
     this.night = !!map.night;

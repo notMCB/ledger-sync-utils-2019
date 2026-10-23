@@ -14,6 +14,8 @@ export const PATCH_NOTES = [
       'The roads across the seams lie on the land rather than standing on stepped slabs, the ridge’s face is the same rock wall as on Ridgeline, and where the ridge carries on past its quarter the drop is bare rock.',
       'The Manor’s doors and windows work in the Royale too: open them, sprint through them, break the glass.',
       'Snow banks against the walls in the snowy quarter and sand against the walls in the sandy one.',
+      'The Assault class can carry the ammo crate again, as an alternative to the grenade launcher. Pick it in the Loadout screen.',
+      'Faster under the hood: the server checks shots and finds the ground two hundred times quicker on the big map, the game builds its ground textures in less time, and bullets that hit a wall no longer trace the ground past it.',
     ],
   },
   {

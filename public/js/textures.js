@@ -143,14 +143,14 @@ export function ground() { return groundSet().map; }
 // a lawn: a carpet of fine blades in two greens, worn and yellow in patches, with
 // faint mowing stripes
 export function grassSet() {
-  const S = 1024;
+  const S = 512;
   const [c, g] = canvas(S);
   const r = rng(77);
   const tone = fbm(S, r, 3, 4, 0.55), fine = fbm(S, r, 40, 3, 0.5), worn = fbm(S, r, 4, 3, 0.5);
   const h = new Float32Array(S * S);
   paint(g, S, (i, x, y) => {
     const t = tone[i], f = fine[i], wn = Math.max(0, worn[i] - 0.6) * 2.2;
-    const stripe = Math.sin(y * (Math.PI * 2 / 128)) > 0 ? 1.0 : 0.93;
+    const stripe = Math.sin(y * (Math.PI * 2 / 64)) > 0 ? 1.0 : 0.93;
     const gr = [mix(86, 120, t), mix(140, 176, t), mix(52, 70, t)];
     const dry = [160, 148, 72];
     const k = (0.82 + f * 0.36) * stripe;
@@ -159,8 +159,8 @@ export function grassSet() {
   });
   // blades: short strokes leaning every way
   g.lineWidth = 1;
-  for (let i = 0; i < 26000; i++) {
-    const x = r() * S, y = r() * S, L = 3 + r() * 5, a = -Math.PI / 2 + (r() - 0.5) * 1.2;
+  for (let i = 0; i < 9000; i++) {
+    const x = r() * S, y = r() * S, L = 2 + r() * 3, a = -Math.PI / 2 + (r() - 0.5) * 1.2;
     g.strokeStyle = r() < 0.5 ? 'rgba(60,110,40,0.35)' : 'rgba(150,200,90,0.3)';
     g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke();
   }

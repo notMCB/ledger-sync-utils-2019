@@ -154,7 +154,7 @@ export const PERKS = {
 };
 
 export const LOADOUTS = [
-  { id: 0, weapon: 'smg', weapons: ['smg', 'pdw', 'carbine'], perk: 'launcher', perks: ['launcher'], nadeKinds: ['frag', 'molotov'], nades: 3, title: 'Assault', blurb: 'SMG, the Barq PDW or the Rimah Carbine, with three grenades or two molotovs and a launcher to fire them from. Quick to aim, strong up close. Kills with it unlock attachments.' },
+  { id: 0, weapon: 'smg', weapons: ['smg', 'pdw', 'carbine'], perk: 'launcher', perks: ['launcher', 'ammo'], nadeKinds: ['frag', 'molotov'], nades: 3, title: 'Assault', blurb: 'SMG, the Barq PDW or the Rimah Carbine, with three grenades or two molotovs and a launcher to fire them from, or an ammo crate instead. Quick to aim, strong up close. Kills with it unlock attachments.' },
   { id: 1, weapon: 'lmg', weapons: ['lmg', 'carbine'], perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG, or the Rimah Carbine. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
   { id: 2, weapon: 'shotgun', weapons: ['shotgun', 'flamer'], perk: 'ladder', perks: ['ladder', 'launcher'], nadeKinds: ['frag', 'flash', 'molotov'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun or a flamethrower, devastating in rooms and doorways. Frag, flash or molotov, thrown or from a launcher; or a breaching ladder.' },
   { id: 3, weapon: 'sniper', weapons: ['sniper', 'heavy'], perk: 'beacon', perks: ['beacon', 'drone', 'knives'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope, or the one-shot .50. Drops a recon beacon, flies a bomb drone, or carries three throwing knives.' },

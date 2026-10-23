@@ -226,9 +226,8 @@ class Royale(Town):
         """The smooth ground a player walks on (see mapgen.surface_at)."""
         if self.h is None:
             return 0.0
-        key = sum(map(sum, self.h))
-        if getattr(self, '_grid_key', None) != key:
-            self._grid_key, self._grid = key, self.height_grid()
+        if getattr(self, '_grid', None) is None:
+            self._grid = self.height_grid()      # the cells are settled once make_ground is done
         return mapgen.surface_at(self._grid, x, z)
 
     def make_ground(self):
@@ -304,6 +303,7 @@ class Royale(Town):
                         changed = True
             if not changed:
                 break
+        self._grid = None      # the smooth surface is read from these cells from here on
 
     def emit_ground(self):
         """The seam terrain as boxes: runs of equal height and texture along x."""

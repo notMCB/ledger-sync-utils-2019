@@ -1432,22 +1432,90 @@ def surface_at(H, x, z):
     return (h00 + (h10 - h00) * sx) * (1 - sz) + (h01 + (h11 - h01) * sx) * sz
 
 
+GRID = 8.0   # the cell size of the boxes' lookup grid
+
+
 class Solid:
-    """The boxes of a town, prepared for segment tests."""
+    """The boxes of a town, prepared for segment tests: indexed in a grid of
+    cells, so a test walks the cells a segment crosses rather than every box."""
 
     def __init__(self, boxes):
         self.b = []
+        self.cells = {}
         for (cx, cy, cz, hx, hy, hz, yaw, mat, tint) in boxes:
             if mat == 'tile' and hy < 0.05:
                 continue
-            self.b.append((cx, cy, cz, hx, hy, hz, math.cos(yaw), math.sin(yaw),
-                           math.sqrt(hx * hx + hy * hy + hz * hz)))
+            c, s = math.cos(yaw), math.sin(yaw)
+            i = len(self.b)
+            self.b.append((cx, cy, cz, hx, hy, hz, c, s, math.sqrt(hx * hx + hy * hy + hz * hz), mat, cy + hy))
+            ex = abs(c) * hx + abs(s) * hz
+            ez = abs(s) * hx + abs(c) * hz
+            for ix in range(int((cx - ex) // GRID), int((cx + ex) // GRID) + 1):
+                for iz in range(int((cz - ez) // GRID), int((cz + ez) // GRID) + 1):
+                    self.cells.setdefault((ix, iz), []).append(i)
+
+    def near(self, x, z):
+        """The boxes whose footprint may cover a point."""
+        return self.cells.get((int(x // GRID), int(z // GRID)), ())
+
+    def along(self, p, q):
+        """The boxes in the cells a segment crosses, each once."""
+        x0, z0, x1, z1 = p[0], p[2], q[0], q[2]
+        ix, iz = int(x0 // GRID), int(z0 // GRID)
+        jx, jz = int(x1 // GRID), int(z1 // GRID)
+        seen = set()
+        out = []
+        if ix == jx and iz == jz:
+            return self.cells.get((ix, iz), ())
+        dx, dz = x1 - x0, z1 - z0
+        sx, sz = (1 if dx > 0 else -1), (1 if dz > 0 else -1)
+        tdx = abs(GRID / dx) if dx else 1e18
+        tdz = abs(GRID / dz) if dz else 1e18
+        tmx = (((ix + (1 if sx > 0 else 0)) * GRID - x0) / dx) if dx else 1e18
+        tmz = (((iz + (1 if sz > 0 else 0)) * GRID - z0) / dz) if dz else 1e18
+        for _ in range(4000):
+            for i in self.cells.get((ix, iz), ()):
+                if i not in seen:
+                    seen.add(i)
+                    out.append(i)
+            if ix == jx and iz == jz:
+                break
+            if tmx < tmz:
+                ix += sx
+                tmx += tdx
+            else:
+                iz += sz
+                tmz += tdz
+            if tmx > 1.0 and tmz > 1.0 and (ix != jx or iz != jz):
+                # past the end without landing on its cell (rounding): take the end cell and stop
+                for i in self.cells.get((jx, jz), ()):
+                    if i not in seen:
+                        seen.add(i)
+                        out.append(i)
+                break
+        return out
+
+    def top_under(self, x, z, y):
+        """The highest box top under a point, up to a little above it, or 0."""
+        best = 0.0
+        for i in self.near(x, z):
+            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = self.b[i]
+            if top <= best or top > y + 0.5:
+                continue
+            dx, dz = x - cx, z - cz
+            lx = c * dx - s * dz
+            lz = s * dx + c * dz
+            if abs(lx) <= hx and abs(lz) <= hz:
+                best = top
+        return best
 
     def blocked(self, p, q):
         px, py, pz = p
         dx, dy, dz = q[0] - px, q[1] - py, q[2] - pz
         L = math.sqrt(dx * dx + dy * dy + dz * dz) or 1e-6
-        for (cx, cy, cz, hx, hy, hz, c, s, rad) in self.b:
+        B = self.b
+        for i in self.along(p, q):
+            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = B[i]
             # quick reject: distance from box centre to segment
             ox, oy, oz = cx - px, cy - py, cz - pz
             t = max(0.0, min(1.0, (ox * dx + oy * dy + oz * dz) / (L * L)))
