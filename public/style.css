@@ -98,6 +98,8 @@ body.party *:not(canvas):not(#party-splash):not(#party-splash *) { animation: ra
 .mode .m-count { font-family: var(--mono); color: var(--saffron); font-weight: 700; }
 .mode .m-play { font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--plaster); font-size: 12px; }
 .menu-foot { display: grid; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line); }
+.guest-name { display: flex; gap: 8px; align-items: center; }
+.guest-name input { flex: 1; min-width: 0; cursor: default; }
 .foot-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .foot-label { width: 42px; flex: none; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--plaster-dim); }
 

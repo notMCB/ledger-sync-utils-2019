@@ -2,9 +2,20 @@
 // Every release bumps VERSION (keep server/server.py in step) and adds an entry
 // at the top of PATCH_NOTES, written for players.
 
-export const VERSION = '3.8.2';
+export const VERSION = '3.8.3';
 
 export const PATCH_NOTES = [
+  {
+    version: '3.8.3',
+    date: '23 October 2026',
+    title: 'Guest names, Engineer fixes',
+    notes: [
+      'If you are not signed in you play under a name the game gives you, an adjective and an animal: boldpig, funnycamel, sneakyfalcon. Press New name on the menu for another. Your own name is yours when you sign in.',
+      'The Engineer’s gun, perk and grenade choices stick now when you are signed in. They were snapping back to the shotgun on every save.',
+      'The RPG shows its round: the green rocket leaves with the shot and the reload slides the next one onto the muzzle.',
+      'Voice chat in Free for All is one open channel now: everyone hears everyone, at full volume, wherever they are. The other modes keep the distance chat.',
+    ],
+  },
   {
     version: '3.8.2',
     date: '23 October 2026',

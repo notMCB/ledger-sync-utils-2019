@@ -150,7 +150,7 @@ def module_tests():
 
 
 async def server_tests():
-    env = dict(os.environ, DATA_DIR='/tmp/souk-daily-test', ACCOUNTS='0', BOT_FILL='0', SOUK_DAILY_DAY=DAY)
+    env = dict(os.environ, SOUK_FREE_NAMES='1', DATA_DIR='/tmp/souk-daily-test', ACCOUNTS='0', BOT_FILL='0', SOUK_DAILY_DAY=DAY)
     os.makedirs('/tmp/souk-daily-test', exist_ok=True)
     log = open('/tmp/souk-daily-test/srv.log', 'w')
     srv = subprocess.Popen([sys.executable, '-u', os.path.join(ROOT, 'server', 'server.py'), str(PORT)], env=env,

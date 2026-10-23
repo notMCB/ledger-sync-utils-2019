@@ -42,10 +42,11 @@ import catalog  # noqa: E402
 import accounts  # noqa: E402
 import shop  # noqa: E402
 import mailer  # noqa: E402
-import daily  # noqa: E402
+import daily
+import names  # noqa: E402
 from og import game as og  # noqa: E402
 
-VERSION = '3.8.2'
+VERSION = '3.8.3'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -106,6 +107,7 @@ DERBY_CRASH_REACH = 3.4    # how far from the cart's middle a hit can be
 PLANE_ALT = 160.0          # how high the plane flies
 PLANE_SPEED = 24.0         # metres a second
 NIGHT_CHANCE = float(os.environ.get('SOUK_NIGHT') or 0.4)   # how often a match is played after dark
+FREE_NAMES = os.environ.get('SOUK_FREE_NAMES') == '1'    # tests: guests may use any name
 BOT_FILL = int(os.environ.get('SOUK_BOTS') or 0)            # a quiet royale is filled up to this many with bots (none, since 3.6.1)
 BOT_NAMES = ['Bot Ahmed', 'Bot Layla', 'Bot Omar', 'Bot Zara', 'Bot Idris', 'Bot Nadia', 'Bot Samir', 'Bot Rania',
              'Bot Tariq', 'Bot Yasmin', 'Bot Karim', 'Bot Hana', 'Bot Faris', 'Bot Dalia']
@@ -4129,6 +4131,10 @@ class Conn:
             dev = str(m.get('dev') or '')
             if 0 < len(dev) <= 40 and dev.isalnum():
                 self.dev = dev
+            # a guest plays as an adjective and an animal: the browser's own choice if it
+            # is one, else the one its device hashes to. Accounts get their username at sign-in.
+            if not FREE_NAMES and not names.is_guest_name(name) and not (p and p.account):
+                name = names.guest_name(self.dev or self.ip)
             if p is None:
                 self.player = Player(self, name)
             else:
@@ -4168,8 +4174,6 @@ class Conn:
         elif t == 'join':
             if self.banned():
                 return
-            if not p.account and (p.name or '').strip().lower() in ('', 'player'):
-                return self.send({'t': 'err', 'm': 'Enter a name before you join, or sign in.'})
             if not p.account and isinstance(m.get('daily'), dict):
                 p.daily = daily.clean(m['daily'], daily.today(SYDNEY))     # a guest brings today's progress with them
                 self.send(daily.public(p.daily, daily.today(SYDNEY)))

@@ -759,15 +759,18 @@ function buildRpg(sleeve) {
   cyl(g, 0.022, 0.62, MAT.dark, 0, 0.03, -0.02, 14);
   cyl(g, 0.026, 0.08, MAT.steel, 0, 0.03, -0.3, 14);                 // the muzzle ring
   cyl(g, 0.03, 0.1, MAT.dark, 0, 0.03, 0.27, 12, 0.045);             // the blast cone at the back
-  // the warhead: a cone on a short body, out in front
-  cyl(g, 0.02, 0.07, MAT.nade, 0, 0.03, -0.37, 12);
+  // the warhead: a cone on a short body, out in front. It is the round: it leaves
+  // with the shot and the reload brings the next one up to the muzzle
+  const warhead = new THREE.Group();
+  g.add(warhead);
+  cyl(warhead, 0.02, 0.07, MAT.nade, 0, 0.03, -0.37, 12);
   const cone = new THREE.Mesh(new THREE.ConeGeometry(0.034, 0.12, 12), MAT.nade);
   cone.rotation.x = -Math.PI / 2;
   cone.position.set(0, 0.03, -0.46);
-  g.add(cone);
-  cyl(g, 0.036, 0.03, MAT.nade, 0, 0.03, -0.395, 12);
+  warhead.add(cone);
+  cyl(warhead, 0.036, 0.03, MAT.nade, 0, 0.03, -0.395, 12);
   for (let i = 0; i < 4; i++) {
-    const fin = box(g, 0.004, 0.03, 0.05, MAT.steel, 0, 0.03, -0.355);
+    const fin = box(warhead, 0.004, 0.03, 0.05, MAT.steel, 0, 0.03, -0.355);
     fin.rotation.z = i * Math.PI / 2;
     fin.position.set(Math.sin(i * Math.PI / 2) * 0.03, 0.03 + Math.cos(i * Math.PI / 2) * 0.03, -0.355);
   }
@@ -793,7 +796,7 @@ function buildRpg(sleeve) {
   const gun = {
     group: g, sight: S, muzzle: new THREE.Vector3(0, 0.03, -0.5), hands: h,
     hip: new THREE.Vector3(0.17, -0.14, -0.3), ads: new THREE.Vector3(0, -S, -0.26), kind: 'launcher',
-    parts: {}, setAttach: () => {},
+    parts: {}, setAttach: () => {}, warhead, warheadHome: warhead.position.clone(),
   };
   return gun;
 }
@@ -1344,6 +1347,12 @@ export class ViewModel {
     this.cancelReload();
   }
 
+  // a rocket is on the launcher whenever it is brought up with rounds left
+  showWarhead(on) {
+    const g = this.guns.rpg;
+    if (g && g.warhead) { g.warhead.visible = on; g.warhead.position.copy(g.warheadHome); }
+  }
+
   switchTo(id) {
     if (id === this.curId && !this.pending) return;
     this.pending = id;
@@ -1394,6 +1403,7 @@ export class ViewModel {
     this.flashT = 0.05;
     this.flashSmall = suppressed;
     if (this.cur && this.cur.slide) this.slideAnim = 0;
+    if (this.cur && this.cur.warhead) this.cur.warhead.visible = false;     // the rocket is away
   }
 
   // called every frame the flamethrower's trigger is held
@@ -1649,10 +1659,18 @@ export class ViewModel {
       }
     } else if (g.kind === 'launcher') {
       // the launcher and the RPG: the gun drops to the hip, the left hand goes down
-      // for the next round and brings it up to the breech, then the gun comes back
+      // for the next round and brings it up to the muzzle, then the gun comes back
       const dip = seg(t, 0.05, 0.3) * (1 - seg(t, 0.72, 0.95));
       const load = seg(t, 0.4, 0.62);
       L.position.set(home.x - dip * 0.05, home.y - dip * 0.16 + load * dip * 0.1, home.z + dip * 0.12 - load * dip * 0.1);
+      if (g.warhead) {
+        // the next rocket: in the hand from below, slid onto the muzzle, then it sits there
+        const w = g.warhead, hm = g.warheadHome;
+        const rise = seg(t, 0.3, 0.45), slide = seg(t, 0.45, 0.68);
+        w.visible = t > 0.3;
+        w.position.set(hm.x - 0.06 * (1 - slide), hm.y - 0.22 * (1 - rise) - 0.04 * (1 - slide), hm.z + 0.3 * (1 - slide) + 0.1 * (1 - rise));
+        if (t >= 1) { w.position.copy(hm); w.visible = true; }
+      }
     } else if (g.kind === 'box') {
       // LMG: cover up, box off, new box on, belt, cover down
       g.cover.rotation.x = -seg(t, 0.08, 0.18) * (1 - seg(t, 0.78, 0.88)) * 1.1;

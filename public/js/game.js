@@ -4003,6 +4003,7 @@ export class Game {
     } else {
       me.lastSlot = me.slot;
       me.slot = slot;
+      if (slot === 'rpg') vm.showWarhead(me.perkLeft > 0);
       if (slot === 'rpg' && me.perkLeft <= 0) this.hud.center('No rockets left', 'You get three more when you respawn', '', 1.4, 1);
       else if (slot === 'launcher' && me.nades <= 0) this.hud.center('No grenades left', 'The launcher fires your grenades', '', 1.4, 1);
     }

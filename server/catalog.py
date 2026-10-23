@@ -222,9 +222,11 @@ STARTING_DINARS = 300
 
 GUN_ATTACH_SLOTS = ('optic', 'muzzle', 'mag', 'ammo', 'trigger', 'laser', 'grip', 'barrel')
 # the choices a loadout has (keyed by loadout number as a string); the first is the default
-NADE_CHOICES = {'0': ('frag',), '1': ('frag', 'smoke'), '2': ('frag', 'flash'), '3': ('frag',)}
-PERK_CHOICES = {'0': ('launcher',), '1': ('med', 'wall'), '2': ('ladder', 'launcher'), '3': ('beacon', 'drone', 'knives')}
-PRIMARY_CHOICES = {'0': ('smg', 'pdw', 'carbine'), '1': ('lmg', 'carbine'), '2': ('shotgun', 'flamer'), '3': ('sniper', 'heavy')}
+# keep in step with PERK_OPTIONS / NADE_OPTIONS / PRIMARY_OPTIONS in server.py and LOADOUTS in public/js/weapons.js
+NADE_CHOICES = {'0': ('frag', 'molotov'), '1': ('frag', 'smoke'), '2': ('frag', 'flash', 'molotov'), '3': ('frag',), '4': ('frag', 'atnade')}
+PERK_CHOICES = {'0': ('launcher', 'ammo'), '1': ('med', 'wall'), '2': ('ladder', 'launcher'), '3': ('beacon', 'drone', 'knives'), '4': ('rpg', 'mines')}
+PRIMARY_CHOICES = {'0': ('smg', 'pdw', 'carbine'), '1': ('lmg', 'carbine'), '2': ('shotgun', 'flamer'), '3': ('sniper', 'heavy'), '4': ('shotgun', 'smg', 'pdw', 'carbine')}
+LOADOUT_IDS = ('0', '1', '2', '3', '4')
 
 
 # the numbers on the stats page, kept for life
@@ -313,7 +315,7 @@ def clean_equip(e, locker):
         if isinstance(f, str) and '%s:%s' % (w, f) in locker['guns']:
             res['guns'][w] = f
     p = e.get('pistol') if isinstance(e.get('pistol'), dict) else {}
-    for ld in ('0', '1', '2', '3'):
+    for ld in LOADOUT_IDS:
         f = p.get(ld)
         if isinstance(f, str) and 'pistol:%s' % f in locker['guns']:
             res['pistol'][ld] = f
@@ -330,7 +332,7 @@ def clean_equip(e, locker):
         if pw.get(ld) in opts:
             res['primary'][ld] = pw[ld]
     sw = e.get('secondary') if isinstance(e.get('secondary'), dict) else {}
-    for ld in ('0', '1', '2', '3'):
+    for ld in LOADOUT_IDS:
         if sw.get(ld) in ('pistol', 'revolver'):
             res['secondary'][ld] = sw[ld]
     # fitted attachments: ids are checked against the kills the player has in the game

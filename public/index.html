@@ -122,8 +122,11 @@
     </header>
     <div class="account-strip" id="account-strip">
       <label class="field" id="name-field">
-        <span>Your name</span>
-        <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Type a name to play">
+        <span>Playing as</span>
+        <div class="guest-name">
+          <input id="name" maxlength="16" autocomplete="off" spellcheck="false" readonly title="Guests play under a name the game picks. Sign in to use your own.">
+          <button class="btn ghost small" id="btn-newname" type="button">New name</button>
+        </div>
       </label>
       <div class="signed-in" id="signed-in" hidden>
         <span class="si-label">Signed in as</span>
@@ -273,7 +276,7 @@
       <p class="panel-sub">Music plays on the menu and during the warm-up, and stops when a match goes live. Callouts are hit markers, kill confirms, the gas siren and the like.</p>
       <label class="slider"><span>Voice chat</span><select id="s-voicemode"><option value="open">Open mic</option><option value="push">Push to talk</option><option value="off">Off</option></select><output></output></label>
       <label class="slider"><span>Other players’ voices</span><input type="range" id="s-vchat" min="0" max="1.5" step="0.05"><output id="o-vchat"></output></label>
-      <p class="panel-sub">Voice chat is by distance: you hear the players near you, from the side they are on, fainter further off and muffled through walls, and nothing beyond thirty metres. Your mic is live while you play; switch to push to talk (T, in Controls) or off here. The browser asks for your microphone the first time you join.</p>
+      <p class="panel-sub">In Free for All voice chat is one open channel: everyone hears everyone. In the other modes it is by distance: you hear the players near you, from the side they are on, fainter further off and muffled through walls, and nothing beyond thirty metres, with your own team clear from anywhere. Your mic is live while you play; switch to push to talk (T, in Controls) or off here. The browser asks for your microphone the first time you join.</p>
     </div>
     <div class="tab-body" data-body="touch" hidden>
       <p class="panel-sub">On a phone or tablet the game is played with a stick and buttons on the screen. Drag your finger anywhere else to look. Push the stick all the way to run.</p>

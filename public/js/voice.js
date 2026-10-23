@@ -14,6 +14,7 @@ export const TALK_FLAG = 256;         // a movement flag: this player is transmi
 export const VOICE_RANGE = 30;        // metres: beyond this, nothing
 export const VOICE_FULL = 4;          // metres: within this, full volume
 export const VOICE_PEERS = 12;        // the most players connected at once (teammates on top)
+export const VOICE_PEERS_ALL = 24;    // in Free for All everyone is connected: the whole room talks
 export const KILLER_GAIN = 3.0;       // how loud your killer hears you while you wait to respawn
 export const DEAD_TALK = 8;           // seconds after dying that your killer can hear you
 const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
@@ -119,7 +120,7 @@ export class Voice {
       else others.push({ id: a.id, d: Math.hypot(a.pos.x - here.x, a.pos.y - here.y, a.pos.z - here.z) });
     }
     others.sort((p, q) => p.d - q.d);
-    for (const o of others.slice(0, Math.max(0, VOICE_PEERS - want.size))) want.add(o.id);
+    for (const o of others.slice(0, Math.max(0, this.peerLimit() - want.size))) want.add(o.id);
     // the lower id opens the connection; the other side answers when the offer comes
     for (const id of want) if (!this.peers.has(id) && g.myId < id) this.connect(id);
     for (const [id, P] of this.peers) {
@@ -197,7 +198,7 @@ export class Voice {
     let P = this.peers.get(id);
     if (!P) {
       if (!d.sdp || d.sdp.type !== 'offer') return;
-      if (this.peers.size >= VOICE_PEERS + 4) return;     // more than enough voices already
+      if (this.peers.size >= this.peerLimit() + 4) return;     // more than enough voices already
       this.connect(id, true);
       P = this.peers.get(id);
     }
@@ -232,6 +233,16 @@ export class Voice {
 
   // -- every frame: the key, and what each voice sounds like from here ----------
 
+  // Free for All is one open channel: everyone hears everyone, wherever they are
+  everyone() {
+    const r = this.game.room;
+    return !!r && r.mode === 'ffa';
+  }
+
+  peerLimit() {
+    return this.everyone() ? VOICE_PEERS_ALL : VOICE_PEERS;
+  }
+
   update(dt) {
     const g = this.game;
     if (!this.on) { this.talking = false; return; }
@@ -254,6 +265,7 @@ export class Voice {
     const cam = g.camera;
     const phys = g.world && g.world.physics;
     const team = this.teamMode();
+    const everyone = this.everyone();
     // whoever I just killed: until they are back on their feet, or a few seconds at most
     for (const [id, v] of this.victims) {
       const a = g.avatars.get(id);
@@ -268,8 +280,8 @@ export class Voice {
         // the one I just killed: loud and clear, wherever they are
         gain = KILLER_GAIN;
         P.blocked = false;
-      } else if (a && a.alive && team && a.team === me.team) {
-        // my team: the whole team, at full volume, from everywhere
+      } else if (a && a.alive && (everyone || (team && a.team === me.team))) {
+        // my team, or the whole room in Free for All: full volume, from everywhere
         gain = 1;
         P.blocked = false;
       } else if (a && a.alive) {

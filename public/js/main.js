@@ -11,6 +11,7 @@ import { unlockAudio, uiBlip, musicOn } from './audio.js';
 import * as sfxModule from './audio.js';
 import { nextUnlock } from './attachments.js';
 import { locker } from './locker.js';
+import { guestName } from './names.js';
 import { openLocker, lockerOpen, previewOutfit, previewGun, previewShot } from './lockerui.js';
 import { dailyText } from './daily.js';
 import { Chat } from './chat.js';
@@ -271,8 +272,24 @@ function sayHello() {
   net.setHello({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics(settings.lastLoadout || 0), dev: deviceId(), token: auth.token() || undefined });
 }
 
+// a guest's name: an adjective and an animal from the device id and a salt that
+// the New name button re-rolls. The server makes the same choice from the same
+// lists, so this is the name whether we like it or not.
+function guestSalt(reroll = false) {
+  let salt = '';
+  try {
+    salt = localStorage.getItem('souk-name-salt') || '';
+    if (reroll || !salt) {
+      salt = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => (b % 36).toString(36)).join('');
+      localStorage.setItem('souk-name-salt', salt);
+    }
+  } catch (e) { /* no storage: the device id alone */ }
+  return salt;
+}
+
 function currentName() {
-  return ($('name').value || '').trim() || settings.name || (AUTOTEST ? 'Tester' : 'Player');
+  if (AUTOTEST && params.get('name')) return params.get('name');
+  return guestName(deviceId() + guestSalt());
 }
 
 // -- menu -----------------------------------------------------------------
@@ -1217,7 +1234,14 @@ if (MIRROR) {
   $('mirror-note').hidden = false;
   $('mirror-note-fly').hidden = false;     // the Render copy only: everyone is moving to Fly
 }
-$('name').value = settings.name || '';
+$('name').value = currentName();
+$('btn-newname').addEventListener('click', () => {
+  guestSalt(true);
+  $('name').value = currentName();
+  sayHello();
+  if (net.open && !game.inRoom) net.send({ t: 'hello', name: currentName(), v: VERSION, cos: locker.cosmetics(settings.lastLoadout || 0), dev: deviceId(), token: auth.token() || undefined });
+  uiBlip();
+});
 $('name').addEventListener('change', () => {
   settings.name = currentName();
   saveSettings();

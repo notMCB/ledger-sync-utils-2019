@@ -4,7 +4,7 @@ Bans against a running server started with SOUK_BANS=berry and accounts on:
 the seeded name is turned away, the ban follows the device to a new name,
 the owner's chat commands ban, list and unban, and nobody else may use them.
 
-    SOUK_BANS=berry ACCOUNTS=1 DATA_DIR=/tmp/souk-bans python3 server/server.py 8768 &   # then:
+    SOUK_FREE_NAMES=1 SOUK_BANS=berry ACCOUNTS=1 DATA_DIR=/tmp/souk-bans python3 server/server.py 8768 &   # then:
     python3 tools/test_bans.py
 """
 

@@ -64,7 +64,7 @@ function normalise(s) {
   grantPass(s, tierOf(s.pass), GUN_IDS);
   // older guest lockers kept one pistol finish for every loadout
   if (s.equip.guns.pistol) {
-    for (const ld of ['0', '1', '2', '3']) if (!s.equip.pistol[ld]) s.equip.pistol[ld] = s.equip.guns.pistol;
+    for (const ld of ['0', '1', '2', '3', '4']) if (!s.equip.pistol[ld]) s.equip.pistol[ld] = s.equip.guns.pistol;
     delete s.equip.guns.pistol;
   }
   s.dinars = Math.max(0, Math.floor(Number(s.dinars) || 0));

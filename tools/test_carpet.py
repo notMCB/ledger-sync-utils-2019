@@ -79,7 +79,7 @@ async def wait(cond, timeout, what):
 
 
 async def main():
-    env = dict(os.environ, DATA_DIR='/tmp/souk-carpet-data', ACCOUNTS='0', BOT_FILL='0', SOUK_DUMMIES='0', SOUK_NIGHT='0',
+    env = dict(os.environ, SOUK_FREE_NAMES='1', DATA_DIR='/tmp/souk-carpet-data', ACCOUNTS='0', BOT_FILL='0', SOUK_DUMMIES='0', SOUK_NIGHT='0',
                SOUK_STREAK_FREE='1', SOUK_STREAK='0.25', SOUK_IDLE='999')
     srv = subprocess.Popen([sys.executable, '-u', os.path.join(ROOT, 'server', 'server.py'), str(PORT)], env=env,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
