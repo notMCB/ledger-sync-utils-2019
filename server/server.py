@@ -45,7 +45,7 @@ import mailer  # noqa: E402
 import daily  # noqa: E402
 from og import game as og  # noqa: E402
 
-VERSION = '3.8.1'
+VERSION = '3.8.2'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -440,6 +440,27 @@ def public_ip(ip):
     if not ip or ip.startswith(('127.', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.', '172.2', '172.30.', '172.31.', 'fd', 'fe80', '::1')):
         return None
     return ip
+
+
+def impostor_name(name):
+    """A name that reads as the owner's: 'MCB' in any case, with any dots, spaces
+    or underscores between the letters."""
+    return ''.join(ch for ch in str(name or '').lower() if ch.isalnum()) == OWNER_NAME
+
+
+def ban_impostor(name, ip, dev):
+    """Anyone who takes the owner's name without being the owner is banned on the
+    spot: a record under that name, with their device and address learned, so a
+    new name does not help."""
+    n = (name or '').strip().lower()
+    b = next((x for x in bans if x['name'] == n), None)
+    if not b:
+        b = {'name': n, 'accounts': [], 'ips': [], 'devs': [], 'when': time.strftime('%Y-%m-%d %H:%M:%S'), 'why': 'owner name'}
+        bans.append(b)
+        save_bans()
+    ban_learn(b, None, ip, dev)
+    print('banned %r for taking the owner\'s name (dev %s, ip %s)' % (name, dev, ip), flush=True)
+    return b
 
 
 def ban_learn(b, account_id, ip, dev):
@@ -3972,10 +3993,15 @@ class Conn:
                 p.name = name
             # a saved session comes with hello: if it is the owner's, no ban applies, whatever the address
             tok = m.get('token')
-            if ACCOUNTS and isinstance(tok, str) and ban_match(name, None, self.ip, self.dev):
+            owner_here = self.dev and self.dev in owner_devs
+            if ACCOUNTS and isinstance(tok, str) and (ban_match(name, None, self.ip, self.dev) or impostor_name(name)):
                 u = accounts.resume(tok)
                 if u and str(u.get('username', '')).lower() == OWNER_NAME:
                     owner_heal(u['id'], self.ip, self.dev)
+                    owner_here = True
+            # the owner's name is the owner's: anyone else who takes it is banned
+            if impostor_name(name) and not owner_here:
+                ban_impostor(name, self.ip, self.dev)
             if self.banned(name):
                 return
             if 'cos' in m:
@@ -4003,6 +4029,8 @@ class Conn:
         elif t == 'rooms':
             self.send(room_list())
         elif t == 'join':
+            if impostor_name(p.name) and not is_owner(p) and not (self.dev and self.dev in owner_devs):
+                ban_impostor(p.name, self.ip, self.dev)
             if self.banned():
                 return
             if not p.account and (p.name or '').strip().lower() in ('', 'player'):
