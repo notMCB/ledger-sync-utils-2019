@@ -375,6 +375,7 @@ export class Game {
         return;
       case 'supply': return this.onCrate(m);
       case 'mine': return this.onMine(m);
+      case 'hole': return this.world.cutHole(m.b, m.u, m.v, m.h);
       case 'wall': return this.onWall(m);
       case 'door': return this.onDoor(m);
       case 'pane': return this.onPane(m);
@@ -1956,8 +1957,17 @@ export class Game {
       const L = d.length();
       if (L > 0.1 && L < w.range - 0.5) {
         d.multiplyScalar(1 / L);
-        const hit = this.world.physics && this.world.physics.raycast(from, d, L + 0.3);
-        if (hit && Math.abs(hit.t - L) < 0.6) this.fx.impact(hit.point, hit.normal, hit.box && hit.box.mat);
+        // a body where it ends: the wound spurts; otherwise a puff off whatever it hit
+        let body = null;
+        for (const av of this.avatars.map.values()) {
+          if (!av.alive || av.id === m.id) continue;
+          if (Math.hypot(av.pos.x - to.x, av.pos.z - to.z) < 0.55 && to.y > av.pos.y - 0.1 && to.y < av.pos.y + 1.9) { body = av; break; }
+        }
+        if (body) this.fx.blood(to, d.clone());
+        else {
+          const hit = this.world.physics && this.world.physics.raycast(from, d, L + 0.3);
+          if (hit && Math.abs(hit.t - L) < 0.6) this.fx.impact(hit.point, hit.normal, hit.box && hit.box.mat);
+        }
       }
     });
   }
@@ -4034,6 +4044,19 @@ export class Game {
     me.recoilDebt += upK;
     me.punch += upK * 0.5;
     this.hud.lastAmmo = '';
+    if (me.nades > 0) this.reloadLauncher(ws);
+  }
+
+  // one round, then the whole reload: the launcher breaks open for the next grenade,
+  // the RPG takes a rocket in the muzzle. Nothing fires until it is done.
+  reloadLauncher(ws) {
+    const me = this.me, d = ws.def;
+    ws.reloading = true;
+    me.adsK = Math.min(me.adsK, 0.4);
+    me.reloadEnd = this.clock + d.reload;
+    this.vm.startReload(d.reload, true);
+    sfx.reloadSound('shotgun', d.reload, true, null);
+    this.send({ t: 'reload' });
   }
 
   // a rocket out of the RPG: dead straight and fast, with a trail; it goes off on
@@ -4064,6 +4087,7 @@ export class Game {
       if (info && info.direct !== undefined) msg.h = info.direct;
       if (info && info.vehicle !== undefined) msg.fv = info.vehicle;
       if (info && info.door !== undefined) msg.fd = info.door;
+      if (info && info.box !== undefined) msg.hb = info.box;
       if (info && info.pane !== undefined) this.breakPane(info.pane);
       this.send(msg);
       this.detonate(p, 'rocket');
@@ -4080,6 +4104,7 @@ export class Game {
     me.punch += upK * 0.6;
     this.shakeFrom(muzzle, 6);
     this.hud.lastAmmo = '';
+    if (me.perkLeft > 0) this.reloadLauncher(ws);
   }
 
   // the flamethrower's fire, drawn every frame the trigger is held: the jet

@@ -108,6 +108,11 @@ class GeoBuilder {
     }
   }
 
+  // the run of vertices the box tagged `tag` produced (so a hole can take it out)
+  mark(start) {
+    if (this.tag !== undefined) (this.ranges || (this.ranges = new Map())).set(this.tag, [start, this.pos.length / 3]);
+  }
+
   // a craggy block: the box cut into a grid and every point nudged by a hash of
   // where it sits in the world, so the faces stay sealed along their edges, and
   // each triangle lit flat. Rocks, cliffs and, with a small amount and a puff
@@ -150,6 +155,7 @@ class GeoBuilder {
       [[0, 1, 0], [1, 0, 0], [0, 0, -1], nx, nz], [[0, -1, 0], [1, 0, 0], [0, 0, 1], nx, nz],
     ];
     const H = [hx, hy, hz];
+    const start0 = this.pos.length / 3;
     for (const [fn, ua, va, nu, nv] of faces) {
       if (opts.skipBottom && fn[1] === -1) continue;
       const hu = Math.abs(ua[0]) ? hx : Math.abs(ua[1]) ? hy : hz;
@@ -167,6 +173,7 @@ class GeoBuilder {
         }
       }
     }
+    this.mark(start0);
   }
 
   // oriented box with world-scaled UVs (scale = metres per texture repeat)
@@ -187,9 +194,11 @@ class GeoBuilder {
     const skipBottom = opts.skipBottom;
     const side = opts.sideColor || color;
     const only = opts.faces || 'all';   // 'top', 'sides' or 'all'
+    const start0 = this.pos.length / 3;
     const f = (a, b, cc, d, n, uv) => {
       if (only === 'top' && n[1] !== 1) return;
       if (only === 'sides' && n[1] !== 0) return;
+      if (opts.skipAxis !== undefined && n[opts.skipAxis] !== 0) return;   // the two faces a hole goes through
       this.quad(W(...a), W(...b), W(...cc), W(...d), Nv(...n), uv, n[1] === 0 ? side : color);
     };
     const UV = (u0, v0, u1, v1) => unit ? [[0, 0], [1, 0], [1, 1], [0, 1]] : [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
@@ -206,6 +215,7 @@ class GeoBuilder {
       opts.roadUV ? [[0, 0], [1, 0], [1, u(2 * hz)], [0, u(2 * hz)]] : UV(u(ox + x0), u(-(oz + z1)), u(ox + x1), u(-(oz + z0))));
     // bottom
     if (!skipBottom) f([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], UV(u(ox + x0), u(oz + z0), u(ox + x1), u(oz + z1)));
+    this.mark(start0);
   }
 
   geometry() {
@@ -259,6 +269,38 @@ function mergeInto(list) {
 const M4 = new THREE.Matrix4();
 const Q = new THREE.Quaternion();
 const E = new THREE.Euler();
+// what a holed wall is drawn with: the builder material and the colour the box had
+const HOLE_LOOK = {
+  wall: { key: 'wall', scale: 2.2, color: (t) => Object.assign(colorOf(WALL_TINTS[t % 6]), { ao: true }) },
+  concrete: { key: 'concrete', scale: 2.5, color: (t) => Object.assign(colorOf(CONCRETE_TINTS[t % 3]), { ao: true }) },
+  wood: { key: 'wood', scale: 1.5, color: () => colorOf('#ffffff') },
+  tile: { key: 'tile', scale: 2.0, color: () => colorOf('#ffffff') },
+  flatroof: { key: 'flatroof', scale: 3.0, color: () => colorOf('#7d7b76') },
+  marble: { key: 'marble', scale: 2.4, color: () => Object.assign(colorOf('#f4f2ec'), { ao: true }) },
+  stone: { key: 'stone', scale: 3.0, color: () => Object.assign(colorOf('#f2e6d2'), { ao: true }) },
+};
+
+// the slabs round a square hole in a thin box: the same sums as hole_pieces in server/mapgen.py
+export function holePieces(box, u, v, half) {
+  const [cx, cy, cz, hx, hy, hz, yaw, mat, tint] = box;
+  const H = [hx, hy, hz];
+  const T = H[0] <= H[1] && H[0] <= H[2] ? 0 : H[1] <= H[2] ? 1 : 2;
+  const [au, av] = [0, 1, 2].filter((a) => a !== T);
+  const hu = H[au], hv = H[av];
+  const rects = [];
+  if (v - half > -hv + 0.01) rects.push([-hu, hu, -hv, v - half]);
+  if (v + half < hv - 0.01) rects.push([-hu, hu, v + half, hv]);
+  if (u - half > -hu + 0.01) rects.push([-hu, u - half, v - half, v + half]);
+  if (u + half < hu - 0.01) rects.push([u + half, hu, v - half, v + half]);
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  return rects.map(([u0, u1, v0, v1]) => {
+    const loc = [0, 0, 0], ext = [H[0], H[1], H[2]];
+    loc[au] = (u0 + u1) / 2; ext[au] = (u1 - u0) / 2;
+    loc[av] = (v0 + v1) / 2; ext[av] = (v1 - v0) / 2;
+    return [cx + c * loc[0] + s * loc[2], cy + loc[1], cz - s * loc[0] + c * loc[2], ext[0], ext[1], ext[2], yaw, mat, tint];
+  });
+}
+
 // how strongly each ground's normal map shows
 const NORMAL_SCALE = { ground: new THREE.Vector2(0.9, 0.9), snow: new THREE.Vector2(0.8, 0.8), grass: new THREE.Vector2(0.6, 0.6), concrete: new THREE.Vector2(0.5, 0.5) };
 
@@ -605,12 +647,17 @@ export class World {
       barrier: new THREE.MeshLambertMaterial({ map: tx.concrete, vertexColors: true }),
     };
     const builders = {};
-    const B = (k) => builders[k] || (builders[k] = new GeoBuilder());
+    let curTag;
+    const B = (k) => builders[k] || (builders[k] = Object.assign(new GeoBuilder(), { tag: curTag }));
+    this.mats = mats;
+    this.boxRanges = new Map();     // map box index -> { mesh, start, end } for the holes
     const tufts = [];
     const tuftGeo = new THREE.PlaneGeometry(0.6, 0.5);
     tuftGeo.translate(0, 0.1, 0);
 
-    for (const [cx, cy, cz, hx, hy, hz, yaw, mat, tint] of map.boxes) {
+    for (const [bi, [cx, cy, cz, hx, hy, hz, yaw, mat, tint]] of map.boxes.entries()) {
+      curTag = bi;
+      for (const k in builders) builders[k].tag = bi;
       if (mat === 'inv') continue;
       if (mat === 'wall') {
         B('wall').box(cx, cy, cz, hx, hy, hz, yaw, Object.assign(colorOf(WALL_TINTS[tint % 6]), { ao: true }), 2.2);
@@ -691,6 +738,8 @@ export class World {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       root.add(mesh);
+      mesh.userData.key = k;
+      if (builders[k].ranges) for (const [bi, [s0, s1]] of builders[k].ranges) this.boxRanges.set(bi, { mesh, start: s0, end: s1, key: k });
     }
     if (tufts.length) {
       const mesh = new THREE.Mesh(mergeInto(tufts), new THREE.MeshLambertMaterial({ map: tx.tuft, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 }));
@@ -1530,6 +1579,119 @@ export class World {
   }
 
   // a broadleaf garden tree: a trunk and a round canopy
+  // -- holes rockets blow through walls and floors -------------------------------
+
+  // the box is taken out of the merged mesh (its triangles collapsed), its collision
+  // replaced by the slabs round the hole, and a new piece drawn: the slab's outer
+  // faces, the two big faces as rings round a jagged opening, the broken edge
+  // through the thickness, and some rubble at the foot. The same sums as
+  // hole_pieces in server/mapgen.py decide the collision.
+  cutHole(bi, u, v, half) {
+    const box = this.map && this.map.boxes[bi];
+    if (!box || !this.boxRanges) return false;
+    this.holes = this.holes || new Set();
+    if (this.holes.has(bi)) return false;
+    this.holes.add(bi);
+    const [cx, cy, cz, hx, hy, hz, yaw, mat, tint] = box;
+    const H = [hx, hy, hz];
+    const T = H[0] <= H[1] && H[0] <= H[2] ? 0 : H[1] <= H[2] ? 1 : 2;
+    const [AU, AV] = [0, 1, 2].filter((a) => a !== T);
+    // out of the merged mesh
+    const R = this.boxRanges.get(bi);
+    if (R) {
+      const pa = R.mesh.geometry.attributes.position;
+      for (let i = R.start; i < R.end; i++) pa.setXYZ(i, 0, -500, 0);
+      pa.needsUpdate = true;
+    }
+    // collision: the slabs round the hole
+    const phys = this.physics;
+    const old = phys.byIndex.get(bi);
+    if (old) phys.remove(old);
+    for (const pc of holePieces(box, u, v, half)) phys.add(pc);
+    // the look: the same material and colour as the wall had
+    const look = HOLE_LOOK[mat] || HOLE_LOOK.wall;
+    const col = look.color(tint);
+    const dark = { r: col.r * 0.72, g: col.g * 0.72, b: col.b * 0.72, ao: false };
+    const G = new GeoBuilder();
+    G.box(cx, cy, cz, hx, hy, hz, yaw, col, look.scale, { skipAxis: T, skipBottom: cy - hy <= 0.05 });
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const W = (l) => [cx + c * l[0] + s * l[2], cy + l[1], cz - s * l[0] + c * l[2]];
+    const L = (a, val, out = [0, 0, 0]) => { out[a] = val; return out; };
+    // the jagged opening: a ring of points round (u, v), the radius wandering
+    const N = 14, seed = bi * 7 + 3;
+    const ring = [];
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2;
+      const r = half * (0.8 + 0.35 * jit(k, bi, 1, seed));
+      const pu = Math.max(-H[AU] + 0.03, Math.min(H[AU] - 0.03, u + Math.cos(a) * r));
+      const pv = Math.max(-H[AV] + 0.03, Math.min(H[AV] - 0.03, v + Math.sin(a) * r));
+      ring.push([pu, pv]);
+    }
+    const hu = H[AU], hv = H[AV];
+    // where a ray from the hole's centre through a ring point meets the slab's edge
+    const edge = (pu, pv) => {
+      const dx = pu - u, dy = pv - v;
+      const tx = dx ? (dx > 0 ? (hu - u) / dx : (-hu - u) / dx) : Infinity;
+      const ty = dy ? (dy > 0 ? (hv - v) / dy : (-hv - v) / dy) : Infinity;
+      const t = Math.min(tx, ty);
+      return [u + dx * t, v + dy * t];
+    };
+    const corner = (q0, q1) => {
+      // the slab corner between two edge points on different sides, if any
+      const side = (q) => (Math.abs(q[0] - hu) < 1e-6 ? 0 : Math.abs(q[1] - hv) < 1e-6 ? 1 : Math.abs(q[0] + hu) < 1e-6 ? 2 : 3);
+      const s0 = side(q0), s1 = side(q1);
+      if (s0 === s1) return null;
+      const corners = [[hu, hv], [-hu, hv], [-hu, -hv], [hu, -hv]];
+      return corners[s0];
+    };
+    const uvOf = (pu, pv) => [pu / look.scale, pv / look.scale];
+    for (const sign of [1, -1]) {
+      const lt = sign * H[T];
+      const P = (pu, pv) => { const l = [0, 0, 0]; l[AU] = pu; l[AV] = pv; l[T] = lt; return W(l); };
+      const tri = (a, b, cc) => {
+        if (sign > 0) G.tri(P(...a), P(...b), P(...cc), uvOf(...a), uvOf(...b), uvOf(...cc), col);
+        else G.tri(P(...a), P(...cc), P(...b), uvOf(...a), uvOf(...cc), uvOf(...b), col);
+      };
+      for (let k = 0; k < N; k++) {
+        const p0 = ring[k], p1 = ring[(k + 1) % N];
+        const q0 = edge(...p0), q1 = edge(...p1);
+        const cn = corner(q0, q1);
+        if (cn) { tri(p0, q0, cn); tri(p0, cn, q1); tri(p0, q1, p1); }
+        else { tri(p0, q0, q1); tri(p0, q1, p1); }
+      }
+    }
+    // the broken edge through the thickness, facing into the hole
+    for (let k = 0; k < N; k++) {
+      const p0 = ring[k], p1 = ring[(k + 1) % N];
+      const mk = (pu, pv, lt) => { const l = [0, 0, 0]; l[AU] = pu; l[AV] = pv; l[T] = lt; return W(l); };
+      const a = mk(p0[0], p0[1], H[T]), b = mk(p1[0], p1[1], H[T]), c2 = mk(p1[0], p1[1], -H[T]), d = mk(p0[0], p0[1], -H[T]);
+      // a jag: the inner edge pulled a little in or out so the break is not a clean cut
+      const j = (jit(k, bi, 2, seed) - 0.5) * 0.12;
+      for (const q of [a, b, c2, d]) { q[1] += (T === 1 ? 0 : j); }
+      const uva = [0, 0], uvb = [0.3, 0], uvc = [0.3, H[T] * 2 / look.scale], uvd = [0, H[T] * 2 / look.scale];
+      G.tri(a, d, c2, uva, uvd, uvc, dark);
+      G.tri(a, c2, b, uva, uvc, uvb, dark);
+    }
+    // rubble at the foot of a wall, both sides
+    if (T !== 1) {
+      const floor = cy - hy;
+      for (let k = 0; k < 7; k++) {
+        const side = k % 2 ? 1 : -1;
+        const l = [0, 0, 0];
+        l[AU] = u + (jit(k, bi, 3, seed) - 0.5) * 2.2;
+        l[T] = side * (H[T] + 0.15 + jit(k, bi, 4, seed) * 0.5);
+        const w = W(l);
+        const sz = 0.12 + jit(k, bi, 5, seed) * 0.16;
+        G.rock(w[0], floor + sz * 0.5, w[2], sz, sz * 0.5, sz * 0.8, jit(k, bi, 6, seed) * 3, dark, look.scale, { amp: sz * 0.25, seg: sz, maxSeg: 3, seed: seed + k, skipBottom: true });
+      }
+    }
+    const mesh = new THREE.Mesh(G.geometry(), this.mats[look.key]);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    this.root.add(mesh);
+    return true;
+  }
+
   // -- doors that open and glass that breaks (the Manor) ------------------------
 
   // every door hung in its opening (a wide one as a pair of leaves) and every

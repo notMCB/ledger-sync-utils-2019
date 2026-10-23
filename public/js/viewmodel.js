@@ -1647,6 +1647,12 @@ export class ViewModel {
       if (g.slide && r.empty) {
         g.slide.position.z = g.slideHome.z + (t < 0.75 ? 0.03 : 0.03 * (1 - seg(t, 0.75, 0.82)));
       }
+    } else if (g.kind === 'launcher') {
+      // the launcher and the RPG: the gun drops to the hip, the left hand goes down
+      // for the next round and brings it up to the breech, then the gun comes back
+      const dip = seg(t, 0.05, 0.3) * (1 - seg(t, 0.72, 0.95));
+      const load = seg(t, 0.4, 0.62);
+      L.position.set(home.x - dip * 0.05, home.y - dip * 0.16 + load * dip * 0.1, home.z + dip * 0.12 - load * dip * 0.1);
     } else if (g.kind === 'box') {
       // LMG: cover up, box off, new box on, belt, cover down
       g.cover.rotation.x = -seg(t, 0.08, 0.18) * (1 - seg(t, 0.78, 0.88)) * 1.1;

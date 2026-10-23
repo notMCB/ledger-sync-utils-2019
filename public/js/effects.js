@@ -211,10 +211,21 @@ export class Effects {
     if (this.holes.length > 180) this.group.remove(this.holes.shift());
   }
 
+  // a hit on a body: blood spurts out of the wound, mostly back the way the bullet
+  // came and out of the exit, as a burst of drops that fall, and a fine mist that
+  // hangs a moment. Every hit makes its own spurt, so a body under fire bleeds
+  // the whole time and stops the moment the firing does; nothing stays behind.
   blood(point, dir) {
-    for (let i = 0; i < 5; i++) {
-      const v = dir.clone().multiplyScalar(1 + Math.random() * 2).add(new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.5, (Math.random() - 0.5) * 2));
-      this.particle(this.bloodTex, point, v, 0.14, 1.2, 0.35 + Math.random() * 0.2, 6, 0.9);
+    const out = dir.clone().negate();
+    for (let i = 0; i < 9; i++) {
+      const back = Math.random() < 0.6;
+      const v = (back ? out : dir).clone().multiplyScalar(1.2 + Math.random() * 3.2)
+        .add(new THREE.Vector3((Math.random() - 0.5) * 2.2, Math.random() * 1.8 - 0.2, (Math.random() - 0.5) * 2.2));
+      this.particle(this.bloodTex, point.clone().addScaledVector(v, 0.02), v, 0.05 + Math.random() * 0.06, 0.6, 0.3 + Math.random() * 0.25, 9, 1);
+    }
+    for (let i = 0; i < 3; i++) {
+      const v = out.clone().multiplyScalar(0.4 + Math.random() * 0.6).add(new THREE.Vector3((Math.random() - 0.5) * 0.6, 0.2, (Math.random() - 0.5) * 0.6));
+      this.particle(this.bloodTex, point.clone(), v, 0.18 + Math.random() * 0.1, 2.2, 0.25 + Math.random() * 0.15, 0.5, 0.55);
     }
   }
 
@@ -438,6 +449,7 @@ export class Effects {
               if (hit.box && hit.box.vehicle !== undefined) n.vehicle = hit.box.vehicle;
               if (hit.box && hit.box.door !== undefined) n.door = hit.box.door;
               if (hit.box && hit.box.pane !== undefined) n.pane = hit.box.pane;
+              if (hit.box && hit.box.index !== undefined) n.hitBox = hit.box.index;
               if (n.local) n.t = 1e6;
               break;
             }
@@ -471,7 +483,7 @@ export class Effects {
       if (n.local && n.t >= fuse) {
         this.group.remove(n.mesh);
         this.nades.splice(i, 1);
-        if (n.onBoom) n.onBoom(n.pos.clone(), { direct: n.direct, vehicle: n.vehicle, door: n.door, pane: n.pane });
+        if (n.onBoom) n.onBoom(n.pos.clone(), { direct: n.direct, vehicle: n.vehicle, door: n.door, pane: n.pane, box: n.hitBox });
       } else if (!n.local && n.t > fuse + 1.5) {
         this.group.remove(n.mesh);
         this.nades.splice(i, 1);

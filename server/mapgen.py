@@ -1434,6 +1434,68 @@ def surface_at(H, x, z):
 
 GRID = 8.0   # the cell size of the boxes' lookup grid
 
+# what a rocket can blow a hole through: thin walls and floors of these materials
+DESTRUCTIBLE = ('wall', 'concrete', 'wood', 'tile', 'flatroof', 'marble', 'stone')
+HOLE_HALF = 1.0        # a hole is about two metres across
+HOLE_MAX_THICK = 0.36  # half the thickness a hole can go through
+
+
+def hole_axis(box):
+    """The axis (0 x, 1 y, 2 z, in the box's own frame) a hole goes through: the
+    thin one. None if the box is too thick every way."""
+    hx, hy, hz = box[3], box[4], box[5]
+    t = min((hx, 0), (hy, 1), (hz, 2))
+    return t[1] if t[0] <= HOLE_MAX_THICK else None
+
+
+def hole_local(box, pos):
+    """Where a world point lies across the box, in its frame: (u, v) on the two axes
+    that are not the through axis, clamped so the hole stays inside the slab."""
+    cx, cy, cz, hx, hy, hz, yaw = box[:7]
+    c, s = math.cos(yaw), math.sin(yaw)
+    dx, dy, dz = pos[0] - cx, pos[1] - cy, pos[2] - cz
+    loc = [c * dx - s * dz, dy, s * dx + c * dz]
+    H = [hx, hy, hz]
+    t = hole_axis(box)
+    axes = [a for a in (0, 1, 2) if a != t]
+    out = []
+    for a in axes:
+        lim = max(0.0, H[a] - HOLE_HALF - 0.08)
+        out.append(round(max(-lim, min(lim, loc[a])), 2))
+    return out
+
+
+def hole_pieces(box, u, v, half=HOLE_HALF):
+    """The four slabs that stand round a square hole: below, above, left and right of
+    it, in world space as boxes with the same yaw and material. The same sums as
+    holePieces in public/js/world.js."""
+    cx, cy, cz, hx, hy, hz, yaw, mat, tint = box[:9]
+    c, s = math.cos(yaw), math.sin(yaw)
+    H = [hx, hy, hz]
+    t = hole_axis(box)
+    axes = [a for a in (0, 1, 2) if a != t]
+    au, av = axes
+    hu, hv = H[au], H[av]
+    rects = []     # (u0, u1, v0, v1) in the box frame
+    if v - half > -hv + 0.01:
+        rects.append((-hu, hu, -hv, v - half))
+    if v + half < hv - 0.01:
+        rects.append((-hu, hu, v + half, hv))
+    if u - half > -hu + 0.01:
+        rects.append((-hu, u - half, v - half, v + half))
+    if u + half < hu - 0.01:
+        rects.append((u + half, hu, v - half, v + half))
+    out = []
+    for (u0, u1, v0, v1) in rects:
+        loc = [0.0, 0.0, 0.0]
+        ext = [H[0], H[1], H[2]]
+        loc[au], ext[au] = (u0 + u1) / 2, (u1 - u0) / 2
+        loc[av], ext[av] = (v0 + v1) / 2, (v1 - v0) / 2
+        wx = cx + c * loc[0] + s * loc[2]
+        wz = cz - s * loc[0] + c * loc[2]
+        out.append([round(wx, 3), round(cy + loc[1], 3), round(wz, 3), round(ext[0], 3), round(ext[1], 3), round(ext[2], 3), yaw, mat, tint])
+    return out
+
 
 class Solid:
     """The boxes of a town, prepared for segment tests: indexed in a grid of
@@ -1442,17 +1504,33 @@ class Solid:
     def __init__(self, boxes):
         self.b = []
         self.cells = {}
-        for (cx, cy, cz, hx, hy, hz, yaw, mat, tint) in boxes:
-            if mat == 'tile' and hy < 0.05:
-                continue
-            c, s = math.cos(yaw), math.sin(yaw)
-            i = len(self.b)
-            self.b.append((cx, cy, cz, hx, hy, hz, c, s, math.sqrt(hx * hx + hy * hy + hz * hz), mat, cy + hy))
-            ex = abs(c) * hx + abs(s) * hz
-            ez = abs(s) * hx + abs(c) * hz
-            for ix in range(int((cx - ex) // GRID), int((cx + ex) // GRID) + 1):
-                for iz in range(int((cz - ez) // GRID), int((cz + ez) // GRID) + 1):
-                    self.cells.setdefault((ix, iz), []).append(i)
+        self.by_index = {}     # map box index -> entry index, for holes
+        for i, box in enumerate(boxes):
+            k = self.add(box)
+            if k is not None:
+                self.by_index[i] = k
+
+    def add(self, box):
+        (cx, cy, cz, hx, hy, hz, yaw, mat, tint) = box[:9]
+        if mat == 'tile' and hy < 0.05:
+            return None
+        c, s = math.cos(yaw), math.sin(yaw)
+        i = len(self.b)
+        self.b.append((cx, cy, cz, hx, hy, hz, c, s, math.sqrt(hx * hx + hy * hy + hz * hz), mat, cy + hy))
+        ex = abs(c) * hx + abs(s) * hz
+        ez = abs(s) * hx + abs(c) * hz
+        for ix in range(int((cx - ex) // GRID), int((cx + ex) // GRID) + 1):
+            for iz in range(int((cz - ez) // GRID), int((cz + ez) // GRID) + 1):
+                self.cells.setdefault((ix, iz), []).append(i)
+        return i
+
+    def cut(self, index, pieces):
+        """A map box replaced by the slabs round a hole in it."""
+        k = self.by_index.pop(index, None)
+        if k is not None:
+            self.b[k] = None
+        for pc in pieces:
+            self.add(pc)
 
     def near(self, x, z):
         """The boxes whose footprint may cover a point."""
@@ -1499,7 +1577,10 @@ class Solid:
         """The highest box top under a point, up to a little above it, or 0."""
         best = 0.0
         for i in self.near(x, z):
-            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = self.b[i]
+            e = self.b[i]
+            if e is None:
+                continue
+            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = e
             if top <= best or top > y + 0.5:
                 continue
             dx, dz = x - cx, z - cz
@@ -1515,7 +1596,10 @@ class Solid:
         L = math.sqrt(dx * dx + dy * dy + dz * dz) or 1e-6
         B = self.b
         for i in self.along(p, q):
-            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = B[i]
+            e = B[i]
+            if e is None:
+                continue
+            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = e
             # quick reject: distance from box centre to segment
             ox, oy, oz = cx - px, cy - py, cz - pz
             t = max(0.0, min(1.0, (ox * dx + oy * dy + oz * dz) / (L * L)))

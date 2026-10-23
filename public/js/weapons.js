@@ -44,7 +44,7 @@ export const WEAPONS = {
   // cover walls go up. Three rockets a life, and they are the perk's uses, not your grenades.
   rpg: {
     id: 'rpg', name: 'Saqr RPG', short: 'RPG', auto: false, rpm: 40, mag: 3, reserve: 0,
-    reload: 0, pellets: 1, dmg: 160, range: 300, launcher: true, rocket: true, blurb: 'A rocket, dead straight. Kills what it hits, blasts what is near, wrecks vehicles and cover walls.',
+    reload: 2.8, pellets: 1, dmg: 160, range: 300, launcher: true, rocket: true, blurb: 'A rocket, dead straight. Kills what it hits, blasts what is near, wrecks vehicles and cover walls.',
     base: 0.3, bloomShot: 0, bloomMax: 0, recover: 9, move: 0.6, air: 2,
     adsMul: 0.3, sight: 'irons', zoom: 1.5, adsTime: 0.3, moveMul: 0.85,
     recoilUp: 0.12, recoilSide: 0.02, kick: 0.3,
@@ -52,7 +52,7 @@ export const WEAPONS = {
   },
   launcher: {
     id: 'launcher', name: 'Qanas 40mm', short: 'Launcher', auto: false, rpm: 50, mag: 3, reserve: 0,
-    reload: 0, pellets: 1, dmg: 125, range: 150, launcher: true, blurb: 'Fires whichever grenade you carry. Goes off on landing.',
+    reload: 2.2, pellets: 1, dmg: 125, range: 150, launcher: true, blurb: 'Fires whichever grenade you carry. Goes off on landing.',
     base: 0.6, bloomShot: 0, bloomMax: 0, recover: 9, move: 0.8, air: 3,
     adsMul: 0.5, sight: 'irons', zoom: 1.15, adsTime: 0.22, moveMul: 0.96,
     recoilUp: 0.05, recoilSide: 0.01, kick: 0.14,

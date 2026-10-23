@@ -19,7 +19,8 @@ export class Physics {
     this.pits = (tunnels && tunnels.pits) || [];
     this.shafts = (tunnels && tunnels.shafts) || [];
     this.pitFloor = (tunnels && tunnels.floor) || 0;
-    for (const b of boxes) this.add(b);
+    this.byIndex = new Map();
+    boxes.forEach((b, i) => { const r = this.add(b); if (r) { r.index = i; this.byIndex.set(i, r); } });
   }
 
   static inRects(rects, x, z, m = 0) {

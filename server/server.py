@@ -832,6 +832,7 @@ class Room:
         self.fire_seq = 0
         self.mines = {}
         self.mine_seq = 0
+        self.holes = []
         # scorestreaks in the air: scans running, helicopters up, strikes on their way
         self.scans = {}
         self.helis = {}
@@ -922,9 +923,10 @@ class Room:
         self.walls = {}
         self.drones = {}
         self.fires = {}
-        # the Engineer's mines, lying where they were laid
+        # the Engineer's mines, lying where they were laid, and the holes rockets have made
         self.mines = {}
         self.mine_seq = 0
+        self.holes = []
         # the Manor's doors and windows: which doors stand open, which panes are gone
         self.door_open = set()
         self.panes_broken = set()
@@ -977,6 +979,8 @@ class Room:
             p.send({'t': 'door', 'id': did, 'open': 1})
         for mid, M in getattr(self, 'mines', {}).items():
             p.send({'t': 'mine', 'id': mid, 'p': M['p'], 'tm': M['team'], 'owner': M['owner']})
+        for h in getattr(self, 'holes', []):
+            p.send({'t': 'hole', 'b': h['b'], 'u': h['u'], 'v': h['v'], 'h': h['h']})
         for pid in getattr(self, 'panes_broken', ()):
             p.send({'t': 'pane', 'id': pid, 'broken': 1})
         for oid, D in self.drones.items():
@@ -2077,6 +2081,9 @@ class Room:
             if fd in self.door_index and fd not in self.door_open:
                 self.door_open.add(fd)
                 self.broadcast({'t': 'door', 'id': fd, 'open': 1, 'by': p.id})
+            hb = m.get('hb')
+            if isinstance(hb, (int, float)):
+                self.make_hole(p, int(hb), pos)
             for wid, W in list(self.walls.items()):
                 if dist3(pos, [W['p'][0], W['p'][1] + 0.6, W['p'][2]]) < NADE_RADIUS:
                     self.hurt_wall(wid, WALL_HP)
@@ -2472,6 +2479,23 @@ class Room:
             if dist2([D['x'], 0, D['z']], b.pos) < 1.6 + D['w'] / 2:
                 self.door_open.add(did)
                 self.broadcast({'t': 'door', 'id': did, 'open': 1, 'by': b.id})
+
+    def make_hole(self, p, i, pos):
+        """A rocket into a thin wall or floor blows a hole through it: the box becomes
+        the slabs round the hole, for everyone's bullets and feet alike."""
+        boxes = self.map['boxes']
+        if i < 0 or i >= len(boxes) or any(h['b'] == i for h in self.holes) or len(self.holes) >= 200:
+            return
+        box = boxes[i]
+        if box[7] not in mapgen.DESTRUCTIBLE or mapgen.hole_axis(box) is None:
+            return
+        if dist3(pos, [box[0], box[1], box[2]]) > math.sqrt(box[3] ** 2 + box[4] ** 2 + box[5] ** 2) + 2.5:
+            return
+        u, v = mapgen.hole_local(box, pos)
+        hole = {'b': i, 'u': u, 'v': v, 'h': mapgen.HOLE_HALF}
+        self.holes.append(hole)
+        self.solid.cut(i, mapgen.hole_pieces(box, u, v))
+        self.broadcast({'t': 'hole', 'b': i, 'u': u, 'v': v, 'h': mapgen.HOLE_HALF})
 
     def vehicle_hit(self, fid, dmg, p, w):
         """A vehicle takes a blast: at zero it is a wreck for a while, and whoever was
@@ -3150,7 +3174,10 @@ class Room:
             best = min(y + 0.5, mapgen.surface_at(H, x, z))     # smooth ground: the steps are not what is walked on
         S = self.solid
         for i in S.near(x, z):
-            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = S.b[i]
+            e = S.b[i]
+            if e is None:
+                continue
+            (cx, cy, cz, hx, hy, hz, c, s, rad, mat, top) = e
             if (H and mat == 'terrain') or top <= best or top > y + 0.5:
                 continue
             dx, dz = x - cx, z - cz
