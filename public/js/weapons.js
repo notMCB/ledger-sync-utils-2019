@@ -39,6 +39,17 @@ export const WEAPONS = {
   },
   // the Assault's (and Breacher's) grenade launcher: it fires your grenades, flat and fast,
   // and they go off where they land. Not a bullet: see fireLauncher in game.js
+  // the Engineer's RPG: a rocket, straight and fast, that goes off on whatever it hits.
+  // A direct hit on a player kills; the blast is bigger than a frag's; vehicles and
+  // cover walls go up. Three rockets a life, and they are the perk's uses, not your grenades.
+  rpg: {
+    id: 'rpg', name: 'Saqr RPG', short: 'RPG', auto: false, rpm: 40, mag: 3, reserve: 0,
+    reload: 0, pellets: 1, dmg: 160, range: 300, launcher: true, rocket: true, blurb: 'A rocket, dead straight. Kills what it hits, blasts what is near, wrecks vehicles and cover walls.',
+    base: 0.3, bloomShot: 0, bloomMax: 0, recover: 9, move: 0.6, air: 2,
+    adsMul: 0.3, sight: 'irons', zoom: 1.5, adsTime: 0.3, moveMul: 0.85,
+    recoilUp: 0.12, recoilSide: 0.02, kick: 0.3,
+    tracer: 0xffffff, sound: 'launcher',
+  },
   launcher: {
     id: 'launcher', name: 'Qanas 40mm', short: 'Launcher', auto: false, rpm: 50, mag: 3, reserve: 0,
     reload: 0, pellets: 1, dmg: 125, range: 150, launcher: true, blurb: 'Fires whichever grenade you carry. Goes off on landing.',
@@ -150,6 +161,8 @@ export const PERKS = {
   beacon: { id: 'beacon', name: 'Recon Beacon', uses: 1, blurb: 'Drop it and it pulses for 30 seconds, scanning 35 m around it. Your whole team sees the area on the map, with every enemy inside marked as a red dot.' },
   wall: { id: 'wall', name: 'Cover Wall', uses: 2, blurb: 'Put up a steel barricade in front of you: two players wide and chest high. Crouch behind it and you are hidden; stand up and your head shows. It takes 900 damage before it falls.' },
   knives: { id: 'knives', name: 'Throwing Knives', uses: 3, blurb: 'Three knives a life. Dead accurate and a kill wherever one lands, but it drops fast: fifteen metres at best.' },
+  rpg: { id: 'rpg', name: 'RPG', uses: 3, blurb: 'Three rockets a life. Press the perk key to shoulder the launcher and put it away. It flies dead straight with a leaf sight on it, so it reaches like a rifle: a direct hit kills, the blast hurts for five metres round, and a vehicle or a cover wall it hits is wrecked.' },
+  mines: { id: 'mines', name: 'Land Mines', uses: 3, blurb: 'Three mines a life, laid at your feet. Armed a second and a half later. A vehicle that drives over one is wrecked and an enemy who steps on one is blown up. Your team sees a small light on yours; the other side has to look for a dark plate in the ground.' },
   drone: { id: 'drone', name: 'Bomb Drone', uses: 1, unlock: { weapon: 'sniper', kills: 75 }, blurb: 'Launch a drone and fly it over the town to see where everyone is, then click to bring it down and blow it like a frag grenade. Your body stands where you left it, so keep it somewhere safe. The battery lasts one trip across the town and back. Anyone can shoot it down.' },
 };
 
@@ -158,6 +171,7 @@ export const LOADOUTS = [
   { id: 1, weapon: 'lmg', weapons: ['lmg', 'carbine'], perk: 'med', perks: ['med', 'wall'], nadeKinds: ['frag', 'smoke'], nades: 2, title: 'Medic', blurb: '100-round LMG, or the Rimah Carbine. Heavy, slow to reload. Medic crate or a cover wall; frag or smoke grenades.' },
   { id: 2, weapon: 'shotgun', weapons: ['shotgun', 'flamer'], perk: 'ladder', perks: ['ladder', 'launcher'], nadeKinds: ['frag', 'flash', 'molotov'], nades: 2, title: 'Breacher', blurb: 'Pump shotgun or a flamethrower, devastating in rooms and doorways. Frag, flash or molotov, thrown or from a launcher; or a breaching ladder.' },
   { id: 3, weapon: 'sniper', weapons: ['sniper', 'heavy'], perk: 'beacon', perks: ['beacon', 'drone', 'knives'], nadeKinds: ['frag'], nades: 2, title: 'Marksman', blurb: 'Bolt-action rifle with a 6× scope, or the one-shot .50. Drops a recon beacon, flies a bomb drone, or carries three throwing knives.' },
+  { id: 4, weapon: 'shotgun', weapons: ['shotgun', 'smg', 'pdw', 'carbine'], perk: 'rpg', perks: ['rpg', 'mines'], nadeKinds: ['frag', 'atnade'], nades: 2, speed: 0.92, title: 'Engineer', blurb: 'Shotgun, SMG, PDW or Carbine, with an RPG on the shoulder or three land mines, and frag or anti-tank grenades. Wrecks vehicles and cover walls. Walks a little slower under all that kit.' },
 ];
 
 export const NADES_PER_LIFE = 2;
@@ -168,6 +182,7 @@ export const NADE_INFO = {
   flash: { id: 'flash', name: 'Flash', blurb: 'Blinds anyone looking — no damage' },
   smoke: { id: 'smoke', name: 'Smoke', blurb: 'A thick cloud, fifteen metres across, for 15 seconds — no damage' },
   molotov: { id: 'molotov', name: 'Molotov', blurb: 'Half a frag’s blast, then 4.5 m of fire for 15 seconds. Anyone it touches burns for 10 seconds after — 5 a second. Two a life.' },
+  atnade: { id: 'atnade', name: 'Anti-Tank', blurb: 'A stick grenade. Half a frag’s damage to people, but a vehicle it lands on is wrecked outright, and one near it is badly hurt.' },
 };
 // the secondaries every loadout may carry
 export const SECONDARIES = ['pistol', 'revolver'];

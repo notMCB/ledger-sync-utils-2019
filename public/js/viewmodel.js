@@ -749,6 +749,55 @@ function buildLauncher(sleeve) {
   return gun;
 }
 
+// the Saqr RPG: a long tube over the shoulder, a fat conical warhead sticking out
+// of the front, a pistol grip and a second grip under the tube, a flared blast
+// cone at the back, and a leaf sight standing up over the tube like the launcher's
+function buildRpg(sleeve) {
+  const g = new THREE.Group();
+  const S = 0.1;
+  // the tube, from the warhead back past the shoulder
+  cyl(g, 0.022, 0.62, MAT.dark, 0, 0.03, -0.02, 14);
+  cyl(g, 0.026, 0.08, MAT.steel, 0, 0.03, -0.3, 14);                 // the muzzle ring
+  cyl(g, 0.03, 0.1, MAT.dark, 0, 0.03, 0.27, 12, 0.045);             // the blast cone at the back
+  // the warhead: a cone on a short body, out in front
+  cyl(g, 0.02, 0.07, MAT.nade, 0, 0.03, -0.37, 12);
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.034, 0.12, 12), MAT.nade);
+  cone.rotation.x = -Math.PI / 2;
+  cone.position.set(0, 0.03, -0.46);
+  g.add(cone);
+  cyl(g, 0.036, 0.03, MAT.nade, 0, 0.03, -0.395, 12);
+  for (let i = 0; i < 4; i++) {
+    const fin = box(g, 0.004, 0.03, 0.05, MAT.steel, 0, 0.03, -0.355);
+    fin.rotation.z = i * Math.PI / 2;
+    fin.position.set(Math.sin(i * Math.PI / 2) * 0.03, 0.03 + Math.cos(i * Math.PI / 2) * 0.03, -0.355);
+  }
+  // the grips and the trigger
+  box(g, 0.03, 0.09, 0.04, MAT.wood, 0, -0.035, 0.03, -0.25);
+  box(g, 0.03, 0.07, 0.035, MAT.wood, 0, -0.03, -0.14, -0.2);
+  box(g, 0.004, 0.014, 0.04, MAT.dark, 0, -0.005, 0.0);
+  box(g, 0.05, 0.03, 0.12, MAT.wood, 0, 0.0, 0.1);                   // the wooden heat shield at the shoulder
+  // the leaf sight over the tube, and a blade at the muzzle
+  const leaf = new THREE.Group();
+  leaf.position.set(0, 0.052, -0.06);
+  g.add(leaf);
+  box(leaf, 0.004, S - 0.052, 0.006, MAT.steel, -0.011, (S - 0.052) / 2, 0);
+  box(leaf, 0.004, S - 0.052, 0.006, MAT.steel, 0.011, (S - 0.052) / 2, 0);
+  box(leaf, 0.026, 0.004, 0.006, MAT.steel, 0, S - 0.052 + 0.004, 0);
+  box(leaf, 0.026, 0.004, 0.006, MAT.steel, 0, (S - 0.052) * 0.5, 0);
+  box(g, 0.004, S - 0.056, 0.006, MAT.steel, 0, 0.056 + (S - 0.056) / 2, -0.3);
+  const tip = new THREE.Mesh(new THREE.CircleGeometry(0.0018, 8), MAT.sightDot);
+  tip.position.set(0, S - 0.002, -0.296);
+  g.add(tip);
+  const h = hands(g, new THREE.Vector3(0.002, -0.075, 0.03), new THREE.Vector3(-0.012, -0.06, -0.14), sleeve);
+  h.left.rotation.set(0, 0.25, 0.2);
+  const gun = {
+    group: g, sight: S, muzzle: new THREE.Vector3(0, 0.03, -0.5), hands: h,
+    hip: new THREE.Vector3(0.17, -0.14, -0.3), ads: new THREE.Vector3(0, -S, -0.26), kind: 'launcher',
+    parts: {}, setAttach: () => {},
+  };
+  return gun;
+}
+
 // a tactical fighting knife: straight clip-point blade, textured grip
 // the Kabir .50: a long, heavy anti-materiel rifle with a big brake and a folded bipod
 function buildHeavy(sleeve) {
@@ -1157,11 +1206,17 @@ function buildNadeHand(sleeve) {
   box(tknife, 0.022, 0.018, 0.08, MAT.dark, 0, 0.01, 0.04, -0.35);
   tknife.position.set(0, 0.03, -0.01);
   g.add(tknife);
-  g.kinds = { frag, molotov, can, tknife };
+  // the anti-tank stick grenade: a can on a wooden handle, held by the handle
+  const masher = new THREE.Group();
+  cyl(masher, 0.012, 0.16, MAT.wood, 0, 0.06, -0.01, 10).rotation.x = 0;
+  cyl(masher, 0.03, 0.07, MAT.nade, 0, 0.17, -0.01, 12).rotation.x = 0;
+  cyl(masher, 0.014, 0.012, MAT.steel, 0, 0.21, -0.01, 10).rotation.x = 0;
+  g.add(masher);
+  g.kinds = { frag, molotov, can, tknife, masher };
   return g;
 }
 
-export const GUN_BUILDERS = { smg: buildSMG, lmg: buildLMG, shotgun: buildShotgun, sniper: buildSniper, pistol: buildPistol, knife: buildKnife, heavy: buildHeavy, revolver: buildRevolver, flamer: buildFlamer, pdw: buildPDW, carbine: buildCarbine, launcher: buildLauncher };
+export const GUN_BUILDERS = { smg: buildSMG, lmg: buildLMG, shotgun: buildShotgun, sniper: buildSniper, pistol: buildPistol, knife: buildKnife, heavy: buildHeavy, revolver: buildRevolver, flamer: buildFlamer, pdw: buildPDW, carbine: buildCarbine, launcher: buildLauncher, rpg: buildRpg };
 
 // a gun on its own, for the locker preview
 export function buildPreviewGun(id, finishId, fitted) {
@@ -1200,6 +1255,7 @@ export class ViewModel {
       sniper: buildSniper(this.sleeve), pistol: buildPistol(this.sleeve), knife: buildKnife(this.sleeve),
       heavy: buildHeavy(this.sleeve), revolver: buildRevolver(this.sleeve), flamer: buildFlamer(this.sleeve),
       pdw: buildPDW(this.sleeve), carbine: buildCarbine(this.sleeve), launcher: buildLauncher(this.sleeve),
+      rpg: buildRpg(this.sleeve),
     };
     this.root = new THREE.Group();
     this.scene.add(this.root);
@@ -1359,6 +1415,7 @@ export class ViewModel {
       K.molotov.visible = kind === 'molotov';
       K.can.visible = kind === 'smoke' || kind === 'flash';
       K.tknife.visible = kind === 'tknife';
+      K.masher.visible = kind === 'atnade';
     }
   }
 

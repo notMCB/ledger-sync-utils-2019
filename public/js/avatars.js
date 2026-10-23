@@ -895,7 +895,23 @@ export class Avatar {
     upper.add(lad);
     const ghillie = new THREE.Mesh(ghillieGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true }));
     head.add(ghillie);
-    this.gear = { ammo: pouch('#4c5230', ic.ammo), med: pouch('#d8d2c4', ic.med), ladder: lad, ghillie };
+    // the Engineer's rockets: three on a rack across the back, warheads up
+    const rack = new THREE.Group();
+    const tube = lam('#2d3230'), warhead = lam('#4a5236');
+    bx(rack, 0.3, 0.04, 0.03, SHARED.strap, 0, 0.0, 0);
+    bx(rack, 0.3, 0.04, 0.03, SHARED.strap, 0, 0.3, 0);
+    for (const x of [-0.1, 0, 0.1]) {
+      const r = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.44, 10), tube);
+      r.position.set(x, 0.14, 0);
+      rack.add(r);
+      const c = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.14, 10), warhead);
+      c.position.set(x, 0.43, 0);
+      rack.add(c);
+    }
+    rack.position.set(0, 0.0, 0.2);
+    rack.rotation.set(0.1, 0, 0);
+    upper.add(rack);
+    this.gear = { ammo: pouch('#4c5230', ic.ammo), med: pouch('#d8d2c4', ic.med), ladder: lad, ghillie, rockets: rack };
     this.setGear(0);
   }
 
@@ -907,6 +923,7 @@ export class Avatar {
     g.med.visible = ld === 1;
     g.ladder.visible = ld === 2;
     g.ghillie.visible = ld === 3;
+    g.rockets.visible = ld === 4;
     // the hood covers the headgear
     for (const k in this.heads) if (ld === 3) this.heads[k].visible = false;
     if (ld !== 3 && this.outfit) {

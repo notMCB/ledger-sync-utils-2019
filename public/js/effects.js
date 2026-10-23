@@ -274,9 +274,34 @@ export class Effects {
 
   // grenades are simulated the same way on every screen from the thrower's
   // starting point and velocity; the thrower's copy decides where it goes off
-  throwNade(owner, nid, origin, vel, local, onBoom, kind = 'frag', impact = false) {
+  throwNade(owner, nid, origin, vel, local, onBoom, kind = 'frag', impact = false, opts = {}) {
     let mesh;
-    if (kind === 'molotov') {
+    if (kind === 'rocket') {
+      // an RPG round: a dark body, a conical warhead and fins, pointed the way it flies
+      mesh = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 10), this.rocketMat || (this.rocketMat = new THREE.MeshLambertMaterial({ color: '#2d3230' })));
+      body.rotation.x = Math.PI / 2;
+      mesh.add(body);
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 12), this.nadeMat);
+      head.rotation.x = -Math.PI / 2;
+      head.position.z = -0.32;
+      mesh.add(head);
+      for (let i = 0; i < 4; i++) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.05, 0.08), this.rocketMat);
+        fin.position.set(Math.sin(i * Math.PI / 2) * 0.045, Math.cos(i * Math.PI / 2) * 0.045, 0.2);
+        fin.rotation.z = i * Math.PI / 2;
+        mesh.add(fin);
+      }
+      mesh.lookAt(vel.clone().negate());
+    } else if (kind === 'atnade') {
+      // a stick grenade: a can on a wooden handle
+      mesh = new THREE.Group();
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.18, 8), this.stickMat || (this.stickMat = new THREE.MeshLambertMaterial({ color: '#8a6a44' })));
+      mesh.add(handle);
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.08, 10), this.nadeMat);
+      can.position.y = 0.13;
+      mesh.add(can);
+    } else if (kind === 'molotov') {
       // a bottle with a burning rag
       mesh = new THREE.Group();
       const body = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.16, 10), this.bottleMat);
@@ -294,7 +319,8 @@ export class Effects {
     mesh.position.copy(origin);
     mesh.castShadow = false;
     this.group.add(mesh);
-    this.nades.push({ owner, nid, mesh, pos: origin.clone(), vel: vel.clone(), t: 0, local, onBoom, rest: false, impact });
+    this.nades.push({ owner, nid, mesh, pos: origin.clone(), vel: vel.clone(), t: 0, local, onBoom, rest: false, impact,
+      rocket: kind === 'rocket', kind, hitBody: opts.hitBody || null, smokeT: 0 });
   }
 
   removeNade(owner, nid) {
@@ -385,19 +411,33 @@ export class Effects {
       const n = this.nades[i];
       n.t += dt;
       if (!n.rest) {
-        const sub = 3;
+        const sub = n.rocket ? 4 : 3;
         for (let s = 0; s < sub; s++) {
           const h = dt / sub;
-          n.vel.y -= 16 * h;
+          if (!n.rocket) n.vel.y -= 16 * h;
           const step = n.vel.length() * h;
           if (step > 1e-5) {
             d.copy(n.vel).normalize();
             const hit = physics.raycast(n.pos, d, step + 0.06);
-            if (hit && n.impact) {
-              // from the launcher: it goes off on whatever it touches (the thrower's copy says so)
+            // a rocket goes off on a body in its way as surely as on a wall (the firer's copy says so)
+            const body = n.rocket && n.local && n.hitBody ? n.hitBody(n.pos, d, hit ? hit.t : step + 0.06) : null;
+            if (body) {
+              n.pos.copy(body.point);
+              n.rest = true;
+              n.vel.set(0, 0, 0);
+              n.direct = body.id;
+              n.t = 1e6;
+              break;
+            }
+            if (hit && (n.impact || (n.kind === 'atnade' && hit.box && hit.box.vehicle !== undefined))) {
+              // from the launcher: it goes off on whatever it touches (the thrower's copy says so);
+              // a stick grenade goes off on the vehicle it lands on
               n.pos.copy(hit.point).addScaledVector(hit.normal, 0.1);
               n.rest = true;
               n.vel.set(0, 0, 0);
+              if (hit.box && hit.box.vehicle !== undefined) n.vehicle = hit.box.vehicle;
+              if (hit.box && hit.box.door !== undefined) n.door = hit.box.door;
+              if (hit.box && hit.box.pane !== undefined) n.pane = hit.box.pane;
               if (n.local) n.t = 1e6;
               break;
             }
@@ -416,12 +456,22 @@ export class Effects {
           }
         }
         n.mesh.position.copy(n.pos);
-        n.mesh.rotation.x += dt * 8;
+        if (n.rocket) {
+          // pointed along its flight, with a smoke trail and the motor's glow behind it
+          if (n.vel.lengthSq() > 0.1) n.mesh.lookAt(n.pos.clone().sub(n.vel));
+          n.smokeT -= dt;
+          while (n.smokeT <= 0) {
+            n.smokeT += 0.012;
+            const back = n.pos.clone().addScaledVector(n.vel.clone().normalize(), -0.3);
+            this.particle(this.smokeTex, back, new THREE.Vector3((Math.random() - 0.5) * 0.6, 0.3 + Math.random() * 0.4, (Math.random() - 0.5) * 0.6), 0.25, 2.2, 1.1 + Math.random() * 0.5, -0.1, 0.5);
+            if (Math.random() < 0.5) this.particle(this.fireTex, back, new THREE.Vector3(0, 0, 0), 0.18, 0.4, 0.12, 0, 0.9, true);
+          }
+        } else n.mesh.rotation.x += dt * 8;
       }
       if (n.local && n.t >= fuse) {
         this.group.remove(n.mesh);
         this.nades.splice(i, 1);
-        if (n.onBoom) n.onBoom(n.pos.clone());
+        if (n.onBoom) n.onBoom(n.pos.clone(), { direct: n.direct, vehicle: n.vehicle, door: n.door, pane: n.pane });
       } else if (!n.local && n.t > fuse + 1.5) {
         this.group.remove(n.mesh);
         this.nades.splice(i, 1);

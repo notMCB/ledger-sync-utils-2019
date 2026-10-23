@@ -45,7 +45,7 @@ import mailer  # noqa: E402
 import daily  # noqa: E402
 from og import game as og  # noqa: E402
 
-VERSION = '3.8.3'
+VERSION = '3.9.0'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -158,7 +158,7 @@ WEAPONS = {
     'minigun': {'dmg': 18, 'head': 1.5, 'near': 999, 'far': 999, 'min': 1.0, 'rpm': 3000, 'pellets': 1, 'range': 300},
 }
 # the guns a loadout may carry: the first is the default
-PRIMARY_OPTIONS = [('smg', 'pdw', 'carbine'), ('lmg', 'carbine'), ('shotgun', 'flamer'), ('sniper', 'heavy')]
+PRIMARY_OPTIONS = [('smg', 'pdw', 'carbine'), ('lmg', 'carbine'), ('shotgun', 'flamer'), ('sniper', 'heavy'), ('shotgun', 'smg', 'pdw', 'carbine')]
 SECONDARY_OPTIONS = ('pistol', 'revolver')
 BURN_TIME = 10.0        # seconds on fire after the last touch of flame
 BURN_DPS = 5.0
@@ -168,12 +168,22 @@ FIRE_R = 2.25           # about four and a half metres across: twice the area it
 SLUG = {'dmg': 85, 'head': 1.5, 'near': 30, 'far': 90, 'min': 0.55, 'rpm': 70, 'pellets': 1, 'range': 200}
 LOADOUTS = ['smg', 'lmg', 'shotgun', 'sniper']
 # each loadout's perk and how many uses it has per life
-PERKS = ['launcher', 'med', 'ladder', 'beacon']
+PERKS = ['launcher', 'med', 'ladder', 'beacon', 'rpg']
 # the perks a loadout may pick from (first is the default), and the grenades
 # the Assault carries the grenade launcher or the ammo crate; the Breacher may carry a launcher too
-PERK_OPTIONS = [('launcher', 'ammo'), ('med', 'wall'), ('ladder', 'launcher'), ('beacon', 'drone', 'knives')]
-NADE_OPTIONS = [('frag', 'molotov'), ('frag', 'smoke'), ('frag', 'flash', 'molotov'), ('frag',)]
-PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1, 'knives': 3, 'launcher': 0}
+PERK_OPTIONS = [('launcher', 'ammo'), ('med', 'wall'), ('ladder', 'launcher'), ('beacon', 'drone', 'knives'), ('rpg', 'mines')]
+NADE_OPTIONS = [('frag', 'molotov'), ('frag', 'smoke'), ('frag', 'flash', 'molotov'), ('frag',), ('frag', 'atnade')]
+PERK_USES = {'ammo': 2, 'med': 2, 'ladder': 1, 'beacon': 1, 'wall': 2, 'drone': 1, 'knives': 3, 'launcher': 0, 'rpg': 3, 'mines': 3}
+# the Engineer's kit: what each blast does to a vehicle (its hp is 100), and to people
+RPG_MUL = 1.3           # the rocket's blast against a frag's
+AT_MUL = 0.55           # the anti-tank grenade's blast against people
+MINE_MUL = 1.4
+VEHICLE_HP = 100
+VEHICLE_HIT = {'nade': 30, 'rpg': 150, 'rpgdirect': 150, 'mine': 150, 'atnade': 60, 'atdirect': 150, 'molotov': 15}
+VEHICLE_DOWN = 25.0     # seconds a wreck sits there before the vehicle is back at its stand
+MINE_ARM = 1.5          # seconds before a mine is live
+MINE_R = 1.1            # a foot this close sets it off
+MINE_VEHICLE_R = 2.2
 LAUNCH_REACH = 150.0    # a launched grenade may go off this far from the gun (a thrown one, 60)
 KNIFE_AIR = 3.5         # a thrown knife may land this long after it leaves the hand
 WALL_HP = 900
@@ -191,9 +201,9 @@ BEACON_EVERY = 2.5
 CRATE_LIFE = 45.0
 CRATE_REACH = 2.4
 CRATE_AGAIN = 15.0      # stand on the same crate again this much later and it works again
-NADES = [3, 2, 2, 2]   # grenades per life, by loadout (Assault carries three)
+NADES = [3, 2, 2, 2, 2]   # grenades per life, by loadout (Assault carries three)
 NADE_MAX = 3
-NADE_KILLS = ('frag', 'molotov', 'launcher', 'nade', 'smoke', 'flash')     # what counts as a grenade kill for the dailies
+NADE_KILLS = ('frag', 'molotov', 'launcher', 'nade', 'smoke', 'flash', 'atnade', 'rpg', 'mine')     # what counts as a grenade kill for the dailies
 NADE_RADIUS = 7.0
 NADE_DMG = 125
 
@@ -735,7 +745,7 @@ class Player:
     def pick(self, m):
         """Loadout, perk and grenade choices from a join, ld or picks message."""
         if 'ld' in m:
-            self.loadout = int(num(m.get('ld'), 0, 3))
+            self.loadout = int(num(m.get('ld'), 0, 4))
         opts = PERK_OPTIONS[self.loadout]
         self.perk = m.get('pk') if m.get('pk') in opts else opts[0]
         lk = self.locker
@@ -820,6 +830,8 @@ class Room:
         self.drones = {}
         self.fires = {}
         self.fire_seq = 0
+        self.mines = {}
+        self.mine_seq = 0
         # scorestreaks in the air: scans running, helicopters up, strikes on their way
         self.scans = {}
         self.helis = {}
@@ -910,6 +922,9 @@ class Room:
         self.walls = {}
         self.drones = {}
         self.fires = {}
+        # the Engineer's mines, lying where they were laid
+        self.mines = {}
+        self.mine_seq = 0
         # the Manor's doors and windows: which doors stand open, which panes are gone
         self.door_open = set()
         self.panes_broken = set()
@@ -960,6 +975,8 @@ class Room:
             p.send({'t': 'wall', 'id': wid, 'p': W['p'], 'y': W['y'], 'hp': int(W['hp']), 'tm': W['team'], 'owner': W['owner']})
         for did in getattr(self, 'door_open', ()):
             p.send({'t': 'door', 'id': did, 'open': 1})
+        for mid, M in getattr(self, 'mines', {}).items():
+            p.send({'t': 'mine', 'id': mid, 'p': M['p'], 'tm': M['team'], 'owner': M['owner']})
         for pid in getattr(self, 'panes_broken', ()):
             p.send({'t': 'pane', 'id': pid, 'broken': 1})
         for oid, D in self.drones.items():
@@ -1013,7 +1030,7 @@ class Room:
             b.conn.player = b
             b.bot = True
             b.dummy = True
-            b.pick({'ld': len(have) % 4})
+            b.pick({'ld': len(have) % 5})
             b.cos = owned_cos(b, clean_cos(None))
             have.append(b)
             self.add(b)
@@ -1995,12 +2012,22 @@ class Room:
         p.send({'t': 'pass', 'k': lk['pass'], 'new': new, 'locker': lk})
 
     def handle_nade(self, p, m):
-        if not p.alive or p.nades <= 0 or self.phase in ('freeze', 'post', 'ended'):
+        if not p.alive or self.phase in ('freeze', 'post', 'ended') or p.aboard:
             return
-        if p.aboard:
+        nid = int(num(m.get('n')))
+        perk = p.carry[3] if p.carry and self.mode != 'royale' else p.perk
+        if m.get('r'):
+            # a rocket out of the RPG: one of the perk's three, flying straight and going off on contact
+            if perk != 'rpg' or p.perk_left <= 0 or self.mode in ('royale', 'derby') or self.mode in NICHE_ARMS:
+                return
+            p.perk_left -= 1
+            p.send({'t': 'perkleft', 'k': 'rpg', 'n': p.perk_left})
+            p.nade_ids[nid] = (now(), 'rocket', True)
+            self.broadcast({'t': 'nade', 'id': p.id, 'n': nid, 'k': 'rocket', 'r': 1, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}, skip=p)
+            return
+        if p.nades <= 0:
             return
         p.nades -= 1
-        nid = int(num(m.get('n')))
         ld = p.carry[0] if p.carry else p.loadout
         kind = m.get('k') if m.get('k') in NADE_OPTIONS[ld] else 'frag'
         if self.mode in ('royale', 'derby'):
@@ -2011,7 +2038,6 @@ class Room:
                 return
             kind = kinds[0]
         # from the grenade launcher: it flies flat and fast, and goes off where it lands
-        perk = p.carry[3] if p.carry and self.mode != 'royale' else p.perk
         launched = bool(m.get('l')) and perk == 'launcher' and self.mode not in ('royale', 'derby')
         p.nade_ids[nid] = (now(), kind, launched)
         out = {'t': 'nade', 'id': p.id, 'n': nid, 'k': kind, 'o': vec3(m.get('o')), 'v': vec3(m.get('v'))}
@@ -2037,6 +2063,30 @@ class Room:
             fid = self.fire_seq
             self.fires[fid] = {'p': pos, 'until': now() + FIRE_LIFE, 'owner': p.id}
             self.broadcast({'t': 'fire', 'id': fid, 'p': pos, 'life': FIRE_LIFE})
+            return
+        if kind == 'rocket':
+            # a direct hit on a player kills; on a vehicle it wrecks it; a door is blown open
+            h = m.get('h')
+            q = self.players.get(int(h)) if isinstance(h, (int, float)) else None
+            if q and q.alive and q is not p and self.enemies(p, q) and dist3(pos, [q.pos[0], q.pos[1] + 1.0, q.pos[2]]) < 3.0 and not t_protected(q):
+                self.damage(q, p, 999, 'rpg', False)
+            fv = m.get('fv')
+            if isinstance(fv, (int, float)) and int(fv) in self.forklifts and dist3(pos, self.forklifts[int(fv)]['p']) < 4.0:
+                self.vehicle_hit(int(fv), VEHICLE_HIT['rpgdirect'], p, 'rpg')
+            fd = str(m.get('fd', ''))
+            if fd in self.door_index and fd not in self.door_open:
+                self.door_open.add(fd)
+                self.broadcast({'t': 'door', 'id': fd, 'open': 1, 'by': p.id})
+            for wid, W in list(self.walls.items()):
+                if dist3(pos, [W['p'][0], W['p'][1] + 0.6, W['p'][2]]) < NADE_RADIUS:
+                    self.hurt_wall(wid, WALL_HP)
+            self.explode(p, pos, RPG_MUL, 'rpg')
+            return
+        if kind == 'atnade':
+            fv = m.get('fv')
+            if isinstance(fv, (int, float)) and int(fv) in self.forklifts and dist3(pos, self.forklifts[int(fv)]['p']) < 4.0:
+                self.vehicle_hit(int(fv), VEHICLE_HIT['atdirect'], p, 'atnade')
+            self.explode(p, pos, AT_MUL, 'atnade')
             return
         self.explode(p, pos)
 
@@ -2066,13 +2116,18 @@ class Room:
                 self.damage(q, by, n, 'fire', False)
 
     def explode(self, p, pos, mul=1.0, w='nade'):
-        """A frag-sized blast at pos, credited to p: players in reach and any cover walls."""
+        """A frag-sized blast at pos, credited to p: players in reach, any cover walls, and vehicles."""
         if self.phase in ('post', 'ended'):
             return
         for wid, W in list(self.walls.items()):
             d = dist3(pos, [W['p'][0], W['p'][1] + 0.6, W['p'][2]])
             if d < NADE_RADIUS:
                 self.hurt_wall(wid, int(NADE_DMG * (1 - d / NADE_RADIUS) ** 1.2))
+        vdmg = VEHICLE_HIT.get(w, VEHICLE_HIT['nade'])
+        for fid, F in list(self.forklifts.items()):
+            d = dist3(pos, [F['p'][0], F['p'][1] + 0.6, F['p'][2]])
+            if d < NADE_RADIUS + 1.0:
+                self.vehicle_hit(fid, int(vdmg * max(0.25, 1 - d / (NADE_RADIUS + 1.0))), p, w)
         for q in list(self.players.values()):
             if not q.alive:
                 continue
@@ -2284,8 +2339,27 @@ class Room:
             p_perk = p.perk
         if not p.alive or k != p_perk or p.perk_left <= 0 or self.phase == 'ended' or self.mode in NICHE_ARMS or p.aboard or self.mode == 'derby':
             return
-        if k == 'launcher':
-            return      # the launcher fires grenades (see handle_nade): nothing to use up here
+        if k in ('launcher', 'rpg'):
+            return      # the launcher fires grenades and the RPG its rockets (see handle_nade): nothing to use up here
+        if k == 'mines':
+            # a mine laid at your feet, live after a moment; three at a time, the oldest making way
+            pos = vec3(m.get('p'))
+            if dist3(pos, p.pos) > 3.0:
+                return
+            mine_ground = self.land_height(pos[0], pos[2], pos[1] + 0.5)
+            pos = [round(pos[0], 3), round(mine_ground, 3), round(pos[2], 3)]
+            self.mine_seq += 1
+            mid = '%d-%d' % (p.id, self.mine_seq)
+            mine_ids = [k2 for k2, M in self.mines.items() if M['owner'] == p.id]
+            while len(mine_ids) >= PERK_USES['mines']:
+                old = mine_ids.pop(0)
+                del self.mines[old]
+                self.broadcast({'t': 'mine', 'id': old, 'off': 1})
+            self.mines[mid] = {'p': pos, 'team': p.team, 'owner': p.id, 'armed': now() + MINE_ARM}
+            self.broadcast({'t': 'mine', 'id': mid, 'p': pos, 'tm': p.team, 'owner': p.id})
+            p.perk_left -= 1
+            p.send({'t': 'perkleft', 'k': k, 'n': p.perk_left})
+            return
         t = now()
         if k == 'medkit':
             # fifty health, ten a second, and you may walk away while it works
@@ -2399,6 +2473,65 @@ class Room:
                 self.door_open.add(did)
                 self.broadcast({'t': 'door', 'id': did, 'open': 1, 'by': b.id})
 
+    def vehicle_hit(self, fid, dmg, p, w):
+        """A vehicle takes a blast: at zero it is a wreck for a while, and whoever was
+        driving it dies with it."""
+        F = self.forklifts.get(fid)
+        if not F or dmg <= 0 or F.get('dead'):
+            return
+        F['hp'] = F.get('hp', VEHICLE_HP) - dmg
+        if F['hp'] > 0:
+            return
+        t = now()
+        F['dead'] = t + VEHICLE_DOWN
+        F['hp'] = 0
+        drv = self.players.get(F['driver']) if F['driver'] else None
+        if drv:
+            self.leave_vehicle(drv)
+            if drv.alive and not t_protected(drv):
+                self.damage(drv, p if p is not drv else None, 999, w, False)
+        self.broadcast(self.fk_msg(fid))
+
+    def update_vehicles(self, t):
+        for fid, F in self.forklifts.items():
+            if F.get('dead') and t >= F['dead']:
+                F['dead'] = None
+                F['hp'] = VEHICLE_HP
+                F['p'] = list(F['home'][:3])
+                F['y'] = F['home'][3]
+                self.broadcast(self.fk_msg(fid))
+
+    def update_mines(self, t):
+        """A live mine goes off under an enemy's foot or a vehicle's wheel."""
+        for mid, M in list(self.mines.items()):
+            if t < M['armed']:
+                continue
+            owner = self.players.get(M['owner'])
+            hit = None
+            for fid, F in self.forklifts.items():
+                if not F.get('dead') and F['driver'] and dist2(F['p'], M['p']) < MINE_VEHICLE_R and abs(F['p'][1] - M['p'][1]) < 1.5:
+                    hit = ('vehicle', fid)
+                    break
+            if not hit:
+                for q in self.players.values():
+                    if not q.alive or q.vehicle is not None or t_protected(q) or q.id == M['owner']:
+                        continue
+                    if owner and not self.enemies(owner, q):
+                        continue
+                    if not owner and q.team == M['team'] and q.team != -1:
+                        continue
+                    if dist2(q.pos, M['p']) < MINE_R and abs(q.pos[1] - M['p'][1]) < 1.2:
+                        hit = ('player', q.id)
+                        break
+            if not hit:
+                continue
+            del self.mines[mid]
+            self.broadcast({'t': 'mine', 'id': mid, 'off': 1, 'p': M['p']})
+            if owner:
+                if hit[0] == 'vehicle':
+                    self.vehicle_hit(hit[1], VEHICLE_HIT['mine'], owner, 'mine')
+                self.explode(owner, [M['p'][0], M['p'][1] + 0.2, M['p'][2]], MINE_MUL, 'mine')
+
     def hurt_wall(self, wid, dmg):
         W = self.walls.get(wid)
         if not W or dmg <= 0:
@@ -2439,7 +2572,8 @@ class Room:
 
     def fk_msg(self, fid):
         F = self.forklifts[fid]
-        return {'t': 'fk', 'id': fid, 'p': [round(v, 3) for v in F['p']], 'y': round(F['y'], 4), 'driver': F['driver'] or 0}
+        return {'t': 'fk', 'id': fid, 'p': [round(v, 3) for v in F['p']], 'y': round(F['y'], 4), 'driver': F['driver'] or 0,
+                'dead': 1 if F.get('dead') else 0, 'hp': int(F.get('hp', VEHICLE_HP))}
 
     def handle_forklift(self, p, m):
         t = m.get('t')
@@ -2450,7 +2584,7 @@ class Room:
         if t in ('fkin', 'fkout') and self.mode == 'derby':
             return       # the Derby seats everyone in their own cart, and nobody gets out
         if t == 'fkin':
-            if not p.alive or F['driver'] or p.id in self.drones or p.vehicle is not None:
+            if not p.alive or F['driver'] or p.id in self.drones or p.vehicle is not None or F.get('dead'):
                 return
             if dist3(p.pos, F['p']) > 4.0:
                 return
@@ -2842,7 +2976,7 @@ class Room:
             b = Player(BotConn(), name)
             b.conn.player = b
             b.bot = True
-            b.pick({'ld': random.randrange(4)})
+            b.pick({'ld': random.randrange(5)})
             b.cos = owned_cos(b, clean_cos(None))
             c = random.choice(low)
             b.ai = {'target': [c[0], c[2]], 'state': 'drop', 'heading': random.uniform(0, math.tau), 'turn_at': 0.0,
@@ -3280,6 +3414,8 @@ class Room:
         self.update_devices(t)
         self.update_streaks(t)
         self.update_fires(t)
+        self.update_mines(t)
+        self.update_vehicles(t)
         # idlers go back to the menu so they don't hold a slot or a team place
         for p in list(self.players.values()):
             if p.bot or (self.mode == 'royale' and (not p.alive or p.aboard)):

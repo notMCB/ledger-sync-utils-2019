@@ -173,7 +173,7 @@ function onMessage(m) {
     if (!game.inRoom) net.send({ t: 'preview' });
     if (AUTOTEST && !game.inRoom) {
       $('notes').hidden = true;
-      net.send({ t: 'join', mode: AUTOTEST, ld: Number(params.get('ld') || 0), map: params.get('map') || undefined });
+      net.send({ t: 'join', mode: AUTOTEST, ld: Number(params.get('ld') || 0), map: params.get('map') || undefined, pk: params.get('pk') || undefined, nk: params.get('nk') || undefined });
       input.simulate(true);
     }
     return;
@@ -1297,7 +1297,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'gear') aimSteps.splice(0, aimSteps.length, ...gearSteps);
   if (params.get('script') === 'beacon') aimSteps.splice(0, aimSteps.length, ...beaconSteps);
   if (params.get('script') === 'crate') aimSteps.splice(0, aimSteps.length, ...crateSteps);
-  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher', 'voice', 'b2', 'jets', 'carpet'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
+  const steps = ['v2', 'attach', 'v22', 'views', 'derby', 'looks', 'turret', 'streaks', 'skywatch', 'launcher', 'voice', 'b2', 'jets', 'carpet', 'engineer'].includes(params.get('script')) ? [] : ['aim', 'sprintaim', 'gear', 'beacon', 'crate'].includes(params.get('script')) ? aimSteps : ([
     [0.5, () => input.hold('KeyW', true)],
     [2.5, () => { input.hold('KeyW', false); input.look(300, 0); }],
     [3.0, () => input.hold('Mouse0', true)],
@@ -1360,6 +1360,7 @@ if (AUTOTEST) {
   if (params.get('script') === 'b2') runB2();
   if (params.get('script') === 'jets') runJets();
   if (params.get('script') === 'carpet') runCarpet();
+  if (params.get('script') === 'engineer') runEngineer();
   if (params.get('script') === 'looks') runLooks();
   if (params.get('script') === 'v22') runV22();
   if (params.get('equip')) {
@@ -1684,6 +1685,82 @@ async function runJets() {
     if (t > 5.2 && !boom) { boom = true; lookAt(tx, me.pos.y + 1, tz); await sleep(200); log('CAPTURE jets-boom'); }
   }
   log(`jets done ${S ? 'show done ' + S.show.done : 'no strike'}`);
+}
+
+// -- the Engineer: the RPG in hand and fired, a mine laid, the rockets on a back --
+async function runEngineer() {
+  const log = (s) => {
+    fetch('/__log?m=' + encodeURIComponent('[engineer] ' + s));
+    if (s.startsWith('CAPTURE ')) {
+      try { fetch('/__shot?n=' + encodeURIComponent(s.slice(8)), { method: 'POST', body: canvas.toDataURL('image/jpeg', 0.8) }); } catch (e) { /* no picture */ }
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const me = game.me;
+  while (!game.me.alive || !game.map || !game.g || game.g.ph !== 'live') await sleep(200);
+  await sleep(1500);
+  log(`loadout ${me.loadout} perk ${locker.perkFor(me.loadout)} weapons ${Object.keys(me.weapons).filter((k) => me.weapons[k]).join(',')} nades ${me.nadeKind}`);
+  if (params.get('pk') === 'mines') {
+    // the mines run: lay one and look down at it
+    locker.setPerk(4, 'mines');
+    game.applyLoadout(4);
+    await sleep(300);
+    me.grounded = true;
+    game.usePerk();
+    await sleep(900);
+    me.pitch = -0.7;
+    await sleep(300);
+    log(`mines ${game.mines.size}`);
+    log('CAPTURE eng-mine');
+    log('engineer done');
+    return;
+  }
+  me.pitch = 0.05;
+  for (let i = 0; i < 40 && game.vm.busySwitching; i++) await sleep(100);
+  game.toggleLauncher('rpg');
+  for (let i = 0; i < 40 && game.vm.busySwitching; i++) await sleep(100);
+  await sleep(400);
+  log(`slot ${me.slot}`);
+  log('CAPTURE eng-rpg');
+  me.adsK = 1;
+  await sleep(400);
+  log('CAPTURE eng-rpg-ads');
+  me.adsK = 0;
+  game.fireRpg(game.weapon());
+  await sleep(160);
+  log(`rockets in flight ${game.fx.nades.length} perkLeft ${me.perkLeft}`);
+  log('CAPTURE eng-rocket');
+  await sleep(2500);
+  log('CAPTURE eng-boom');
+  // an Engineer among the others: look at their back
+  const eng = [...game.avatars.map.values()].find((a) => a.loadout === 4);
+  if (eng) {
+    const p = eng.group ? eng.group.position : eng.pos;
+    me.pos.set(p.x + Math.sin(eng.yaw) * 3.0, p.y, p.z + Math.cos(eng.yaw) * 3.0);
+    const dx = p.x - me.pos.x, dz = p.z - me.pos.z;
+    me.yaw = Math.atan2(-dx, -dz); me.pitch = -0.1; me.vel.set(0, 0, 0);
+    await sleep(500);
+    log('CAPTURE eng-back');
+  } else log('no engineer avatar about');
+  // mines
+  locker.setPerk(4, 'mines');
+  game.applyLoadout(4);
+  await sleep(300);
+  me.grounded = true;
+  game.usePerk();
+  await sleep(700);
+  me.pitch = -0.6;
+  await sleep(300);
+  log(`mines ${game.mines.size}`);
+  log('CAPTURE eng-mine');
+  // the anti-tank grenade in hand
+  locker.setNade && locker.setNade(4, 'atnade');
+  me.nadeKind = 'atnade';
+  me.pitch = 0;
+  game.vm.throwNade('atnade');
+  await sleep(250);
+  log('CAPTURE eng-masher');
+  log('engineer done');
 }
 
 // -- the carpet bombing: call it in, follow the four across, picture the run and the climb out --
