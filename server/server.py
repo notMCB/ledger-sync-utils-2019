@@ -45,7 +45,7 @@ import mailer  # noqa: E402
 import daily  # noqa: E402
 from og import game as og  # noqa: E402
 
-VERSION = '3.8.2'
+VERSION = '3.8.3'
 # accounts need a disk that survives restarts; switch them off where there isn't one
 ACCOUNTS = os.environ.get('ACCOUNTS', '1') != '0'
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'public')
@@ -458,7 +458,9 @@ def ban_impostor(name, ip, dev):
         b = {'name': n, 'accounts': [], 'ips': [], 'devs': [], 'when': time.strftime('%Y-%m-%d %H:%M:%S'), 'why': 'owner name'}
         bans.append(b)
         save_bans()
-    ban_learn(b, None, ip, dev)
+    # the device only, never the address: a school or a home shares one, and the
+    # whole class would follow one impostor into the ban
+    ban_learn(b, None, None, dev)
     print('banned %r for taking the owner\'s name (dev %s, ip %s)' % (name, dev, ip), flush=True)
     return b
 
